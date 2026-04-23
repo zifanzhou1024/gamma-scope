@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gammascope.local/schemas/saved-view.schema.json",
+  "title": "SavedView",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "view_id",
+    "owner_scope",
+    "name",
+    "mode",
+    "strike_window",
+    "visible_charts",
+    "created_at"
+  ],
+  "properties": {
+    "view_id": { "type": "string", "minLength": 1 },
+    "owner_scope": { "type": "string", "enum": ["public_demo", "admin"] },
+    "name": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "enum": ["live", "replay", "scenario"] },
+    "strike_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["levels_each_side"],
+      "properties": {
+        "levels_each_side": { "type": "integer", "minimum": 1, "maximum": 50 }
+      }
+    },
+    "visible_charts": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["iv_smile", "gamma_by_strike", "vanna_by_strike"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

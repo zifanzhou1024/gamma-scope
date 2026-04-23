@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gammascope.local/schemas/scenario.schema.json",
+  "title": "ScenarioContracts",
+  "$defs": {
+    "ScenarioRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spot_shift_points", "vol_shift_points", "time_shift_minutes"],
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["base_snapshot_id"],
+          "properties": {
+            "base_snapshot_id": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["session_id", "snapshot_time"],
+          "properties": {
+            "session_id": { "type": "string", "minLength": 1 },
+            "snapshot_time": { "type": "string", "format": "date-time" }
+          }
+        }
+      ],
+      "properties": {
+        "base_snapshot_id": { "type": "string", "minLength": 1 },
+        "session_id": { "type": "string", "minLength": 1 },
+        "snapshot_time": { "type": "string", "format": "date-time" },
+        "spot_shift_points": { "type": "number" },
+        "vol_shift_points": { "type": "number" },
+        "time_shift_minutes": { "type": "number" }
+      }
+    }
+  }
+}

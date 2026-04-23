@@ -1,0 +1,22 @@
+{
+  "name": "@gammascope/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "validate": "node --test tests/schema.test.mjs",
+    "test": "node --test tests/schema.test.mjs",
+    "generate": "mkdir -p src/generated && json2ts -i schemas/analytics-snapshot.schema.json -o src/generated/analytics-snapshot.ts && json2ts -i schemas/collector-events.schema.json -o src/generated/collector-events.ts && json2ts -i schemas/scenario.schema.json -o src/generated/scenario.ts && json2ts -i schemas/saved-view.schema.json -o src/generated/saved-view.ts"
+  },
+  "exports": {
+    "./analytics-snapshot": "./src/generated/analytics-snapshot.ts",
+    "./collector-events": "./src/generated/collector-events.ts",
+    "./scenario": "./src/generated/scenario.ts",
+    "./saved-view": "./src/generated/saved-view.ts"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "json-schema-to-typescript": "^15.0.4"
+  }
+}

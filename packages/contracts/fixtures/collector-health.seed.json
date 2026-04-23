@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "source": "ibkr",
+  "collector_id": "local-dev",
+  "status": "connected",
+  "ibkr_account_mode": "paper",
+  "message": "Seed health fixture",
+  "event_time": "2026-04-23T16:00:00Z",
+  "received_time": "2026-04-23T16:00:01Z"
+}
