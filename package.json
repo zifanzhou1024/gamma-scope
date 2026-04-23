@@ -9,7 +9,7 @@
     "test:web": "pnpm --filter @gammascope/web test",
     "typecheck:web": "pnpm --filter @gammascope/web typecheck",
     "dev:web": "pnpm --filter @gammascope/web dev",
-    "dev:api": "python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
+    "dev:api": "python3 -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
     "test": "pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
   }
 }

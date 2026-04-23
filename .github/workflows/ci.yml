@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contracts-and-web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm contracts:validate
+      - run: pnpm contracts:generate
+      - run: pnpm --filter @gammascope/contracts typecheck:generated
+      - run: git diff --exit-code -- packages/contracts/src
+      - run: pnpm typecheck:web
+      - run: pnpm test:web
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e "apps/api[dev]"
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/analytics-snapshot.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/analytics_snapshot.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/collector-events.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/collector_events.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/scenario.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/scenario.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/saved-view.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/saved_view.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: git diff --exit-code -- apps/api/gammascope_api/contracts/generated
+      - run: pytest apps/api/tests -q
