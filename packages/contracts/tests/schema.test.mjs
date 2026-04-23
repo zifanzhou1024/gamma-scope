@@ -66,7 +66,7 @@ test("seed scenario request matches schema", async () => {
 
   const schema = await readJson("schemas/scenario.schema.json");
   const fixture = await readJson("fixtures/scenario-request.seed.json");
-  const validate = ajv.compile(schema.$defs.ScenarioRequest);
+  const validate = ajv.compile(schema);
 
   assert.equal(validate(fixture), true, JSON.stringify(validate.errors, null, 2));
 });
