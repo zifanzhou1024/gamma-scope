@@ -57,7 +57,7 @@ Out of scope:
 - `apps/web/package.json`: Next.js app dependencies and scripts.
 - `apps/web/app/page.tsx`: minimal local dashboard smoke page.
 - `apps/web/lib/contracts.ts`: re-export generated contract types.
-- `apps/web/lib/fixture.ts`: typed fixture import.
+- `apps/web/lib/seedSnapshot.ts`: typed fixture import.
 - `apps/web/tests/*.test.ts`: frontend fixture/type smoke tests.
 - `.github/workflows/ci.yml`: contract/API/web CI smoke checks.
 
@@ -211,7 +211,7 @@ Expected: pnpm prints a version; Docker Compose validates the file without error
 - [ ] **Step 7: Commit root foundation**
 
 ```bash
-git add .gitignore package.json pnpm-workspace.yaml pnpm-lock.yaml docker-compose.yml README.md
+git add .gitignore package.json pnpm-workspace.yaml docker-compose.yml README.md
 git commit -m "chore: add workspace foundation"
 ```
 
@@ -1672,6 +1672,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -e "apps/api[dev]"
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/analytics-snapshot.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/analytics_snapshot.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/collector-events.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/collector_events.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/scenario.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/scenario.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: python -m datamodel_code_generator --input packages/contracts/schemas/saved-view.schema.json --input-file-type jsonschema --output apps/api/gammascope_api/contracts/generated/saved_view.py --output-model-type pydantic_v2.BaseModel --disable-timestamp
+      - run: git diff --exit-code -- apps/api/gammascope_api/contracts/generated
       - run: pytest apps/api/tests -q
 ```
 
