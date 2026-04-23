@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.main import app
 
 
@@ -44,6 +45,7 @@ def test_replay_snapshot_returns_seed_when_session_matches() -> None:
 
 
 def test_scenario_returns_scenario_snapshot() -> None:
+    base_snapshot = load_json_fixture("analytics-snapshot.seed.json")
     response = client.post(
         "/api/spx/0dte/scenario",
         json={
@@ -58,7 +60,22 @@ def test_scenario_returns_scenario_snapshot() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["mode"] == "scenario"
-    assert payload["scenario_params"]["vol_shift_points"] == 1.5
+    assert payload["spot"] == base_snapshot["spot"] + 25
+    assert payload["forward"] != base_snapshot["forward"]
+    assert payload["scenario_params"] == {
+        "spot_shift_points": 25,
+        "vol_shift_points": 1.5,
+        "time_shift_minutes": -30,
+    }
+
+    base_call = base_snapshot["rows"][0]
+    scenario_call = payload["rows"][0]
+    assert scenario_call["custom_iv"] == base_call["custom_iv"] + 0.015
+    assert scenario_call["custom_gamma"] != base_call["custom_gamma"]
+    assert scenario_call["custom_vanna"] != base_call["custom_vanna"]
+    assert scenario_call["iv_diff"] == scenario_call["custom_iv"] - scenario_call["ibkr_iv"]
+    assert scenario_call["gamma_diff"] == scenario_call["custom_gamma"] - scenario_call["ibkr_gamma"]
+    assert scenario_call["calc_status"] == "ok"
 
 
 def test_saved_views_round_trip_in_memory() -> None:

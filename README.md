@@ -29,3 +29,9 @@ Run local services:
     docker compose up -d
     pnpm dev:web
     .venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api
+
+## Analytics Conventions
+
+GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
+
+Custom gamma is reported as delta change per one SPX index point. Custom vanna is calculated as raw delta change per 1.00 volatility unit, then display-normalized per one volatility point by multiplying by `0.01`. IBKR-provided IV and Greeks are stored as comparison fields only; missing or stale broker values should not block custom analytics.
