@@ -36,6 +36,8 @@ Use a live-first portfolio architecture. The local collector proves live-data cr
 
 The application should present the live dashboard first. Replay and scenario analysis should use the same dashboard data contracts so they feel like natural modes of the same product, not separate demos.
 
+"Live-first" describes the product architecture and final user experience, not the first code slice. Implementation should begin with shared contracts, analytics fixtures, and seeded replay data because those create a stable local test harness. The live collector then plugs into the same contracts.
+
 ## System Architecture
 
 GammaScope has three main runtime surfaces.
@@ -54,6 +56,13 @@ The collector runs on the developer's machine near IB Gateway or Trader Workstat
 
 The collector should be replaceable at the boundary. The first implementation can be IBKR-specific internally, but downstream services should receive normalized market-data messages so future providers or recorded sessions can reuse the same contracts.
 
+Initial live scope:
+
+- Symbol: SPX/SPXW.
+- Expiry: current trading day's 0DTE expiry.
+- Strike window: default plus/minus 20 strike levels around spot, calls and puts, configurable by environment.
+- Subscription fallback: if rate limits, permissions, or quote quality prevent the default window, reduce to plus/minus 10 strike levels and mark chain coverage as partial.
+
 ### FastAPI Backend and Analytics
 
 The backend receives normalized data from the collector or replay source, computes analytics, persists rolling history, and serves the frontend. It owns:
@@ -67,6 +76,13 @@ The backend receives normalized data from the collector or replay source, comput
 - WebSocket streams for live dashboard updates and replay playback.
 - Postgres persistence and Redis latest-state/cache usage.
 
+Initial live cadence:
+
+- Collector ingests ticks as they arrive.
+- Backend computes and caches the latest analytics snapshot at most once per second per active session.
+- WebSocket streams emit at most one dashboard snapshot per second.
+- Postgres stores chain and analytics snapshots every 5 seconds during active live sessions, plus explicit replay/demo seed snapshots.
+
 ### Next.js Web App
 
 The frontend is the product surface. It owns:
@@ -79,6 +95,13 @@ The frontend is the product surface. It owns:
 - Saved views and lightweight admin/private preferences.
 
 Public visitors can use replay/demo sessions. Admin/private mode can unlock live streams once the local collector and backend are stable.
+
+Light auth boundary:
+
+- Local integrated testing can run without auth.
+- Hosted replay mode has public read-only access to replay/demo sessions.
+- Admin/private mode uses one configured admin identity or secret-backed session, not open sign-up.
+- Saved views are scoped to either `public_demo` or `admin`; no multi-user account management is included in the first architecture.
 
 ## Product Experience
 
@@ -129,6 +152,120 @@ Stored Session
 
 Replay should reuse the same frontend-facing analytics snapshot contract as live mode. This keeps the dashboard honest and makes public demo mode a real product workflow instead of a separate mock.
 
+## Message and API Contracts
+
+All cross-service payloads should include `schema_version`, `source`, `session_id`, `event_time`, and `received_time` where applicable. The backend owns contract versioning and should reject unsupported major versions with a visible ingestion error.
+
+### Collector Messages
+
+`CollectorHealth`
+
+- `schema_version`
+- `source`: `ibkr`
+- `collector_id`
+- `status`: `starting`, `connected`, `degraded`, `disconnected`, `stale`, `error`
+- `ibkr_account_mode`: `paper`, `live`, or `unknown`
+- `message`
+- `event_time`
+- `received_time`
+
+`ContractDiscovered`
+
+- `schema_version`
+- `source`
+- `session_id`
+- `contract_id`
+- `ibkr_con_id`
+- `symbol`
+- `expiry`
+- `right`: `call` or `put`
+- `strike`
+- `multiplier`
+- `exchange`
+- `currency`
+- `event_time`
+
+`UnderlyingTick`
+
+- `schema_version`
+- `source`
+- `session_id`
+- `symbol`
+- `spot`
+- `bid`
+- `ask`
+- `last`
+- `mark`
+- `event_time`
+- `quote_status`: `valid`, `stale`, `missing`, `invalid`
+
+`OptionTick`
+
+- `schema_version`
+- `source`
+- `session_id`
+- `contract_id`
+- `bid`
+- `ask`
+- `last`
+- `bid_size`
+- `ask_size`
+- `volume`
+- `open_interest`
+- `ibkr_iv`
+- `ibkr_delta`
+- `ibkr_gamma`
+- `ibkr_vega`
+- `ibkr_theta`
+- `event_time`
+- `quote_status`: `valid`, `stale`, `missing`, `crossed`, `invalid`
+
+### Frontend Snapshot Contract
+
+`AnalyticsSnapshot`
+
+- `schema_version`
+- `session_id`
+- `mode`: `live`, `replay`, or `scenario`
+- `symbol`
+- `expiry`
+- `snapshot_time`
+- `spot`
+- `source_status`
+- `freshness_ms`
+- `coverage_status`: `full`, `partial`, or `empty`
+- `scenario_params`, nullable
+- `rows`: strike/right-level analytics rows
+
+Each analytics row includes:
+
+- `contract_id`
+- `right`
+- `strike`
+- `bid`
+- `ask`
+- `mid`
+- `custom_iv`
+- `custom_gamma`
+- `custom_vanna`
+- `ibkr_iv`
+- `ibkr_gamma`
+- `ibkr_vanna`, nullable if unavailable
+- `iv_diff`
+- `gamma_diff`
+- `calc_status`: `ok`, `missing_quote`, `invalid_quote`, `stale_underlying`, `solver_failed`, `out_of_model_scope`
+- `comparison_status`: `ok`, `missing`, `stale`, `outside_tolerance`, `not_supported`
+
+### Core API Surface
+
+- `GET /api/spx/0dte/status`: session, collector, freshness, and coverage state.
+- `GET /api/spx/0dte/snapshot/latest`: latest `AnalyticsSnapshot`.
+- `GET /api/spx/0dte/replay/sessions`: stored replay ranges.
+- `GET /api/spx/0dte/replay/snapshot?session_id=&at=`: replay snapshot at a timestamp.
+- `POST /api/spx/0dte/scenario`: scenario request and response.
+- `GET /api/views` and `POST /api/views`: lightweight saved views for `public_demo` or `admin`.
+- `WS /ws/spx/0dte`: streamed `AnalyticsSnapshot` and health events.
+
 ## Analytics Design
 
 Custom analytics are the primary displayed values. IBKR-provided analytics are a comparison layer.
@@ -137,11 +274,21 @@ Custom analytics are the primary displayed values. IBKR-provided analytics are a
 
 The analytics service should compute:
 
-- Implied volatility from option mid price using a documented Black-Scholes style model for index options.
-- Gamma by strike from computed IV and time-to-expiry.
-- Vanna by strike with a documented units and sign convention.
+- Implied volatility from option mid price using a documented Black-Scholes-Merton style model for index options.
+- Gamma by strike from computed IV and time-to-expiry, reported as delta change per one index point.
+- Vanna by strike from computed IV and time-to-expiry. Store raw vanna as delta change per 1.00 volatility unit, and display normalized vanna per one volatility point by multiplying raw vanna by 0.01.
 
 Formula documentation should state assumptions for interest rates, dividend yield or forward treatment, time-to-expiry, option multiplier, quote selection, and invalid market handling.
+
+Initial formula conventions:
+
+- Option price input: mid price when bid and ask are valid; otherwise mark invalid unless an explicit fallback is enabled for demo data.
+- Time-to-expiry: actual seconds from quote timestamp to the configured expiry cutoff, annualized with ACT/365.
+- Expiry cutoff: configurable per session; default to the SPXW PM-settled market close cutoff for 0DTE sessions.
+- Rate: annualized risk-free rate from session configuration; seeded fixtures use a fixed deterministic value.
+- Dividend/forward treatment: use continuous dividend yield from session configuration, defaulting to zero for initial demo fixtures.
+- Solver: bounded implied-volatility solve with explicit failure status instead of silent fallback.
+- Units: volatility stored as decimal annualized volatility, not percentage points.
 
 ### IBKR Comparison
 
@@ -166,6 +313,19 @@ The first version should handle:
 - Deep in/out-of-the-money contracts.
 - Stale underlying prices.
 - Calculation failures with visible per-contract status.
+
+### Scenario Semantics
+
+Scenario analysis is an explicit backend calculation, not a persisted market event.
+
+`ScenarioRequest` includes:
+
+- `base_snapshot_id` or `session_id` plus `snapshot_time`
+- `spot_shift_points`
+- `vol_shift_points`, where 1.0 means one volatility percentage point
+- `time_shift_minutes`
+
+The backend returns an `AnalyticsSnapshot` with `mode` set to `scenario` and `scenario_params` populated. The scenario engine uses the base snapshot's custom IV as the starting volatility, applies the requested volatility shift, shifts spot and time-to-expiry, and recomputes gamma and vanna. It does not infer a new market option price or persist scenario rows unless a later saved-scenario feature is explicitly added.
 
 ## Data Model
 
@@ -230,7 +390,14 @@ Deploy the public experience with replay/demo data:
 
 ### Stage 3: Private Live Online Mode
 
-After the local live system is stable, add a controlled path for private/admin live access from the hosted app. This can use a secure bridge from the local collector to the hosted backend, with authentication and clear operational controls.
+After the local live system is stable, add a controlled path for private/admin live access from the hosted app. This is not part of the first implementation plan. Stage 1 and Stage 2 explicitly exclude hosted live access.
+
+The future bridge boundary is:
+
+- Local collector remains the only component that talks to IBKR.
+- Hosted backend accepts live data only from an authenticated collector identity.
+- Public users remain restricted to replay/demo data.
+- Admin/private live streams require auth, explicit freshness state, and a way to disable ingestion quickly.
 
 ## Testing Strategy
 
@@ -285,14 +452,15 @@ Use seeded replay data to run a stable portfolio demo outside market hours. The 
 7. Light auth/private mode: admin-only live access, public replay access.
 8. Hosted replay demo: deploy web/API with managed storage and seeded sessions.
 
+These milestones should become separate implementation plans. The first implementation plan should cover only project foundation, shared contracts, local orchestration, and enough seeded data plumbing to verify the contracts. Later plans can address analytics, replay UI, collector integration, live dashboard streaming, scenarios, auth, and deployment.
+
 ## Open Decisions
 
 - Exact charting library for the frontend.
 - Exact hosted FastAPI and managed Redis/Postgres providers.
-- Initial strike-window width around spot.
-- Snapshot frequency and WebSocket throttling policy.
-- Formula conventions for rates, dividends, forward price, and vanna units.
 - Local-to-hosted live bridge mechanism for private online mode.
+
+These open decisions do not block the first local implementation plan. Strike-window defaults, cadence, formula conventions, auth boundaries, and first contract shapes are defined above.
 
 ## Approval Criteria
 
