@@ -1,0 +1,15 @@
+{
+  "name": "gamma-scope",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "contracts:validate": "pnpm --filter @gammascope/contracts validate",
+    "contracts:generate": "pnpm --filter @gammascope/contracts generate",
+    "test:contracts": "pnpm --filter @gammascope/contracts test",
+    "test:web": "pnpm --filter @gammascope/web test",
+    "typecheck:web": "pnpm --filter @gammascope/web typecheck",
+    "dev:web": "pnpm --filter @gammascope/web dev",
+    "dev:api": "python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
+    "test": "pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
+  }
+}
