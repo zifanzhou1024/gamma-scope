@@ -340,7 +340,7 @@ Core entities:
 - Chain snapshots: timestamped coherent strike-window views for a session.
 - Analytics snapshots: custom IV/gamma/vanna, IBKR values, differences, calculation status.
 - Replay sessions and cursors: ranges, playback metadata, source session.
-- Saved views/watchlists: lightweight admin/private dashboard settings.
+- Saved views: lightweight public-demo or admin dashboard settings.
 
 Retention starts as rolling multi-day history, configurable by environment. A practical first target is 5-20 trading days. The schema should preserve enough normalized data that a future research archive can be added by exporting or extending storage rather than replacing product tables.
 
