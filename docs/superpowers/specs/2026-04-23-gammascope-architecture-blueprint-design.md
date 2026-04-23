@@ -253,7 +253,7 @@ Each analytics row includes:
 - `ibkr_vanna`, nullable if unavailable
 - `iv_diff`
 - `gamma_diff`
-- `calc_status`: `ok`, `missing_quote`, `invalid_quote`, `stale_underlying`, `solver_failed`, `out_of_model_scope`
+- `calc_status`: `ok`, `missing_quote`, `invalid_quote`, `below_intrinsic`, `vol_out_of_bounds`, `stale_underlying`, `solver_failed`, `out_of_model_scope`
 - `comparison_status`: `ok`, `missing`, `stale`, `outside_tolerance`, `not_supported`
 
 ### Core API Surface
@@ -270,6 +270,18 @@ Each analytics row includes:
 
 Custom analytics are the primary displayed values. IBKR-provided analytics are a comparison layer.
 
+### Formula References
+
+The first analytics implementation should cite and test against public formula references:
+
+- [Cboe European-Style Options Implied Volatility Calculation Methodology](https://cdn.cboe.com/api/global/us_indices/governance/Cboe_European-Style_Option_%20Implied_Volatility_Calculation_%20Methodology.pdf): uses a Black-Scholes formula with forward price and discount factor to solve implied volatility for European-style options.
+- [Cboe Options Institute glossary](https://www.cboe.com/optionsinstitute/glossary/): defines the Black-Scholes inputs as underlying price, strike, volatility, time, dividends, and risk-free rate.
+- [MathWorks `blsimpv`](https://www.mathworks.com/help/finance/blsimpv.html): treats implied volatility as the volatility implied from a European option value and stresses consistent units for rate, time, and yield.
+- [MathWorks `blsgamma`](https://www.mathworks.com/help/finance/blsgamma.html): defines Black-Scholes gamma and supports a continuous yield input for stock index options.
+- [OpenGamma Strata `BlackScholesFormulaRepository`](https://strata.opengamma.io/apidocs/com/opengamma/strata/pricer/impl/option/BlackScholesFormulaRepository.html): documents Black-Scholes formulas using interest rate and cost of carry, including gamma and vanna.
+- [IBKR TWS API option computations](https://interactivebrokers.github.io/tws-api/option_computations.html): identifies broker-provided option computation fields to store for comparison: implied volatility, delta, option price, pvDividend, gamma, vega, theta, and underlying price.
+- [Cboe LiveVol FAQ](https://datashop.cboe.com/faqs): documents practical IV edge cases such as insufficient quotes, mid price below intrinsic value, and upper implied-volatility limits.
+
 ### Custom Analytics
 
 The analytics service should compute:
@@ -278,7 +290,37 @@ The analytics service should compute:
 - Gamma by strike from computed IV and time-to-expiry, reported as delta change per one index point.
 - Vanna by strike from computed IV and time-to-expiry. Store raw vanna as delta change per 1.00 volatility unit, and display normalized vanna per one volatility point by multiplying raw vanna by 0.01.
 
-Formula documentation should state assumptions for interest rates, dividend yield or forward treatment, time-to-expiry, option multiplier, quote selection, and invalid market handling.
+The canonical pricing model should use the forward/discount-factor form, which fits SPX European-style index options better than a stock-only spot formula while still mapping cleanly to Black-Scholes-Merton with continuous yield.
+
+Variables:
+
+- `S`: spot/reference index price.
+- `K`: strike.
+- `tau`: time to expiry in years.
+- `r`: continuously compounded annual risk-free rate.
+- `q`: continuously compounded annual dividend yield or carry adjustment.
+- `DF = exp(-r * tau)`: discount factor.
+- `F = S * exp((r - q) * tau)`: forward price, unless an explicit or inferred forward is supplied.
+- `sigma`: annualized implied volatility as a decimal.
+- `N(x)`: standard normal cumulative distribution function.
+- `phi(x)`: standard normal probability density function.
+
+Core equations:
+
+```text
+d1 = (ln(F / K) + 0.5 * sigma^2 * tau) / (sigma * sqrt(tau))
+d2 = d1 - sigma * sqrt(tau)
+
+call_price = DF * (F * N(d1) - K * N(d2))
+put_price  = DF * (K * N(-d2) - F * N(-d1))
+
+carry_factor = DF * F / S
+gamma = carry_factor * phi(d1) / (S * sigma * sqrt(tau))
+raw_vanna = -carry_factor * phi(d1) * d2 / sigma
+display_vanna_per_vol_point = raw_vanna * 0.01
+```
+
+If `F = S * exp((r - q) * tau)`, then `carry_factor = exp(-q * tau)`. Gamma and vanna are the same for calls and puts under this model.
 
 Initial formula conventions:
 
@@ -286,8 +328,10 @@ Initial formula conventions:
 - Time-to-expiry: actual seconds from quote timestamp to the configured expiry cutoff, annualized with ACT/365.
 - Expiry cutoff: configurable per session; default to the SPXW PM-settled market close cutoff for 0DTE sessions.
 - Rate: annualized risk-free rate from session configuration; seeded fixtures use a fixed deterministic value.
-- Dividend/forward treatment: use continuous dividend yield from session configuration, defaulting to zero for initial demo fixtures.
-- Solver: bounded implied-volatility solve with explicit failure status instead of silent fallback.
+- Forward/dividend treatment: store `spot`, `forward`, `discount_factor`, `risk_free_rate`, and `dividend_yield` on each session or snapshot. For the first local version, derive `forward` from configured `r` and `q`; later versions may infer forward and discount factor from option markets.
+- Solver: bounded implied-volatility solve with explicit failure status instead of silent fallback. First bounds are `sigma_min = 0.0001` and `sigma_max = 8.5`, matching the practical need to cap extreme IV values near expiry. If no solution exists inside the bracket, return `vol_out_of_bounds`.
+- Solver tolerance: accept when absolute price error is less than or equal to `max(0.01, abs(mid_price) * 1e-4)`; otherwise return `solver_failed`.
+- Intrinsic check: if the mid price is materially below `DF * max(F - K, 0)` for calls or `DF * max(K - F, 0)` for puts, return `below_intrinsic` and do not publish custom IV.
 - Units: volatility stored as decimal annualized volatility, not percentage points.
 
 ### IBKR Comparison
@@ -461,6 +505,19 @@ These milestones should become separate implementation plans. The first implemen
 - Local-to-hosted live bridge mechanism for private online mode.
 
 These open decisions do not block the first local implementation plan. Strike-window defaults, cadence, formula conventions, auth boundaries, and first contract shapes are defined above.
+
+## Review Resolution Checklist
+
+This blueprint resolves the implementation blockers raised during review as follows:
+
+- Formula conventions: forward/discount-factor Black-Scholes-Merton equations, IV solver bounds, intrinsic checks, time handling, volatility units, gamma units, and vanna units are defined in the analytics section.
+- Live data cadence: initial strike window, subscription fallback, snapshot calculation cadence, WebSocket throttle, and Postgres persistence cadence are defined in the collector and backend sections.
+- Contracts: collector messages, frontend `AnalyticsSnapshot`, core REST endpoints, WebSocket stream, status enums, and schema-version ownership are defined in the message and API contracts section.
+- Hosted live boundary: Stage 1 and Stage 2 exclude hosted live access; Stage 3 is marked as future scope with a clear authenticated collector bridge boundary.
+- Live-first sequencing: the spec clarifies that live-first is the product and architecture priority, while implementation begins with contracts and seeded data to create a stable local harness.
+- Light auth: local testing, public replay, admin/private live access, and saved-view ownership are explicitly bounded without full multi-user account management.
+- Scenario semantics: scenario calculations are backend-owned, ephemeral, based on a selected snapshot, and do not persist as market data.
+- Scope: implementation is decomposed into separate plans, with the first plan limited to foundation, shared contracts, local orchestration, and seeded data plumbing.
 
 ## Approval Criteria
 
