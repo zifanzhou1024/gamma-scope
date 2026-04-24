@@ -1,8 +1,12 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import type { CSSProperties } from "react";
 import { DashboardChart } from "./DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import {
+  type ChainSide,
+  filterChainRowsBySide,
   formatInteger,
   formatNumber,
   formatPercent,
@@ -18,15 +22,32 @@ import {
 
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
+  initialChainSide?: ChainSide;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
 }
 
-export function DashboardView({ snapshot, replayPanel, savedViewsPanel, scenarioPanel }: DashboardViewProps) {
+const chainFilterOptions: Array<{ side: ChainSide; label: string }> = [
+  { side: "all", label: "All" },
+  { side: "calls", label: "Calls" },
+  { side: "puts", label: "Puts" }
+];
+
+export function DashboardView({
+  snapshot,
+  initialChainSide = "all",
+  replayPanel,
+  savedViewsPanel,
+  scenarioPanel
+}: DashboardViewProps) {
+  const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const chainRows = groupRowsByStrike(rows);
+  const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
+  const showCalls = chainSide === "all" || chainSide === "calls";
+  const showPuts = chainSide === "all" || chainSide === "puts";
   const atmStrike = nearestStrike(snapshot);
   const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
@@ -97,9 +118,18 @@ export function DashboardView({ snapshot, replayPanel, savedViewsPanel, scenario
             <p>Gamma heat and OI are mirrored around the strike spine.</p>
           </div>
           <div className="chainFilters" aria-label="Chain filters">
-            <span className="filterChip filter-active"><span />All</span>
-            <span className="filterChip"><span />Calls</span>
-            <span className="filterChip"><span />Puts</span>
+            {chainFilterOptions.map((option) => (
+              <button
+                key={option.side}
+                type="button"
+                className={`filterChip${chainSide === option.side ? " filter-active" : ""}`}
+                aria-pressed={chainSide === option.side}
+                onClick={() => setChainSide(option.side)}
+              >
+                <span aria-hidden="true" />
+                {option.label}
+              </button>
+            ))}
           </div>
           <div className="chainLegend" aria-label="Chain legend">
             <span><i className="atmDot" />ATM</span>
@@ -108,43 +138,59 @@ export function DashboardView({ snapshot, replayPanel, savedViewsPanel, scenario
           </div>
         </div>
         <div className="chainTableWrap">
-          <table className="chainTable">
+          <table className={`chainTable chainTable-${chainSide}`}>
             <thead>
               <tr>
-                <th className="callCol compactOptional">Call bid</th>
-                <th className="callCol compactOptional">Call ask</th>
-                <th className="callCol">Call mid</th>
-                <th className="callCol smallOptional">Call IV</th>
-                <th className="callCol">Call Γ</th>
-                <th className="callCol">Call OI</th>
+                {showCalls ? (
+                  <>
+                    <th className="callCol compactOptional">Call bid</th>
+                    <th className="callCol compactOptional">Call ask</th>
+                    <th className="callCol">Call mid</th>
+                    <th className="callCol smallOptional">Call IV</th>
+                    <th className="callCol">Call Γ</th>
+                    <th className="callCol">Call OI</th>
+                  </>
+                ) : null}
                 <th className="strikeCol">Strike</th>
-                <th className="putCol compactOptional">Put bid</th>
-                <th className="putCol compactOptional">Put ask</th>
-                <th className="putCol">Put mid</th>
-                <th className="putCol smallOptional">Put IV</th>
-                <th className="putCol">Put Γ</th>
-                <th className="putCol">Put OI</th>
+                {showPuts ? (
+                  <>
+                    <th className="putCol compactOptional">Put bid</th>
+                    <th className="putCol compactOptional">Put ask</th>
+                    <th className="putCol">Put mid</th>
+                    <th className="putCol smallOptional">Put IV</th>
+                    <th className="putCol">Put Γ</th>
+                    <th className="putCol">Put OI</th>
+                  </>
+                ) : null}
               </tr>
             </thead>
             <tbody>
-              {chainRows.map((row) => (
+              {visibleChainRows.map((row) => (
                 <tr key={row.strike} className={row.strike === atmStrike ? "atmRow" : undefined}>
-                  <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
-                  <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
-                  <td>{formatPrice(row.call?.mid)}</td>
-                  <td className="smallOptional">{formatPercent(row.call?.custom_iv)}</td>
-                  <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
-                  <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
+                  {showCalls ? (
+                    <>
+                      <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
+                      <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
+                      <td>{formatPrice(row.call?.mid)}</td>
+                      <td className="smallOptional">{formatPercent(row.call?.custom_iv)}</td>
+                      <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
+                      <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
+                    </>
+                  ) : null}
                   <td className="strikeCol">
                     <strong>{formatPrice(row.strike)}</strong>
                     <span>{formatStrikeDistance(row.strike, snapshot.spot, atmStrike)}</span>
                   </td>
-                  <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
-                  <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
-                  <td>{formatPrice(row.put?.mid)}</td>
-                  <td className="smallOptional">{formatPercent(row.put?.custom_iv)}</td>
-                  <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
-                  <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
+                  {showPuts ? (
+                    <>
+                      <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
+                      <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
+                      <td>{formatPrice(row.put?.mid)}</td>
+                      <td className="smallOptional">{formatPercent(row.put?.custom_iv)}</td>
+                      <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
+                      <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
+                    </>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

@@ -16,6 +16,8 @@ export interface ChainStrikeRow {
   put: AnalyticsRow | null;
 }
 
+export type ChainSide = "all" | "calls" | "puts";
+
 export function summarizeSnapshot(snapshot: AnalyticsSnapshot): SnapshotSummary {
   const strikes = snapshot.rows.map((row) => row.strike);
   const ivValues = compactNumbers(snapshot.rows.map((row) => row.custom_iv));
@@ -116,6 +118,18 @@ export function groupRowsByStrike(rows: AnalyticsRow[]): ChainStrikeRow[] {
   }
 
   return [...grouped.values()].sort((a, b) => a.strike - b.strike);
+}
+
+export function filterChainRowsBySide(rows: ChainStrikeRow[], side: ChainSide): ChainStrikeRow[] {
+  if (side === "all") {
+    return rows;
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    call: side === "puts" ? null : row.call,
+    put: side === "calls" ? null : row.put
+  }));
 }
 
 export function nearestStrike(snapshot: AnalyticsSnapshot): number | null {

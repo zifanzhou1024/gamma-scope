@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterChainRowsBySide,
   formatBasisPointDiff,
   formatNumber,
   formatPercent,
@@ -48,6 +49,32 @@ describe("dashboard metrics", () => {
     expect(groupedRows[8]?.strike).toBe(5200);
     expect(groupedRows[8]?.call?.right).toBe("call");
     expect(groupedRows[8]?.put?.right).toBe("put");
+  });
+
+  it("keeps all chain rows unchanged for the all-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+
+    expect(filterChainRowsBySide(groupedRows, "all")).toEqual(groupedRows);
+  });
+
+  it("keeps every strike and hides put data for the calls-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+    const filteredRows = filterChainRowsBySide(groupedRows, "calls");
+
+    expect(filteredRows).toHaveLength(groupedRows.length);
+    expect(filteredRows.map((row) => row.strike)).toEqual(groupedRows.map((row) => row.strike));
+    expect(filteredRows.every((row) => row.call?.right === "call")).toBe(true);
+    expect(filteredRows.every((row) => row.put === null)).toBe(true);
+  });
+
+  it("keeps every strike and hides call data for the puts-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+    const filteredRows = filterChainRowsBySide(groupedRows, "puts");
+
+    expect(filteredRows).toHaveLength(groupedRows.length);
+    expect(filteredRows.map((row) => row.strike)).toEqual(groupedRows.map((row) => row.strike));
+    expect(filteredRows.every((row) => row.call === null)).toBe(true);
+    expect(filteredRows.every((row) => row.put?.right === "put")).toBe(true);
   });
 
   it("identifies the strike nearest to spot", () => {
