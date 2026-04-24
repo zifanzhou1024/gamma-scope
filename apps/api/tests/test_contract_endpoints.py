@@ -302,6 +302,133 @@ def test_scenario_returns_scenario_snapshot() -> None:
     assert scenario_call["calc_status"] == "ok"
 
 
+def test_scenario_prefers_matching_ingested_live_snapshot() -> None:
+    events = [
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "collector_id": "local-dev",
+            "status": "connected",
+            "ibkr_account_mode": "paper",
+            "message": "Mock live cycle",
+            "event_time": "2026-04-24T15:30:00Z",
+            "received_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "symbol": "SPX",
+            "spot": 5200.25,
+            "bid": 5199.75,
+            "ask": 5200.75,
+            "last": 5200.25,
+            "mark": 5200.25,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "ibkr_con_id": 900000,
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "right": "call",
+            "strike": 5200,
+            "multiplier": 100,
+            "exchange": "CBOE",
+            "currency": "USD",
+            "event_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-P-5200",
+            "ibkr_con_id": 900001,
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "right": "put",
+            "strike": 5200,
+            "multiplier": 100,
+            "exchange": "CBOE",
+            "currency": "USD",
+            "event_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "bid": 9.9,
+            "ask": 10.1,
+            "last": 10.0,
+            "bid_size": 10,
+            "ask_size": 12,
+            "volume": 400,
+            "open_interest": 2400,
+            "ibkr_iv": 0.2,
+            "ibkr_delta": 0.51,
+            "ibkr_gamma": 0.017,
+            "ibkr_vega": 0.9,
+            "ibkr_theta": -1.0,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-P-5200",
+            "bid": 9.7,
+            "ask": 9.9,
+            "last": 9.8,
+            "bid_size": 9,
+            "ask_size": 11,
+            "volume": 380,
+            "open_interest": 2200,
+            "ibkr_iv": 0.2,
+            "ibkr_delta": -0.49,
+            "ibkr_gamma": 0.017,
+            "ibkr_vega": 0.9,
+            "ibkr_theta": -1.0,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+    ]
+    request_payload = {
+        "session_id": "live-spx-local-mock",
+        "snapshot_time": "2026-04-24T15:30:00Z",
+        "spot_shift_points": 10,
+        "vol_shift_points": -0.5,
+        "time_shift_minutes": -15,
+    }
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.post("/api/spx/0dte/scenario", json=request_payload)
+
+    assert response.status_code == 200
+    payload = response.json()
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["mode"] == "scenario"
+    assert payload["session_id"] == "live-spx-local-mock"
+    assert payload["spot"] == 5210.25
+    assert len(payload["rows"]) == 2
+    assert {row["contract_id"] for row in payload["rows"]} == {
+        "SPX-2026-04-24-C-5200",
+        "SPX-2026-04-24-P-5200",
+    }
+    assert payload["scenario_params"] == {
+        "spot_shift_points": 10,
+        "vol_shift_points": -0.5,
+        "time_shift_minutes": -15,
+    }
+
+
 def test_saved_views_round_trip_in_memory() -> None:
     view = {
         "view_id": "seed-default-view",
