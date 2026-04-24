@@ -4,6 +4,7 @@ import {
   formatNumber,
   formatPercent,
   formatStatusLabel,
+  groupRowsByStrike,
   summarizeSnapshot
 } from "../lib/dashboardMetrics";
 import { buildPath, buildSeries } from "../lib/chartGeometry";
@@ -28,6 +29,15 @@ describe("dashboard metrics", () => {
     expect(formatBasisPointDiff(-0.002)).toBe("-20.0 bp");
     expect(formatBasisPointDiff(null)).toBe("—");
     expect(formatStatusLabel("partial")).toBe("Partial");
+  });
+
+  it("groups call and put contracts into strike-centered chain rows", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+
+    expect(groupedRows).toHaveLength(1);
+    expect(groupedRows[0]?.strike).toBe(5200);
+    expect(groupedRows[0]?.call?.right).toBe("call");
+    expect(groupedRows[0]?.put?.right).toBe("put");
   });
 });
 

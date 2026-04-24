@@ -1,12 +1,12 @@
 import { DashboardChart } from "../components/DashboardChart";
 import {
-  formatBasisPointDiff,
   formatNumber,
   formatPercent,
   formatPrice,
   formatSnapshotTime,
   formatStatusLabel,
   formatStrikeRange,
+  groupRowsByStrike,
   sortRowsByStrike,
   summarizeSnapshot
 } from "../lib/dashboardMetrics";
@@ -16,6 +16,7 @@ export default function Home() {
   const snapshot = seedSnapshot;
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
+  const chainRows = groupRowsByStrike(rows);
 
   return (
     <main className="dashboardShell">
@@ -69,48 +70,46 @@ export default function Home() {
       </section>
 
       <section className="chainSection" aria-label="Option chain">
-        <div className="sectionHeader">
-          <div>
-            <h2>Option chain</h2>
-            <p>Custom analytics are primary. IBKR fields are comparison-only.</p>
+        <div className="chainToolbar">
+          <h2>Option chain</h2>
+          <div className="chainFilters" aria-label="Chain filters">
+            <span className="filterChip filter-active"><span />All</span>
+            <span className="filterChip"><span />Calls</span>
+            <span className="filterChip"><span />Puts</span>
           </div>
-          <strong>{summary.rowCount} rows</strong>
+          <strong>{chainRows.length} strikes</strong>
         </div>
-        <div className="tableWrap">
-          <table>
+        <div className="chainTableWrap">
+          <table className="chainTable">
             <thead>
               <tr>
-                <th>Contract</th>
-                <th>Side</th>
-                <th>Strike</th>
-                <th>Bid</th>
-                <th>Ask</th>
-                <th>Mid</th>
-                <th>IV</th>
-                <th>Gamma</th>
-                <th>Vanna</th>
-                <th>IV diff</th>
-                <th>Gamma diff</th>
-                <th>Status</th>
+                <th className="callCol">Call bid</th>
+                <th className="callCol">Call ask</th>
+                <th className="callCol">Call mid</th>
+                <th className="callCol">Call IV</th>
+                <th className="callCol">Call OI</th>
+                <th className="strikeCol">Strike</th>
+                <th className="putCol">Put bid</th>
+                <th className="putCol">Put ask</th>
+                <th className="putCol">Put mid</th>
+                <th className="putCol">Put IV</th>
+                <th className="putCol">Put OI</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.contract_id}>
-                  <td>{row.contract_id}</td>
-                  <td>{formatStatusLabel(row.right)}</td>
-                  <td>{formatPrice(row.strike)}</td>
-                  <td>{formatPrice(row.bid)}</td>
-                  <td>{formatPrice(row.ask)}</td>
-                  <td>{formatPrice(row.mid)}</td>
-                  <td>{formatPercent(row.custom_iv)}</td>
-                  <td>{formatNumber(row.custom_gamma, 4)}</td>
-                  <td>{formatNumber(row.custom_vanna, 4)}</td>
-                  <td>{formatBasisPointDiff(row.iv_diff)}</td>
-                  <td>{formatNumber(row.gamma_diff, 4)}</td>
-                  <td>
-                    <span className={`statusPill status-${row.calc_status}`}>{formatStatusLabel(row.calc_status)}</span>
-                  </td>
+              {chainRows.map((row) => (
+                <tr key={row.strike}>
+                  <td>{formatPrice(row.call?.bid)}</td>
+                  <td>{formatPrice(row.call?.ask)}</td>
+                  <td>{formatPrice(row.call?.mid)}</td>
+                  <td>{formatPercent(row.call?.custom_iv)}</td>
+                  <td>{formatOpenInterest(row.call)}</td>
+                  <td className="strikeCol">{formatPrice(row.strike)}</td>
+                  <td>{formatPrice(row.put?.bid)}</td>
+                  <td>{formatPrice(row.put?.ask)}</td>
+                  <td>{formatPrice(row.put?.mid)}</td>
+                  <td>{formatPercent(row.put?.custom_iv)}</td>
+                  <td>{formatOpenInterest(row.put)}</td>
                 </tr>
               ))}
             </tbody>
@@ -128,4 +127,8 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatOpenInterest(_row: (typeof seedSnapshot.rows)[number] | null | undefined): string {
+  return "—";
 }

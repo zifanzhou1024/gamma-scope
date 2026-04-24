@@ -10,6 +10,12 @@ export interface SnapshotSummary {
   totalAbsVanna: number;
 }
 
+export interface ChainStrikeRow {
+  strike: number;
+  call: AnalyticsRow | null;
+  put: AnalyticsRow | null;
+}
+
 export function summarizeSnapshot(snapshot: AnalyticsSnapshot): SnapshotSummary {
   const strikes = snapshot.rows.map((row) => row.strike);
   const ivValues = compactNumbers(snapshot.rows.map((row) => row.custom_iv));
@@ -86,6 +92,22 @@ export function formatSnapshotTime(value: string): string {
 
 export function sortRowsByStrike(rows: AnalyticsRow[]): AnalyticsRow[] {
   return [...rows].sort((a, b) => a.strike - b.strike || a.right.localeCompare(b.right));
+}
+
+export function groupRowsByStrike(rows: AnalyticsRow[]): ChainStrikeRow[] {
+  const grouped = new Map<number, ChainStrikeRow>();
+
+  for (const row of rows) {
+    const existing = grouped.get(row.strike) ?? { strike: row.strike, call: null, put: null };
+    if (row.right === "call") {
+      existing.call = row;
+    } else {
+      existing.put = row;
+    }
+    grouped.set(row.strike, existing);
+  }
+
+  return [...grouped.values()].sort((a, b) => a.strike - b.strike);
 }
 
 function compactNumbers(values: Array<number | null>): number[] {
