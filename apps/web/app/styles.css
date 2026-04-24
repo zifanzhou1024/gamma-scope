@@ -55,6 +55,7 @@ select {
 
 .topBar,
 .sessionBand,
+.scenarioPanel,
 .kpiGrid,
 .chartGrid,
 .chainSection {
@@ -176,6 +177,77 @@ h1 {
 .sessionBand strong {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.scenarioPanel {
+  margin: -6px 0 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(16, 23, 34, 0.88);
+}
+
+.scenarioForm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(118px, 1fr)) minmax(148px, auto) minmax(126px, auto);
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+}
+
+.scenarioForm label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.scenarioForm label span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.scenarioForm input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(8, 11, 18, 0.78);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  padding: 0 10px;
+}
+
+.scenarioForm button {
+  min-height: 38px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.scenarioForm button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.scenarioForm .secondaryButton {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--soft);
+}
+
+.scenarioForm p {
+  grid-column: 1 / -1;
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.3;
 }
 
 .kpiGrid {
@@ -628,6 +700,14 @@ tbody tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .scenarioForm {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .scenarioForm button {
+    width: 100%;
+  }
+
   .chainTable {
     min-width: 940px;
   }
@@ -694,6 +774,7 @@ tbody tr:last-child td {
   }
 
   .sessionBand,
+  .scenarioForm,
   .kpiGrid,
   .chartGrid {
     grid-template-columns: 1fr;
