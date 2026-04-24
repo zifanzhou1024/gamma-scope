@@ -54,5 +54,19 @@ class CollectorState:
             return None
         return max(self._health_events.values(), key=lambda event: str(event["received_time"]))
 
+    def latest_underlying_tick(self) -> dict[str, Any] | None:
+        if not self._underlying_ticks:
+            return None
+        return max(self._underlying_ticks.values(), key=lambda event: str(event["event_time"]))
+
+    def contracts(self) -> list[dict[str, Any]]:
+        return list(self._contracts.values())
+
+    def option_ticks(self) -> dict[str, dict[str, Any]]:
+        return dict(self._option_ticks)
+
+    def last_event_time(self) -> str | None:
+        return self._last_event_time
+
 
 collector_state = CollectorState()

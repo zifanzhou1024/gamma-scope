@@ -52,7 +52,11 @@ For now this stores the latest collector health, contracts, underlying ticks, an
 With the API running, publish the mock collector cycle into that ingestion endpoint:
 
     pnpm dev:api
-    pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-23 --strikes 5190,5200,5210
+    pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-24 --strikes 5190,5200,5210
+
+Then inspect the live-mode analytics snapshot assembled from the ingested collector state:
+
+    curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | python -m json.tool
 
 ## Analytics Conventions
 

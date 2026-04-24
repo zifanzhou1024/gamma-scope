@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
 from gammascope_api.main import app
@@ -111,6 +112,122 @@ def test_collector_ingest_rejects_invalid_payload() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
+    events = [
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "collector_id": "local-dev",
+            "status": "connected",
+            "ibkr_account_mode": "paper",
+            "message": "Mock live cycle",
+            "event_time": "2026-04-24T15:30:00Z",
+            "received_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "symbol": "SPX",
+            "spot": 5200.25,
+            "bid": 5199.75,
+            "ask": 5200.75,
+            "last": 5200.25,
+            "mark": 5200.25,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "ibkr_con_id": 900000,
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "right": "call",
+            "strike": 5200,
+            "multiplier": 100,
+            "exchange": "CBOE",
+            "currency": "USD",
+            "event_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-P-5200",
+            "ibkr_con_id": 900001,
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "right": "put",
+            "strike": 5200,
+            "multiplier": 100,
+            "exchange": "CBOE",
+            "currency": "USD",
+            "event_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "bid": 9.9,
+            "ask": 10.1,
+            "last": 10.0,
+            "bid_size": 10,
+            "ask_size": 12,
+            "volume": 400,
+            "open_interest": 2400,
+            "ibkr_iv": 0.2,
+            "ibkr_delta": 0.51,
+            "ibkr_gamma": 0.017,
+            "ibkr_vega": 0.9,
+            "ibkr_theta": -1.0,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "live-spx-local-mock",
+            "contract_id": "SPX-2026-04-24-P-5200",
+            "bid": 9.7,
+            "ask": 9.9,
+            "last": 9.8,
+            "bid_size": 9,
+            "ask_size": 11,
+            "volume": 380,
+            "open_interest": 2200,
+            "ibkr_iv": 0.2,
+            "ibkr_delta": -0.49,
+            "ibkr_gamma": 0.017,
+            "ibkr_vega": 0.9,
+            "ibkr_theta": -1.0,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/snapshot/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["mode"] == "live"
+    assert payload["session_id"] == "live-spx-local-mock"
+    assert payload["spot"] == 5200.25
+    assert len(payload["rows"]) == 2
+    assert {row["right"] for row in payload["rows"]} == {"call", "put"}
+    assert all(row["open_interest"] is not None for row in payload["rows"])
+    assert all(row["custom_iv"] is not None for row in payload["rows"])
+    assert all(row["custom_gamma"] is not None for row in payload["rows"])
+    assert all(row["custom_vanna"] is not None for row in payload["rows"])
 
 
 def test_latest_snapshot_returns_seed_contract() -> None:
