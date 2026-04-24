@@ -64,7 +64,7 @@ To test the dashboard against local API state, run the API, publish the mock cyc
     pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-24 --strikes 5190,5200,5210
     GAMMASCOPE_API_BASE_URL=http://127.0.0.1:8000 pnpm dev:web
 
-Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot.
+Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard polls the web snapshot route once per second so live mock snapshots refresh without a manual browser reload.
 
 ## Analytics Conventions
 

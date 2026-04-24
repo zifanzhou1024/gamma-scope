@@ -16,19 +16,24 @@ type Validator = (value: unknown) => boolean;
 const TOP_LEVEL_FIELDS: Record<string, Validator> = {
   schema_version: (value) => value === "1.0.0",
   session_id: isString,
-  mode: isString,
+  mode: (value) => isOneOf(value, ["live", "replay", "scenario"]),
   symbol: (value) => value === "SPX",
   expiry: isString,
   snapshot_time: isString,
   spot: isNumber,
   forward: isNumber,
-  source_status: isString,
+  discount_factor: isNumber,
+  risk_free_rate: isNumber,
+  dividend_yield: isNumber,
+  source_status: (value) => isOneOf(value, ["starting", "connected", "degraded", "disconnected", "stale", "error"]),
   freshness_ms: isNumber,
-  coverage_status: isString,
+  coverage_status: (value) => isOneOf(value, ["full", "partial", "empty"]),
+  scenario_params: isScenarioParams,
   rows: Array.isArray
 };
 
 const ROW_FIELDS: Record<string, Validator> = {
+  contract_id: isString,
   right: (value) => value === "call" || value === "put",
   strike: isNumber,
   bid: isNullableNumber,
@@ -37,14 +42,31 @@ const ROW_FIELDS: Record<string, Validator> = {
   open_interest: isNullableNumber,
   custom_iv: isNullableNumber,
   custom_gamma: isNullableNumber,
-  custom_vanna: isNullableNumber
+  custom_vanna: isNullableNumber,
+  ibkr_iv: isNullableNumber,
+  ibkr_gamma: isNullableNumber,
+  ibkr_vanna: isNullableNumber,
+  iv_diff: isNullableNumber,
+  gamma_diff: isNullableNumber,
+  calc_status: (value) =>
+    isOneOf(value, [
+      "ok",
+      "missing_quote",
+      "invalid_quote",
+      "below_intrinsic",
+      "vol_out_of_bounds",
+      "stale_underlying",
+      "solver_failed",
+      "out_of_model_scope"
+    ]),
+  comparison_status: (value) => isOneOf(value, ["ok", "missing", "stale", "outside_tolerance", "not_supported"])
 };
 
 function snapshotUrl(apiBaseUrl: string): string {
   return `${apiBaseUrl.replace(/\/+$/, "")}${SNAPSHOT_PATH}`;
 }
 
-function isAnalyticsSnapshot(payload: unknown): payload is AnalyticsSnapshot {
+export function isAnalyticsSnapshot(payload: unknown): payload is AnalyticsSnapshot {
   if (!isRecord(payload)) {
     return false;
   }
@@ -85,6 +107,27 @@ function isNumber(value: unknown): value is number {
 
 function isNullableNumber(value: unknown): value is number | null {
   return value === null || isNumber(value);
+}
+
+function isScenarioParams(value: unknown): value is AnalyticsSnapshot["scenario_params"] {
+  if (value === null) {
+    return true;
+  }
+
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Object.entries(value).every(([field, fieldValue]) => {
+    return (
+      (field === "spot_shift_points" || field === "vol_shift_points" || field === "time_shift_minutes") &&
+      isNumber(fieldValue)
+    );
+  });
+}
+
+function isOneOf<T extends string>(value: unknown, allowedValues: readonly T[]): value is T {
+  return typeof value === "string" && allowedValues.includes(value as T);
 }
 
 export async function loadDashboardSnapshot(options: LoadDashboardSnapshotOptions = {}): Promise<AnalyticsSnapshot> {

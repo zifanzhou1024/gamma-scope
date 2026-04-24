@@ -112,4 +112,18 @@ describe("loadDashboardSnapshot", () => {
 
     await expect(loadDashboardSnapshot({ apiBaseUrl: "http://testserver", fetcher })).resolves.toBe(seedSnapshot);
   });
+
+  it("falls back to the seed snapshot for payloads missing required contract top-level fields", async () => {
+    const { discount_factor: _discountFactor, ...payload } = apiSnapshot();
+    const fetcher = vi.fn(async () => jsonResponse(payload));
+
+    await expect(loadDashboardSnapshot({ apiBaseUrl: "http://testserver", fetcher })).resolves.toBe(seedSnapshot);
+  });
+
+  it("falls back to the seed snapshot for rows missing required contract fields", async () => {
+    const { contract_id: _contractId, ...row } = apiSnapshot().rows[0]!;
+    const fetcher = vi.fn(async () => jsonResponse({ ...apiSnapshot(), rows: [row] }));
+
+    await expect(loadDashboardSnapshot({ apiBaseUrl: "http://testserver", fetcher })).resolves.toBe(seedSnapshot);
+  });
 });

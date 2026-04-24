@@ -4,6 +4,7 @@ import {
   formatNumber,
   formatPercent,
   formatInteger,
+  formatSnapshotTime,
   formatStatusLabel,
   groupRowsByStrike,
   nearestStrike,
@@ -33,6 +34,10 @@ describe("dashboard metrics", () => {
     expect(formatInteger(2614)).toBe("2,614");
     expect(formatInteger(null)).toBe("—");
     expect(formatStatusLabel("partial")).toBe("Partial");
+  });
+
+  it("formats snapshot time in the SPX market timezone", () => {
+    expect(formatSnapshotTime("2026-04-23T16:00:00Z")).toBe("12:00:00 PM EDT");
   });
 
   it("groups call and put contracts into strike-centered chain rows", () => {
