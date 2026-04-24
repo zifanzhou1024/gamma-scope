@@ -23,7 +23,7 @@ export function buildSeries(rows: Array<Pick<AnalyticsRow, "strike"> & Partial<R
       const value = row[key];
       return typeof value === "number" ? [{ x: row.strike, y: value }] : [];
     })
-    .toSorted((a, b) => a.x - b.x);
+    .sort((a, b) => a.x - b.x);
 }
 
 export function buildPath(points: ChartPoint[], frame: ChartFrame): string {

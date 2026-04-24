@@ -1,0 +1,411 @@
+:root {
+  color-scheme: dark;
+  --bg: #080b12;
+  --surface: #101722;
+  --surface-strong: #151f2e;
+  --line: #243244;
+  --line-soft: #192536;
+  --text: #f8fafc;
+  --muted: #93a4b8;
+  --soft: #cbd5e1;
+  --blue: #38bdf8;
+  --violet: #a78bfa;
+  --teal: #2dd4bf;
+  --amber: #f59e0b;
+  --green: #22c55e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  min-width: 320px;
+}
+
+body {
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(24, 32, 47, 0.78) 0, rgba(8, 11, 18, 0) 360px),
+    var(--bg);
+  color: var(--text);
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.dashboardShell {
+  width: min(1440px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 24px 0 40px;
+}
+
+.topBar,
+.sessionBand,
+.kpiGrid,
+.chartGrid,
+.chainSection {
+  min-width: 0;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 0 20px;
+}
+
+.brandLockup {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.scopeMark {
+  width: 38px;
+  height: 38px;
+  border: 2px solid var(--blue);
+  border-radius: 50%;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.scopeMark::before,
+.scopeMark::after {
+  content: "";
+  position: absolute;
+  background: var(--blue);
+}
+
+.scopeMark::before {
+  width: 18px;
+  height: 2px;
+  right: -6px;
+  top: 17px;
+}
+
+.scopeMark::after {
+  width: 16px;
+  height: 16px;
+  left: 8px;
+  top: 11px;
+  border-bottom: 2px solid var(--teal);
+  border-radius: 0 0 18px 18px;
+  background: transparent;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(28px, 4vw, 52px);
+  line-height: 0.95;
+  font-weight: 760;
+}
+
+.brandLockup p,
+.panelHeader p,
+.sectionHeader p,
+.eyebrow,
+.metric span {
+  color: var(--muted);
+}
+
+.statusRail {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.statusRail span,
+.statusPill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.sessionBand {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(150px, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 6px 0 22px;
+}
+
+.sessionBand > div {
+  min-width: 0;
+  padding: 16px 18px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.sessionBand > div:last-child {
+  border-right: 0;
+}
+
+.eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.sessionBand strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+}
+
+.metric {
+  background: rgba(16, 23, 34, 0.92);
+  min-height: 96px;
+  padding: 18px;
+}
+
+.metric span {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.metric strong {
+  display: block;
+  font-size: clamp(20px, 2.3vw, 30px);
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.chartGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.chartPanel,
+.chainSection {
+  background: rgba(16, 23, 34, 0.9);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.chartPanel {
+  min-height: 318px;
+  padding: 18px;
+}
+
+.panelHeader,
+.sectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.panelHeader h2,
+.sectionHeader h2 {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.panelHeader p,
+.sectionHeader p {
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.panelHeader strong,
+.sectionHeader strong {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: 210px;
+  margin-top: 14px;
+  overflow: visible;
+}
+
+.chart line {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart path {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart circle {
+  fill: var(--surface);
+  stroke-width: 2;
+}
+
+.chart-blue path,
+.chart-blue circle {
+  stroke: var(--blue);
+}
+
+.chart-violet path,
+.chart-violet circle {
+  stroke: var(--violet);
+}
+
+.chart-teal path,
+.chart-teal circle {
+  stroke: var(--teal);
+}
+
+.chartFooter {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chainSection {
+  padding: 18px;
+}
+
+.tableWrap {
+  margin-top: 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+}
+
+table {
+  width: 100%;
+  min-width: 1060px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 12px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+th {
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+td {
+  color: var(--soft);
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.status-ok {
+  border-color: rgba(34, 197, 94, 0.42);
+  color: #86efac;
+}
+
+.status-partial,
+.status-stale,
+.status-outside_tolerance {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fcd34d;
+}
+
+@media (max-width: 1080px) {
+  .dashboardShell {
+    width: min(100% - 28px, 900px);
+  }
+
+  .sessionBand {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sessionBand > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .sessionBand > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .kpiGrid,
+  .chartGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboardShell {
+    width: min(100% - 24px, 560px);
+    padding-top: 18px;
+  }
+
+  .topBar,
+  .panelHeader,
+  .sectionHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .statusRail {
+    justify-content: flex-start;
+  }
+
+  .sessionBand,
+  .kpiGrid,
+  .chartGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sessionBand > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .sessionBand > div:last-child {
+    border-bottom: 0;
+  }
+
+  .metric {
+    min-height: 84px;
+  }
+}

@@ -30,6 +30,8 @@ Run local services:
     pnpm dev:web
     .venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api
 
+Open the local dashboard at `http://localhost:3000`. The current dashboard is seeded replay data, shaped to match the live SPX 0DTE analytics contract.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
