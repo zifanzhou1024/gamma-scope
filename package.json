@@ -6,13 +6,14 @@
     "contracts:validate": "pnpm --filter @gammascope/contracts validate",
     "contracts:generate": "pnpm --filter @gammascope/contracts generate",
     "test:contracts": "pnpm --filter @gammascope/contracts test",
+    "test:scripts": "node --test tests/package-scripts.test.mjs",
     "test:web": "pnpm --filter @gammascope/web test",
     "typecheck:web": "pnpm --filter @gammascope/web typecheck",
     "dev:web": "pnpm --filter @gammascope/web dev",
-    "dev:api": "python3 -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
+    "dev:api": ".venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
     "collector:mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.cli",
     "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
-    "test": "pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
+    "test": "pnpm test:scripts && pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
   }
 }
