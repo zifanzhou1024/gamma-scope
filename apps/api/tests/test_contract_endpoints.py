@@ -255,17 +255,59 @@ def test_replay_sessions_exposes_seed_session() -> None:
     response = client.get("/api/spx/0dte/replay/sessions")
 
     assert response.status_code == 200
-    assert response.json()[0]["session_id"] == "seed-spx-2026-04-23"
+    session = response.json()[0]
+    assert session["session_id"] == "seed-spx-2026-04-23"
+    assert session["snapshot_count"] > 1
+    assert session["start_time"] != session["end_time"]
 
 
-def test_replay_snapshot_returns_seed_when_session_matches() -> None:
-    response = client.get(
+def test_replay_snapshot_selects_nearest_seeded_time() -> None:
+    early_response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "seed-spx-2026-04-23", "at": "2026-04-23T15:30:00Z"},
+    )
+    late_response = client.get(
         "/api/spx/0dte/replay/snapshot",
         params={"session_id": "seed-spx-2026-04-23", "at": "2026-04-23T16:00:00Z"},
     )
 
+    assert early_response.status_code == 200
+    assert late_response.status_code == 200
+    early_payload = early_response.json()
+    late_payload = late_response.json()
+    AnalyticsSnapshot.model_validate(early_payload)
+    AnalyticsSnapshot.model_validate(late_payload)
+    assert early_payload["session_id"] == "seed-spx-2026-04-23"
+    assert early_payload["snapshot_time"] != late_payload["snapshot_time"]
+    assert early_payload["spot"] != late_payload["spot"]
+    assert early_payload["rows"][0]["custom_iv"] != late_payload["rows"][0]["custom_iv"]
+
+
+def test_replay_snapshot_accepts_naive_iso_time_as_utc() -> None:
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "seed-spx-2026-04-23", "at": "2026-04-23T15:35:00"},
+    )
+
     assert response.status_code == 200
-    assert response.json()["session_id"] == "seed-spx-2026-04-23"
+    payload = response.json()
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["session_id"] == "seed-spx-2026-04-23"
+    assert payload["snapshot_time"] in {"2026-04-23T15:30:00Z", "2026-04-23T15:40:00Z"}
+    assert payload["rows"] != []
+
+
+def test_replay_snapshot_returns_empty_for_unknown_session() -> None:
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "missing-session", "at": "2026-04-23T16:00:00Z"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["coverage_status"] == "empty"
+    assert payload["rows"] == []
 
 
 def test_scenario_returns_scenario_snapshot() -> None:

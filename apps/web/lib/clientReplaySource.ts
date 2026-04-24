@@ -80,6 +80,37 @@ export async function loadClientReplaySnapshot(
   }
 }
 
+export function replayTimestampOptions(session: ReplaySession): string[] {
+  const count = Math.max(1, Math.trunc(session.snapshot_count));
+  const startTime = Date.parse(session.start_time);
+  const endTime = Date.parse(session.end_time);
+
+  if (count === 1) {
+    return [session.start_time || session.end_time];
+  }
+
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
+    return [session.end_time || session.start_time];
+  }
+
+  const stepMs = (endTime - startTime) / (count - 1);
+  return Array.from({ length: count }, (_, index) => new Date(startTime + stepMs * index).toISOString());
+}
+
+export function clampReplayIndex(index: number, session: ReplaySession): number {
+  const maxIndex = replayTimestampOptions(session).length - 1;
+
+  if (!Number.isFinite(index)) {
+    return maxIndex;
+  }
+
+  return Math.min(Math.max(Math.trunc(index), 0), maxIndex);
+}
+
+export function stepReplayIndex(index: number, direction: -1 | 1, session: ReplaySession): number {
+  return clampReplayIndex(index + direction, session);
+}
+
 function isReplaySession(payload: unknown): payload is ReplaySession {
   if (!isRecord(payload)) {
     return false;

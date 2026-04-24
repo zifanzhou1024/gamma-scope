@@ -1,12 +1,17 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import { loadClientDashboardSnapshot } from "../lib/clientSnapshotSource";
 import type { ScenarioRequest } from "../lib/clientScenarioSource";
 import { requestClientScenarioSnapshot } from "../lib/clientScenarioSource";
 import type { ReplaySnapshotRequest, ReplaySession } from "../lib/clientReplaySource";
-import { loadClientReplaySessions, loadClientReplaySnapshot } from "../lib/clientReplaySource";
+import {
+  clampReplayIndex,
+  loadClientReplaySessions,
+  loadClientReplaySnapshot,
+  replayTimestampOptions
+} from "../lib/clientReplaySource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
 import { DashboardView } from "./DashboardView";
 import { ReplayPanel } from "./ReplayPanel";
@@ -63,8 +68,15 @@ export function createScenarioRequest(
   };
 }
 
-export function createReplaySnapshotRequest(selectedSessionId: string | null): ReplaySnapshotRequest | null {
-  return selectedSessionId ? { session_id: selectedSessionId } : null;
+export function createReplaySnapshotRequest(
+  selectedSessionId: string | null,
+  selectedReplayTime?: string | null
+): ReplaySnapshotRequest | null {
+  if (!selectedSessionId) {
+    return null;
+  }
+
+  return selectedReplayTime ? { session_id: selectedSessionId, at: selectedReplayTime } : { session_id: selectedSessionId };
 }
 
 export function createReplayStartState(): ReplayStartState {
@@ -110,6 +122,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [replaySessions, setReplaySessions] = useState<ReplaySession[]>([]);
   const [selectedReplaySessionId, setSelectedReplaySessionId] = useState<string | null>(null);
+  const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
   const [isLoadingReplaySessions, setIsLoadingReplaySessions] = useState(true);
   const [isReplayModeActive, setIsReplayModeActive] = useState(false);
   const [isLoadingReplay, setIsLoadingReplay] = useState(false);
@@ -129,6 +142,17 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const latestReplayRequestIdRef = useRef(0);
   const replayRequestsCanceledRef = useRef(false);
 
+  const selectedReplaySession = useMemo(
+    () => replaySessions.find((session) => session.session_id === selectedReplaySessionId) ?? replaySessions[0] ?? null,
+    [replaySessions, selectedReplaySessionId]
+  );
+  const replaySnapshotTimes = useMemo(
+    () => (selectedReplaySession ? replayTimestampOptions(selectedReplaySession) : []),
+    [selectedReplaySession]
+  );
+  const clampedReplayIndex = selectedReplaySession ? clampReplayIndex(selectedReplayIndex, selectedReplaySession) : 0;
+  const selectedReplayTime = replaySnapshotTimes[clampedReplayIndex] ?? null;
+
   useEffect(() => {
     let isCanceled = false;
 
@@ -139,6 +163,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
 
       setReplaySessions(sessions);
       setSelectedReplaySessionId(sessions[0]?.session_id ?? null);
+      setSelectedReplayIndex(sessions[0] ? clampReplayIndex(Number.POSITIVE_INFINITY, sessions[0]) : 0);
       setIsLoadingReplaySessions(false);
     });
 
@@ -180,7 +205,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   }, [isScenarioModeActive, isReplayModeActive]);
 
   const loadReplay = async () => {
-    const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId);
+    const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId, selectedReplayTime);
 
     if (!replayRequest) {
       setReplayError("No replay sessions available.");
@@ -298,10 +323,16 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
         <ReplayPanel
           selectedSessionId={selectedReplaySessionId}
           hasSessions={replaySessions.length > 0}
+          snapshotTimes={replaySnapshotTimes}
+          selectedSnapshotIndex={clampedReplayIndex}
+          selectedSnapshotTime={selectedReplayTime}
           isReplayModeActive={isReplayModeActive}
           isLoadingSessions={isLoadingReplaySessions}
           isLoadingReplay={isLoadingReplay}
           errorMessage={replayError}
+          onSelectSnapshotIndex={(index) => {
+            setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
+          }}
           onLoadReplay={loadReplay}
           onReturnToLive={returnToLive}
         />

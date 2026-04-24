@@ -35,6 +35,8 @@ describe("LiveDashboard scenario panel", () => {
     const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
 
     expect(markup).toContain("Replay");
+    expect(markup).toContain("Previous replay timestamp");
+    expect(markup).toContain("Next replay timestamp");
     expect(markup).toContain("Load replay");
   });
 
@@ -75,6 +77,13 @@ describe("LiveDashboard scenario panel", () => {
 
     expect(LiveDashboardModule.createReplaySnapshotRequest("seeded-replay-session")).toEqual({
       session_id: "seeded-replay-session"
+    });
+  });
+
+  it("includes the selected replay timestamp in replay snapshot requests", () => {
+    expect(LiveDashboardModule.createReplaySnapshotRequest("seeded-replay-session", "2026-04-24T15:30:00.000Z")).toEqual({
+      session_id: "seeded-replay-session",
+      at: "2026-04-24T15:30:00.000Z"
     });
   });
 
