@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { DashboardChart } from "../components/DashboardChart";
+import type { AnalyticsSnapshot } from "../lib/contracts";
 import {
   formatInteger,
   formatNumber,
@@ -13,10 +14,10 @@ import {
   sortRowsByStrike,
   summarizeSnapshot
 } from "../lib/dashboardMetrics";
-import { seedSnapshot } from "../lib/seedSnapshot";
+import { loadDashboardSnapshot } from "../lib/snapshotSource";
 
-export default function Home() {
-  const snapshot = seedSnapshot;
+export default async function Home() {
+  const snapshot = await loadDashboardSnapshot();
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const chainRows = groupRowsByStrike(rows);
@@ -154,7 +155,7 @@ function RiskCell({
   maxGamma,
   side
 }: {
-  row: (typeof seedSnapshot.rows)[number] | null | undefined;
+  row: AnalyticsSnapshot["rows"][number] | null | undefined;
   maxGamma: number;
   side: "call" | "put";
 }) {

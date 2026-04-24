@@ -58,6 +58,14 @@ Then inspect the live-mode analytics snapshot assembled from the ingested collec
 
     curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | python -m json.tool
 
+To test the dashboard against local API state, run the API, publish the mock cycle, then start the web app with the API base URL:
+
+    pnpm dev:api
+    pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-24 --strikes 5190,5200,5210
+    GAMMASCOPE_API_BASE_URL=http://127.0.0.1:8000 pnpm dev:web
+
+Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
