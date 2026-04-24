@@ -19,10 +19,11 @@ import {
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
   replayPanel?: React.ReactNode;
+  savedViewsPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
 }
 
-export function DashboardView({ snapshot, replayPanel, scenarioPanel }: DashboardViewProps) {
+export function DashboardView({ snapshot, replayPanel, savedViewsPanel, scenarioPanel }: DashboardViewProps) {
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const chainRows = groupRowsByStrike(rows);
@@ -66,9 +67,10 @@ export function DashboardView({ snapshot, replayPanel, scenarioPanel }: Dashboar
         </div>
       </section>
 
-      {replayPanel || scenarioPanel ? (
+      {replayPanel || savedViewsPanel || scenarioPanel ? (
         <section className="dashboardControls" aria-label="Dashboard controls">
           {replayPanel}
+          {savedViewsPanel}
           {scenarioPanel}
         </section>
       ) : null}

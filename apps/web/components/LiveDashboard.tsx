@@ -2,6 +2,12 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+import type { SavedView } from "../lib/clientSavedViewsSource";
+import {
+  createSavedViewDraft as buildSavedViewDraft,
+  loadClientSavedViews,
+  saveClientSavedView
+} from "../lib/clientSavedViewsSource";
 import { loadClientDashboardSnapshot } from "../lib/clientSnapshotSource";
 import type { ScenarioRequest } from "../lib/clientScenarioSource";
 import { requestClientScenarioSnapshot } from "../lib/clientScenarioSource";
@@ -15,7 +21,10 @@ import {
 import { startSnapshotPolling } from "../lib/snapshotPolling";
 import { DashboardView } from "./DashboardView";
 import { ReplayPanel } from "./ReplayPanel";
+import { SavedViewsPanel } from "./SavedViewsPanel";
 import { ScenarioPanel } from "./ScenarioPanel";
+
+export { createSavedViewDraft } from "../lib/clientSavedViewsSource";
 
 interface LiveDashboardProps {
   initialSnapshot: AnalyticsSnapshot;
@@ -133,6 +142,11 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [isScenarioModeActive, setIsScenarioModeActive] = useState(false);
   const [isApplyingScenario, setIsApplyingScenario] = useState(false);
   const [scenarioError, setScenarioError] = useState<string | null>(null);
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [savedViewName, setSavedViewName] = useState(`${initialSnapshot.symbol} ${initialSnapshot.mode} view`);
+  const [isLoadingSavedViews, setIsLoadingSavedViews] = useState(true);
+  const [isSavingView, setIsSavingView] = useState(false);
+  const [savedViewError, setSavedViewError] = useState<string | null>(null);
   const scenarioModeRef = useRef(false);
   const replayModeRef = useRef(false);
   const latestLiveRequestIdRef = useRef(0);
@@ -152,6 +166,23 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   );
   const clampedReplayIndex = selectedReplaySession ? clampReplayIndex(selectedReplayIndex, selectedReplaySession) : 0;
   const selectedReplayTime = replaySnapshotTimes[clampedReplayIndex] ?? null;
+
+  useEffect(() => {
+    let isCanceled = false;
+
+    loadClientSavedViews().then((views) => {
+      if (isCanceled) {
+        return;
+      }
+
+      setSavedViews(views);
+      setIsLoadingSavedViews(false);
+    });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let isCanceled = false;
@@ -316,6 +347,37 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     });
   };
 
+  const saveCurrentView = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedName = savedViewName.trim();
+
+    if (!trimmedName) {
+      setSavedViewError("Enter a view name.");
+      return;
+    }
+
+    setIsSavingView(true);
+    setSavedViewError(null);
+
+    const savedView = await saveClientSavedView(buildSavedViewDraft(snapshot, {
+      name: trimmedName,
+      viewId: `view-${Date.now().toString(36)}`,
+      createdAt: new Date().toISOString()
+    }));
+
+    setIsSavingView(false);
+
+    if (!savedView) {
+      setSavedViewError("Saved view failed.");
+      return;
+    }
+
+    setSavedViews((currentViews) => [
+      ...currentViews.filter((view) => view.view_id !== savedView.view_id),
+      savedView
+    ]);
+  };
+
   return (
     <DashboardView
       snapshot={snapshot}
@@ -335,6 +397,17 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
           }}
           onLoadReplay={loadReplay}
           onReturnToLive={returnToLive}
+        />
+      }
+      savedViewsPanel={
+        <SavedViewsPanel
+          savedViews={savedViews}
+          viewName={savedViewName}
+          isLoading={isLoadingSavedViews}
+          isSaving={isSavingView}
+          errorMessage={savedViewError}
+          onViewNameChange={setSavedViewName}
+          onSaveView={saveCurrentView}
         />
       }
       scenarioPanel={

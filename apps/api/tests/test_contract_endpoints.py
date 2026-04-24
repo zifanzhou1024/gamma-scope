@@ -488,3 +488,20 @@ def test_saved_views_round_trip_in_memory() -> None:
     assert create_response.status_code == 200
     assert list_response.status_code == 200
     assert view in list_response.json()
+
+
+def test_saved_views_reject_invalid_payload() -> None:
+    response = client.post(
+        "/api/views",
+        json={
+            "view_id": "invalid-view",
+            "owner_scope": "public_demo",
+            "name": "Invalid view",
+            "mode": "replay",
+            "strike_window": {"levels_each_side": 0},
+            "visible_charts": [],
+            "created_at": "not-a-date",
+        },
+    )
+
+    assert response.status_code == 422

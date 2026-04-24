@@ -40,6 +40,40 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toContain("Load replay");
   });
 
+  it("renders saved view controls with the live dashboard", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
+
+    expect(markup).toContain("Saved views");
+    expect(markup).toContain("View name");
+    expect(markup).toContain("Save current view");
+  });
+
+  it("creates a saved view draft from the current snapshot", () => {
+    expect(LiveDashboardModule.createSavedViewDraft).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createSavedViewDraft(seedSnapshot, {
+      name: "Default replay view",
+      viewId: "view-from-dashboard",
+      createdAt: "2026-04-24T17:00:00Z"
+    })).toEqual({
+      view_id: "view-from-dashboard",
+      owner_scope: "public_demo",
+      name: "Default replay view",
+      mode: seedSnapshot.mode,
+      strike_window: {
+        levels_each_side: 20
+      },
+      visible_charts: ["iv_smile", "gamma_by_strike", "vanna_by_strike"],
+      created_at: "2026-04-24T17:00:00Z"
+    });
+  });
+
   it("creates a scenario request from the current snapshot and control values", () => {
     expect(LiveDashboardModule.createScenarioRequest).toBeTypeOf("function");
 
