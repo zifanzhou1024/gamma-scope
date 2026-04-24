@@ -55,6 +55,8 @@ select {
 
 .topBar,
 .sessionBand,
+.dashboardControls,
+.replayPanel,
 .scenarioPanel,
 .kpiGrid,
 .chartGrid,
@@ -179,8 +181,71 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.scenarioPanel {
+.dashboardControls {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(0, 2.15fr);
+  gap: 12px;
   margin: -6px 0 18px;
+}
+
+.replayPanel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(16, 23, 34, 0.88);
+  padding: 12px;
+}
+
+.replayCopy {
+  min-width: 0;
+}
+
+.replayCopy strong {
+  display: block;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.replayActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.replayPanel button {
+  min-height: 38px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.replayPanel button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.replayPanel .secondaryButton {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--soft);
+}
+
+.replayPanel p {
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.scenarioPanel {
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: rgba(16, 23, 34, 0.88);
@@ -704,6 +769,10 @@ tbody tr:last-child td {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .dashboardControls {
+    grid-template-columns: 1fr;
+  }
+
   .scenarioForm button {
     width: 100%;
   }
@@ -774,6 +843,7 @@ tbody tr:last-child td {
   }
 
   .sessionBand,
+  .dashboardControls,
   .scenarioForm,
   .kpiGrid,
   .chartGrid {

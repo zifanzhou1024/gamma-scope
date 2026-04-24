@@ -25,6 +25,19 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toContain("Apply scenario");
   });
 
+  it("renders compact replay controls with the live dashboard", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
+
+    expect(markup).toContain("Replay");
+    expect(markup).toContain("Load replay");
+  });
+
   it("creates a scenario request from the current snapshot and control values", () => {
     expect(LiveDashboardModule.createScenarioRequest).toBeTypeOf("function");
 
@@ -48,6 +61,33 @@ describe("LiveDashboard scenario panel", () => {
 
     expect(LiveDashboardModule.shouldPollLiveSnapshot(false)).toBe(true);
     expect(LiveDashboardModule.shouldPollLiveSnapshot(true)).toBe(false);
+  });
+
+  it("disables live polling while replay mode is active", () => {
+    expect(LiveDashboardModule.shouldPollLiveSnapshot).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.shouldPollLiveSnapshot(false, false)).toBe(true);
+    expect(LiveDashboardModule.shouldPollLiveSnapshot(false, true)).toBe(false);
+  });
+
+  it("creates a replay snapshot request from a selected replay session", () => {
+    expect(LiveDashboardModule.createReplaySnapshotRequest).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createReplaySnapshotRequest("seeded-replay-session")).toEqual({
+      session_id: "seeded-replay-session"
+    });
+  });
+
+  it("clears scenario loading state when replay starts", () => {
+    expect(LiveDashboardModule.createReplayStartState).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createReplayStartState()).toEqual({
+      scenarioRequestsCanceled: true,
+      replayRequestsCanceled: false,
+      isApplyingScenario: false,
+      isLoadingReplay: true,
+      replayError: null
+    });
   });
 
   it("only applies the latest live refresh while scenario mode is inactive", () => {
@@ -87,6 +127,43 @@ describe("LiveDashboard scenario panel", () => {
       responseRequestId: 4,
       latestRequestId: 4,
       scenarioRequestsCanceled: true
+    })).toBe(false);
+  });
+
+  it("allows an intentional scenario response from replay while blocking stale responses canceled by replay", () => {
+    expect(LiveDashboardModule.canApplyScenarioSnapshot).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.canApplyScenarioSnapshot({
+      responseRequestId: 5,
+      latestRequestId: 5,
+      scenarioRequestsCanceled: false,
+      isReplayModeActive: true
+    })).toBe(true);
+    expect(LiveDashboardModule.canApplyScenarioSnapshot({
+      responseRequestId: 5,
+      latestRequestId: 5,
+      scenarioRequestsCanceled: true,
+      isReplayModeActive: true
+    })).toBe(false);
+  });
+
+  it("only applies the latest active replay response", () => {
+    expect(LiveDashboardModule.canApplyReplaySnapshot).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.canApplyReplaySnapshot({
+      responseRequestId: 4,
+      latestRequestId: 4,
+      replayRequestsCanceled: false
+    })).toBe(true);
+    expect(LiveDashboardModule.canApplyReplaySnapshot({
+      responseRequestId: 3,
+      latestRequestId: 4,
+      replayRequestsCanceled: false
+    })).toBe(false);
+    expect(LiveDashboardModule.canApplyReplaySnapshot({
+      responseRequestId: 4,
+      latestRequestId: 4,
+      replayRequestsCanceled: true
     })).toBe(false);
   });
 });

@@ -18,10 +18,11 @@ import {
 
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
+  replayPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
 }
 
-export function DashboardView({ snapshot, scenarioPanel }: DashboardViewProps) {
+export function DashboardView({ snapshot, replayPanel, scenarioPanel }: DashboardViewProps) {
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const chainRows = groupRowsByStrike(rows);
@@ -65,7 +66,12 @@ export function DashboardView({ snapshot, scenarioPanel }: DashboardViewProps) {
         </div>
       </section>
 
-      {scenarioPanel}
+      {replayPanel || scenarioPanel ? (
+        <section className="dashboardControls" aria-label="Dashboard controls">
+          {replayPanel}
+          {scenarioPanel}
+        </section>
+      ) : null}
 
       <section className="kpiGrid" aria-label="Selected metrics">
         <Metric label="SPX spot" value={formatPrice(snapshot.spot)} />
