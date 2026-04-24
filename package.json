@@ -11,6 +11,7 @@
     "dev:web": "pnpm --filter @gammascope/web dev",
     "dev:api": "python3 -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
     "collector:mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.cli",
+    "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
     "test": "pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
   }

@@ -49,6 +49,11 @@ The API can accept one normalized collector event at a time during local testing
 
 For now this stores the latest collector health, contracts, underlying ticks, and option ticks in process memory only. It is a local integration harness; Postgres/Redis persistence and snapshot assembly come in later slices.
 
+With the API running, publish the mock collector cycle into that ingestion endpoint:
+
+    pnpm dev:api
+    pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-23 --strikes 5190,5200,5210
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
