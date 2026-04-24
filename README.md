@@ -40,6 +40,15 @@ Before connecting to IBKR, the collector slice can emit a deterministic SPX 0DTE
 
 The mock output uses the same normalized collector event contract planned for the live IBKR adapter.
 
+### Local Collector Ingestion
+
+The API can accept one normalized collector event at a time during local testing:
+
+    POST /api/spx/0dte/collector/events
+    GET  /api/spx/0dte/collector/state
+
+For now this stores the latest collector health, contracts, underlying ticks, and option ticks in process memory only. It is a local integration harness; Postgres/Redis persistence and snapshot assembly come in later slices.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
