@@ -52,6 +52,13 @@ export function formatBasisPointDiff(value: number | null | undefined): string {
   return `${(value * 10000).toFixed(1)} bp`;
 }
 
+export function formatInteger(value: number | null | undefined): string {
+  if (value == null) {
+    return "—";
+  }
+  return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
 export function formatStatusLabel(value: string): string {
   return value
     .split("_")
@@ -108,6 +115,17 @@ export function groupRowsByStrike(rows: AnalyticsRow[]): ChainStrikeRow[] {
   }
 
   return [...grouped.values()].sort((a, b) => a.strike - b.strike);
+}
+
+export function nearestStrike(snapshot: AnalyticsSnapshot): number | null {
+  if (snapshot.rows.length === 0) {
+    return null;
+  }
+  return snapshot.rows.reduce((nearest, row) => {
+    const currentDistance = Math.abs(row.strike - snapshot.spot);
+    const nearestDistance = Math.abs(nearest - snapshot.spot);
+    return currentDistance < nearestDistance ? row.strike : nearest;
+  }, snapshot.rows[0].strike);
 }
 
 function compactNumbers(values: Array<number | null>): number[] {

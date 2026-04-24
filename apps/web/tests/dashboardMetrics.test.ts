@@ -3,8 +3,10 @@ import {
   formatBasisPointDiff,
   formatNumber,
   formatPercent,
+  formatInteger,
   formatStatusLabel,
   groupRowsByStrike,
+  nearestStrike,
   summarizeSnapshot
 } from "../lib/dashboardMetrics";
 import { buildPath, buildSeries } from "../lib/chartGeometry";
@@ -14,11 +16,11 @@ describe("dashboard metrics", () => {
   it("summarizes the seeded analytics snapshot", () => {
     const summary = summarizeSnapshot(seedSnapshot);
 
-    expect(summary.rowCount).toBe(2);
-    expect(summary.strikeRange).toEqual([5200, 5200]);
-    expect(summary.averageIv).toBeCloseTo(0.183);
-    expect(summary.totalAbsGamma).toBeCloseTo(0.0244);
-    expect(summary.totalAbsVanna).toBeCloseTo(0.0082);
+    expect(summary.rowCount).toBe(34);
+    expect(summary.strikeRange).toEqual([5120, 5280]);
+    expect(summary.averageIv).toBeCloseTo(0.1907);
+    expect(summary.totalAbsGamma).toBeCloseTo(0.20565);
+    expect(summary.totalAbsVanna).toBeCloseTo(0.181896);
   });
 
   it("formats dashboard values consistently", () => {
@@ -28,16 +30,23 @@ describe("dashboard metrics", () => {
     expect(formatNumber(null, 4)).toBe("—");
     expect(formatBasisPointDiff(-0.002)).toBe("-20.0 bp");
     expect(formatBasisPointDiff(null)).toBe("—");
+    expect(formatInteger(2614)).toBe("2,614");
+    expect(formatInteger(null)).toBe("—");
     expect(formatStatusLabel("partial")).toBe("Partial");
   });
 
   it("groups call and put contracts into strike-centered chain rows", () => {
     const groupedRows = groupRowsByStrike(seedSnapshot.rows);
 
-    expect(groupedRows).toHaveLength(1);
-    expect(groupedRows[0]?.strike).toBe(5200);
-    expect(groupedRows[0]?.call?.right).toBe("call");
-    expect(groupedRows[0]?.put?.right).toBe("put");
+    expect(groupedRows).toHaveLength(17);
+    expect(groupedRows[0]?.strike).toBe(5120);
+    expect(groupedRows[8]?.strike).toBe(5200);
+    expect(groupedRows[8]?.call?.right).toBe("call");
+    expect(groupedRows[8]?.put?.right).toBe("put");
+  });
+
+  it("identifies the strike nearest to spot", () => {
+    expect(nearestStrike(seedSnapshot)).toBe(5200);
   });
 });
 

@@ -15,7 +15,8 @@ def test_latest_snapshot_returns_seed_contract() -> None:
     assert payload["schema_version"] == "1.0.0"
     assert payload["mode"] == "replay"
     assert payload["symbol"] == "SPX"
-    assert len(payload["rows"]) == 2
+    assert len(payload["rows"]) == 34
+    assert payload["rows"][0]["open_interest"] is not None
 
 
 def test_status_returns_seed_health() -> None:

@@ -32,6 +32,7 @@ export interface AnalyticsSnapshot {
     bid: number | null;
     ask: number | null;
     mid: number | null;
+    open_interest: number | null;
     custom_iv: number | null;
     custom_gamma: number | null;
     custom_vanna: number | null;

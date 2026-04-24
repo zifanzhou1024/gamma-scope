@@ -33,8 +33,13 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
         <line x1={FRAME.padding} x2={FRAME.width - FRAME.padding} y1={FRAME.height - FRAME.padding} y2={FRAME.height - FRAME.padding} />
         <line x1={FRAME.padding} x2={FRAME.padding} y1={FRAME.padding} y2={FRAME.height - FRAME.padding} />
         {path ? <path d={path} /> : null}
-        {series.map((point) => (
-          <circle key={`${title}-${point.x}-${point.y}`} cx={projectX(point.x, series)} cy={projectY(point.y, series)} r="3.5" />
+        {series.map((point, index) => (
+          <circle
+            key={`${title}-${point.x}-${point.y}-${index}`}
+            cx={projectX(point.x, series)}
+            cy={projectY(point.y, series)}
+            r="3.5"
+          />
         ))}
       </svg>
       <div className="chartFooter">

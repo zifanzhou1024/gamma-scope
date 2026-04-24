@@ -24,6 +24,11 @@ html {
   min-width: 320px;
 }
 
+[data-nextjs-toast],
+nextjs-portal {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background:
@@ -311,22 +316,59 @@ h1 {
   border-bottom: 1px solid rgba(56, 189, 248, 0.18);
 }
 
+.chainTitle {
+  min-width: 175px;
+}
+
 .chainToolbar h2 {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.28em;
+  letter-spacing: 0;
   line-height: 1;
   text-transform: uppercase;
 }
 
-.chainToolbar strong {
+.chainTitle p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  margin-top: 8px;
+  max-width: 320px;
+}
+
+.chainLegend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.chainLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.chainLegend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.atmDot {
+  background: var(--blue);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.7);
+}
+
+.gammaDot {
+  background: linear-gradient(90deg, #ff5b66, #4ade80);
 }
 
 .chainFilters {
@@ -348,7 +390,7 @@ h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 14px;
   font-weight: 800;
-  letter-spacing: 0.22em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -406,7 +448,7 @@ tbody tr:last-child td {
 }
 
 .chainTable {
-  min-width: 1280px;
+  min-width: 1480px;
   font-size: 15px;
 }
 
@@ -423,13 +465,13 @@ tbody tr:last-child td {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   font-weight: 900;
-  letter-spacing: 0.22em;
+  letter-spacing: 0;
 }
 
 .chainTable td {
   background: rgba(13, 39, 48, 0.52);
   color: var(--text);
-  font-size: 17px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -439,6 +481,11 @@ tbody tr:last-child td {
 
 .chainTable tbody tr:hover td {
   background: rgba(20, 69, 78, 0.72);
+}
+
+.chainTable .atmRow td {
+  background: rgba(22, 84, 96, 0.78);
+  box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.22), inset 0 -1px 0 rgba(56, 189, 248, 0.2);
 }
 
 .chainTable .callCol {
@@ -451,18 +498,100 @@ tbody tr:last-child td {
 
 .chainTable .strikeCol {
   z-index: 1;
-  min-width: 108px;
+  min-width: 118px;
   background: rgba(22, 73, 84, 0.8);
   color: var(--text);
   font-weight: 900;
   text-align: center;
 }
 
+.chainTable td.strikeCol {
+  padding: 0 10px;
+}
+
+.strikeCol strong,
+.strikeCol span {
+  display: block;
+}
+
+.strikeCol span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+
+.atmRow .strikeCol span {
+  color: var(--blue);
+}
+
 .chainTable th.strikeCol {
   z-index: 2;
   background: rgba(7, 22, 31, 0.96);
   color: var(--text);
-  letter-spacing: 0.18em;
+  letter-spacing: 0;
+}
+
+.riskCell {
+  position: relative;
+  min-width: 112px;
+  overflow: hidden;
+}
+
+.riskCell > span:last-child {
+  position: relative;
+  z-index: 1;
+}
+
+.heatFill {
+  position: absolute;
+  inset: 0;
+  opacity: var(--heat-opacity);
+  transform: scaleX(var(--heat));
+}
+
+.callRisk .heatFill {
+  background: linear-gradient(90deg, rgba(255, 91, 102, 0.12), rgba(255, 91, 102, 0.78));
+  right: 0;
+  transform-origin: right center;
+}
+
+.putRisk .heatFill {
+  background: linear-gradient(90deg, rgba(74, 222, 128, 0.78), rgba(74, 222, 128, 0.12));
+  left: 0;
+  transform-origin: left center;
+}
+
+.oiCell {
+  position: relative;
+  min-width: 96px;
+  overflow: hidden;
+  color: #dbeafe;
+}
+
+.oiCell > span:last-child {
+  position: relative;
+  z-index: 1;
+}
+
+.oiBar {
+  position: absolute;
+  inset: 12px 10px;
+  border-radius: 999px;
+  opacity: 0.42;
+  transform: scaleX(var(--oi));
+}
+
+.callInterest .oiBar {
+  background: linear-gradient(90deg, rgba(255, 91, 102, 0), rgba(255, 91, 102, 0.72));
+  transform-origin: right center;
+}
+
+.putInterest .oiBar {
+  background: linear-gradient(90deg, rgba(74, 222, 128, 0.72), rgba(74, 222, 128, 0));
+  transform-origin: left center;
 }
 
 .status-ok {
@@ -498,6 +627,45 @@ tbody tr:last-child td {
   .chartGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .chainTable {
+    min-width: 940px;
+  }
+
+  .chainTable .compactOptional {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .chainTable {
+    min-width: 760px;
+  }
+
+  .chainTable .smallOptional {
+    display: none;
+  }
+
+  .chainTable th,
+  .chainTable td {
+    padding: 0 10px;
+  }
+
+  .chainTable td {
+    font-size: 14px;
+  }
+
+  .chainTable .strikeCol {
+    min-width: 96px;
+  }
+
+  .riskCell {
+    min-width: 86px;
+  }
+
+  .oiCell {
+    min-width: 78px;
+  }
 }
 
 @media (max-width: 720px) {
@@ -508,13 +676,21 @@ tbody tr:last-child td {
 
   .topBar,
   .panelHeader,
-  .sectionHeader {
+  .sectionHeader,
+  .chainToolbar {
     align-items: stretch;
     flex-direction: column;
   }
 
   .statusRail {
     justify-content: flex-start;
+  }
+
+  .chainLegend {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-left: 0;
+    white-space: normal;
   }
 
   .sessionBand,

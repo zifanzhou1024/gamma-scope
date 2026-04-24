@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import { DashboardChart } from "../components/DashboardChart";
 import {
+  formatInteger,
   formatNumber,
   formatPercent,
   formatPrice,
@@ -7,6 +9,7 @@ import {
   formatStatusLabel,
   formatStrikeRange,
   groupRowsByStrike,
+  nearestStrike,
   sortRowsByStrike,
   summarizeSnapshot
 } from "../lib/dashboardMetrics";
@@ -17,6 +20,9 @@ export default function Home() {
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const chainRows = groupRowsByStrike(rows);
+  const atmStrike = nearestStrike(snapshot);
+  const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
+  const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
 
   return (
     <main className="dashboardShell">
@@ -71,45 +77,59 @@ export default function Home() {
 
       <section className="chainSection" aria-label="Option chain">
         <div className="chainToolbar">
-          <h2>Option chain</h2>
+          <div className="chainTitle">
+            <h2>Option chain</h2>
+            <p>Gamma heat and OI are mirrored around the strike spine.</p>
+          </div>
           <div className="chainFilters" aria-label="Chain filters">
             <span className="filterChip filter-active"><span />All</span>
             <span className="filterChip"><span />Calls</span>
             <span className="filterChip"><span />Puts</span>
           </div>
-          <strong>{chainRows.length} strikes</strong>
+          <div className="chainLegend" aria-label="Chain legend">
+            <span><i className="atmDot" />ATM</span>
+            <span><i className="gammaDot" />Gamma heat</span>
+            <strong>{chainRows.length} strikes</strong>
+          </div>
         </div>
         <div className="chainTableWrap">
           <table className="chainTable">
             <thead>
               <tr>
-                <th className="callCol">Call bid</th>
-                <th className="callCol">Call ask</th>
+                <th className="callCol compactOptional">Call bid</th>
+                <th className="callCol compactOptional">Call ask</th>
                 <th className="callCol">Call mid</th>
-                <th className="callCol">Call IV</th>
+                <th className="callCol smallOptional">Call IV</th>
+                <th className="callCol">Call Γ</th>
                 <th className="callCol">Call OI</th>
                 <th className="strikeCol">Strike</th>
-                <th className="putCol">Put bid</th>
-                <th className="putCol">Put ask</th>
+                <th className="putCol compactOptional">Put bid</th>
+                <th className="putCol compactOptional">Put ask</th>
                 <th className="putCol">Put mid</th>
-                <th className="putCol">Put IV</th>
+                <th className="putCol smallOptional">Put IV</th>
+                <th className="putCol">Put Γ</th>
                 <th className="putCol">Put OI</th>
               </tr>
             </thead>
             <tbody>
               {chainRows.map((row) => (
-                <tr key={row.strike}>
-                  <td>{formatPrice(row.call?.bid)}</td>
-                  <td>{formatPrice(row.call?.ask)}</td>
+                <tr key={row.strike} className={row.strike === atmStrike ? "atmRow" : undefined}>
+                  <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
+                  <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
                   <td>{formatPrice(row.call?.mid)}</td>
-                  <td>{formatPercent(row.call?.custom_iv)}</td>
-                  <td>{formatOpenInterest(row.call)}</td>
-                  <td className="strikeCol">{formatPrice(row.strike)}</td>
-                  <td>{formatPrice(row.put?.bid)}</td>
-                  <td>{formatPrice(row.put?.ask)}</td>
+                  <td className="smallOptional">{formatPercent(row.call?.custom_iv)}</td>
+                  <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
+                  <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
+                  <td className="strikeCol">
+                    <strong>{formatPrice(row.strike)}</strong>
+                    <span>{formatStrikeDistance(row.strike, snapshot.spot, atmStrike)}</span>
+                  </td>
+                  <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
+                  <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
                   <td>{formatPrice(row.put?.mid)}</td>
-                  <td>{formatPercent(row.put?.custom_iv)}</td>
-                  <td>{formatOpenInterest(row.put)}</td>
+                  <td className="smallOptional">{formatPercent(row.put?.custom_iv)}</td>
+                  <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
+                  <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
                 </tr>
               ))}
             </tbody>
@@ -129,6 +149,56 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function formatOpenInterest(_row: (typeof seedSnapshot.rows)[number] | null | undefined): string {
-  return "—";
+function RiskCell({
+  row,
+  maxGamma,
+  side
+}: {
+  row: (typeof seedSnapshot.rows)[number] | null | undefined;
+  maxGamma: number;
+  side: "call" | "put";
+}) {
+  const gamma = row?.custom_gamma ?? null;
+  const intensity = gamma == null || maxGamma === 0 ? 0 : Math.min(1, Math.abs(gamma) / maxGamma);
+  const style = {
+    "--heat": intensity.toFixed(3),
+    "--heat-opacity": (0.14 + intensity * 0.55).toFixed(3)
+  } as CSSProperties;
+
+  return (
+    <td className={`riskCell ${side}Risk`} style={style}>
+      <span className="heatFill" aria-hidden="true" />
+      <span>{formatNumber(gamma, 5)}</span>
+    </td>
+  );
+}
+
+function InterestCell({
+  value,
+  maxOpenInterest,
+  side
+}: {
+  value: number | null | undefined;
+  maxOpenInterest: number;
+  side: "call" | "put";
+}) {
+  const intensity = value == null || maxOpenInterest === 0 ? 0 : Math.min(1, value / maxOpenInterest);
+  const style = {
+    "--oi": intensity.toFixed(3)
+  } as CSSProperties;
+
+  return (
+    <td className={`oiCell ${side}Interest`} style={style}>
+      <span className="oiBar" aria-hidden="true" />
+      <span>{formatInteger(value)}</span>
+    </td>
+  );
+}
+
+function formatStrikeDistance(strike: number, spot: number, atmStrike: number | null): string {
+  if (strike === atmStrike) {
+    return "ATM";
+  }
+  const distance = strike - spot;
+  return `${distance > 0 ? "+" : ""}${Math.round(distance)} pts`;
 }
