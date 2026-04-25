@@ -7,6 +7,7 @@
     "contracts:generate": "pnpm --filter @gammascope/contracts generate",
     "test:contracts": "pnpm --filter @gammascope/contracts test",
     "test:scripts": "node --test tests/package-scripts.test.mjs",
+    "test:api": "docker compose up -d postgres && .venv/bin/pytest apps/api/tests -q",
     "test:web": "pnpm --filter @gammascope/web test",
     "typecheck:web": "pnpm --filter @gammascope/web typecheck",
     "dev:web": "pnpm --filter @gammascope/web dev",
@@ -18,6 +19,6 @@
     "collector:ibkr-delayed-snapshot": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_delayed_snapshot",
     "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
-    "test": "pnpm test:scripts && pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
+    "test": "pnpm test:scripts && pnpm test:contracts && pnpm test:api && pnpm typecheck:web && pnpm test:web"
   }
 }

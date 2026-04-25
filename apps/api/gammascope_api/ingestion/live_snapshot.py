@@ -22,6 +22,16 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
     if health is None or underlying is None or not contracts or not option_ticks:
         return None
 
+    session_id = str(underlying["session_id"])
+    contracts = [contract for contract in contracts if str(contract["session_id"]) == session_id]
+    option_ticks = {
+        contract_id: option_tick
+        for contract_id, option_tick in option_ticks.items()
+        if str(option_tick["session_id"]) == session_id
+    }
+    if not contracts or not option_ticks:
+        return None
+
     snapshot_time = state.last_event_time() or underlying["event_time"]
     expiry = str(contracts[0]["expiry"])
     spot = _spot_from_underlying(underlying)
@@ -42,7 +52,7 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
 
     return {
         "schema_version": "1.0.0",
-        "session_id": str(underlying["session_id"]),
+        "session_id": session_id,
         "mode": "live",
         "symbol": "SPX",
         "expiry": expiry,

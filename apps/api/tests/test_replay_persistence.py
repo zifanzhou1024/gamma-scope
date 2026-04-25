@@ -10,6 +10,7 @@ from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnaps
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
 from gammascope_api.main import app
+from gammascope_api.replay.capture import ReplayCaptureRecorder
 from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
 from gammascope_api.replay.repository import PostgresReplayRepository
 
@@ -157,6 +158,88 @@ def test_capture_throttle_inserts_new_snapshot_after_interval(
     assert latest["snapshot_time"] == "2026-04-24T15:30:09Z"
 
 
+def test_capture_ignores_stale_snapshot_older_than_latest(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    session_id = f"pytest-live-{uuid4()}"
+    session_ids.append(session_id)
+    recorder = ReplayCaptureRecorder(repo, interval_seconds=5)
+
+    latest_result = recorder.capture(_live_snapshot(session_id, "2026-04-24T15:30:09Z", spot=5209.25, row_count=2))
+    stale_result = recorder.capture(_live_snapshot(session_id, "2026-04-24T15:30:03Z", spot=5203.25, row_count=1))
+    session = next(item for item in repo.list_sessions() if item["session_id"] == session_id)
+    latest = repo.nearest_snapshot(session_id, "2026-04-24T15:30:09Z")
+
+    assert latest_result["captured"] is True
+    assert stale_result == {"captured": False, "reason": "stale_snapshot"}
+    assert session["snapshot_count"] == 1
+    assert latest is not None
+    assert latest["snapshot_time"] == "2026-04-24T15:30:09Z"
+    assert latest["spot"] == 5209.25
+    assert len(latest["rows"]) == 2
+
+
+def test_repository_update_missing_snapshot_id_falls_back_to_insert(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    session_id = f"pytest-replay-{uuid4()}"
+    session_ids.append(session_id)
+
+    summary = repo.update_snapshot(
+        999_999_999,
+        _snapshot(session_id, "2026-04-24T15:30:00Z", spot=5200.25, row_count=2),
+        source="ibkr",
+    )
+    session = next(item for item in repo.list_sessions() if item["session_id"] == session_id)
+
+    assert summary["session_id"] == session_id
+    assert summary["row_count"] == 2
+    assert session["snapshot_count"] == 1
+    assert session["start_time"] == "2026-04-24T15:30:00Z"
+
+
+def test_repository_update_across_sessions_refreshes_old_session_summary(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    first_session_id = f"pytest-replay-a-{uuid4()}"
+    second_session_id = f"pytest-replay-b-{uuid4()}"
+    session_ids.extend([first_session_id, second_session_id])
+
+    first_summary = repo.insert_snapshot(_snapshot(first_session_id, "2026-04-24T15:30:00Z"), source="ibkr")
+    repo.insert_snapshot(_snapshot(first_session_id, "2026-04-24T15:35:00Z"), source="ibkr")
+
+    repo.update_snapshot(
+        first_summary["snapshot_id"],
+        _snapshot(second_session_id, "2026-04-24T15:40:00Z", spot=5240.25),
+        source="ibkr",
+    )
+
+    sessions = {session["session_id"]: session for session in repo.list_sessions()}
+    assert sessions[first_session_id]["snapshot_count"] == 1
+    assert sessions[first_session_id]["start_time"] == "2026-04-24T15:35:00Z"
+    assert sessions[second_session_id]["snapshot_count"] == 1
+    assert sessions[second_session_id]["start_time"] == "2026-04-24T15:40:00Z"
+
+
+def test_repository_nearest_snapshot_prefers_newest_payload_for_same_timestamp(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    session_id = f"pytest-replay-{uuid4()}"
+    session_ids.append(session_id)
+
+    repo.insert_snapshot(_snapshot(session_id, "2026-04-24T15:30:00Z", spot=5200.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(session_id, "2026-04-24T15:30:00Z", spot=5210.25), source="ibkr")
+
+    nearest = repo.nearest_snapshot(session_id, "2026-04-24T15:30:00Z")
+
+    assert nearest is not None
+    assert nearest["spot"] == 5210.25
+
+
 def test_seeded_replay_still_works_when_repository_has_no_session(api_client: TestClient) -> None:
     response = api_client.get(
         "/api/spx/0dte/replay/snapshot",
@@ -179,6 +262,12 @@ def _snapshot(session_id: str, snapshot_time: str, *, spot: float = 5200.25, row
     snapshot["spot"] = spot
     snapshot["forward"] = spot
     snapshot["rows"] = snapshot["rows"][:row_count]
+    return snapshot
+
+
+def _live_snapshot(session_id: str, snapshot_time: str, *, spot: float = 5200.25, row_count: int = 1) -> dict:
+    snapshot = _snapshot(session_id, snapshot_time, spot=spot, row_count=row_count)
+    snapshot["mode"] = "live"
     return snapshot
 
 

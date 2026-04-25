@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.replay.dependencies import get_replay_repository
@@ -60,7 +60,10 @@ def _persisted_replay_snapshot(session_id: str, at: str | None) -> dict[str, Any
     try:
         return get_replay_repository().nearest_snapshot(session_id, at)
     except Exception:
-        return None
+        snapshots = seed_replay_snapshots()
+        if session_id == snapshots[0]["session_id"]:
+            return None
+        raise HTTPException(status_code=503, detail="Replay persistence unavailable") from None
 
 
 def seed_replay_snapshots() -> list[dict[str, Any]]:

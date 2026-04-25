@@ -404,6 +404,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       replayPanel={
         <ReplayPanel
           selectedSessionId={selectedReplaySessionId}
+          sessions={replaySessions}
           hasSessions={replaySessions.length > 0}
           snapshotTimes={replaySnapshotTimes}
           selectedSnapshotIndex={clampedReplayIndex}
@@ -412,6 +413,11 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
           isLoadingSessions={isLoadingReplaySessions}
           isLoadingReplay={isLoadingReplay}
           errorMessage={replayError}
+          onSelectSessionId={(sessionId) => {
+            const session = replaySessions.find((candidate) => candidate.session_id === sessionId) ?? null;
+            setSelectedReplaySessionId(sessionId || null);
+            setSelectedReplayIndex(session ? clampReplayIndex(Number.POSITIVE_INFINITY, session) : 0);
+          }}
           onSelectSnapshotIndex={(index) => {
             setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
           }}

@@ -4,6 +4,7 @@ from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnaps
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
 from gammascope_api.main import app
+from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
 from gammascope_api.replay.repository import NullReplayRepository
 
@@ -14,6 +15,7 @@ client = TestClient(app)
 def setup_function() -> None:
     collector_state.clear()
     set_replay_repository_override(NullReplayRepository())
+    reset_replay_capture_circuit()
 
 
 def test_collector_ingest_accepts_health_event() -> None:
@@ -231,6 +233,64 @@ def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
     assert all(row["custom_iv"] is not None for row in payload["rows"])
     assert all(row["custom_gamma"] is not None for row in payload["rows"])
     assert all(row["custom_vanna"] is not None for row in payload["rows"])
+
+
+def test_latest_snapshot_does_not_mix_rows_from_previous_session() -> None:
+    previous_session_events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("previous-session", "2026-04-24T15:30:00Z", 5200.25),
+        _contract_event("previous-session", "SPX-2026-04-24-C-5200", "call", "2026-04-24T15:30:00Z"),
+        _option_event("previous-session", "SPX-2026-04-24-C-5200", "2026-04-24T15:30:01Z"),
+    ]
+    new_session_events = [
+        _underlying_event("new-session", "2026-04-24T15:31:00Z", 5210.25),
+    ]
+
+    for event in [*previous_session_events, *new_session_events]:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/snapshot/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "replay"
+    assert payload["session_id"] == "seed-spx-2026-04-23"
+
+
+def test_replay_snapshot_reports_unavailable_when_repository_fails_for_non_seed_session() -> None:
+    set_replay_repository_override(FailingReplayRepository())
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "captured-session", "at": "2026-04-24T15:30:00Z"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Replay persistence unavailable"
+
+
+def test_collector_ingest_skips_replay_capture_temporarily_after_persistence_failure() -> None:
+    repository = FailingReplayRepository()
+    set_replay_repository_override(repository)
+    events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("live-spx-local-mock", "2026-04-24T15:30:00Z", 5200.25),
+        _contract_event("live-spx-local-mock", "SPX-2026-04-24-C-5200", "call", "2026-04-24T15:30:00Z"),
+        _option_event("live-spx-local-mock", "SPX-2026-04-24-C-5200", "2026-04-24T15:30:01Z"),
+        _option_event("live-spx-local-mock", "SPX-2026-04-24-C-5200", "2026-04-24T15:30:02Z", bid=10.2, ask=10.4),
+    ]
+
+    responses = [client.post("/api/spx/0dte/collector/events", json=event) for event in events]
+
+    assert all(response.status_code == 200 for response in responses)
+    capture_responses = [
+        response.json()["replay_capture"]
+        for response in responses
+        if response.json()["replay_capture"]["reason"] != "snapshot_not_ready"
+    ]
+    assert repository.calls == 1
+    assert capture_responses[0]["reason"] == "persistence_unavailable"
+    assert capture_responses[1]["reason"] == "persistence_unavailable_recently"
 
 
 def test_latest_snapshot_returns_seed_contract() -> None:
@@ -508,3 +568,109 @@ def test_saved_views_reject_invalid_payload() -> None:
     )
 
     assert response.status_code == 422
+
+
+class FailingReplayRepository:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def ensure_schema(self) -> None:
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+    def insert_snapshot(self, snapshot, *, source: str):
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+    def update_snapshot(self, snapshot_id: int, snapshot, *, source: str):
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+    def latest_snapshot_summary(self, session_id: str):
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+    def list_sessions(self):
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+    def nearest_snapshot(self, session_id: str, at: str | None = None):
+        self.calls += 1
+        raise RuntimeError("database unavailable")
+
+
+def _health_event(event_time: str) -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "collector_id": "local-dev",
+        "status": "connected",
+        "ibkr_account_mode": "paper",
+        "message": "Mock live cycle",
+        "event_time": event_time,
+        "received_time": event_time,
+    }
+
+
+def _underlying_event(session_id: str, event_time: str, spot: float) -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "symbol": "SPX",
+        "spot": spot,
+        "bid": spot - 0.5,
+        "ask": spot + 0.5,
+        "last": spot,
+        "mark": spot,
+        "event_time": event_time,
+        "quote_status": "valid",
+    }
+
+
+def _contract_event(session_id: str, contract_id: str, right: str, event_time: str) -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "ibkr_con_id": 900000,
+        "symbol": "SPX",
+        "expiry": "2026-04-24",
+        "right": right,
+        "strike": 5200,
+        "multiplier": 100,
+        "exchange": "CBOE",
+        "currency": "USD",
+        "event_time": event_time,
+    }
+
+
+def _option_event(
+    session_id: str,
+    contract_id: str,
+    event_time: str,
+    *,
+    bid: float = 9.9,
+    ask: float = 10.1,
+) -> dict[str, object]:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "bid": bid,
+        "ask": ask,
+        "last": (bid + ask) / 2,
+        "bid_size": 10,
+        "ask_size": 12,
+        "volume": 400,
+        "open_interest": 2400,
+        "ibkr_iv": 0.2,
+        "ibkr_delta": 0.51,
+        "ibkr_gamma": 0.017,
+        "ibkr_vega": 0.9,
+        "ibkr_theta": -1.0,
+        "event_time": event_time,
+        "quote_status": "valid",
+    }

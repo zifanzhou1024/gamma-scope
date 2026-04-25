@@ -1,7 +1,9 @@
 import React from "react";
+import type { ReplaySession } from "../lib/clientReplaySource";
 
 interface ReplayPanelProps {
   selectedSessionId: string | null;
+  sessions: ReplaySession[];
   hasSessions: boolean;
   snapshotTimes: string[];
   selectedSnapshotIndex: number;
@@ -10,6 +12,7 @@ interface ReplayPanelProps {
   isLoadingSessions: boolean;
   isLoadingReplay: boolean;
   errorMessage: string | null;
+  onSelectSessionId: (sessionId: string) => void;
   onSelectSnapshotIndex: (index: number) => void;
   onLoadReplay: () => void;
   onReturnToLive: () => void;
@@ -17,6 +20,7 @@ interface ReplayPanelProps {
 
 export function ReplayPanel({
   selectedSessionId,
+  sessions,
   hasSessions,
   snapshotTimes,
   selectedSnapshotIndex,
@@ -25,6 +29,7 @@ export function ReplayPanel({
   isLoadingSessions,
   isLoadingReplay,
   errorMessage,
+  onSelectSessionId,
   onSelectSnapshotIndex,
   onLoadReplay,
   onReturnToLive
@@ -38,7 +43,24 @@ export function ReplayPanel({
     <section className="replayPanel" aria-label="Replay controls">
       <div className="replayCopy">
         <span className="eyebrow">Replay</span>
-        <strong>{selectedSessionId ?? "Seeded session"}</strong>
+        <label>
+          <span>Replay session</span>
+          <select
+            value={selectedSessionId ?? ""}
+            disabled={isLoadingSessions || isLoadingReplay || sessions.length === 0}
+            onChange={(event) => {
+              onSelectSessionId(event.currentTarget.value);
+            }}
+          >
+            {sessions.length > 0 ? sessions.map((session) => (
+              <option key={session.session_id} value={session.session_id}>
+                {session.session_id}
+              </option>
+            )) : (
+              <option value="">Seeded session</option>
+            )}
+          </select>
+        </label>
       </div>
       <div className="replayTimeline">
         <div className="replayTimelineMeta">

@@ -125,6 +125,12 @@ class PostgresReplayRepository:
 
         with self._connect() as connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT session_id FROM analytics_snapshots WHERE snapshot_id = %s",
+                    (snapshot_id,),
+                )
+                previous_record = cursor.fetchone()
+                previous_session_id = str(previous_record[0]) if previous_record else None
                 self._upsert_session(cursor, normalized, source=source, snapshot_time=snapshot_time)
                 cursor.execute(
                     """
@@ -146,8 +152,10 @@ class PostgresReplayRepository:
                     ),
                 )
                 record = cursor.fetchone()
-                self._refresh_session(cursor, normalized["session_id"])
-
+                if record is not None:
+                    if previous_session_id is not None and previous_session_id != normalized["session_id"]:
+                        self._refresh_session(cursor, previous_session_id)
+                    self._refresh_session(cursor, normalized["session_id"])
         if record is None:
             return self.insert_snapshot(normalized, source=source)
         return _summary_from_record(record)
@@ -218,7 +226,7 @@ class PostgresReplayRepository:
                         SELECT payload
                         FROM analytics_snapshots
                         WHERE session_id = %s
-                        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot_time - %s))), snapshot_time DESC
+                        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot_time - %s))), snapshot_time DESC, snapshot_id DESC
                         LIMIT 1
                         """,
                         (session_id, target_time),
@@ -273,22 +281,30 @@ class PostgresReplayRepository:
     def _refresh_session(self, cursor: Any, session_id: str) -> None:
         cursor.execute(
             """
-            UPDATE replay_sessions AS session
-            SET start_time = summary.start_time,
-                end_time = summary.end_time,
-                snapshot_count = summary.snapshot_count,
-                updated_at = NOW()
-            FROM (
-                SELECT
-                    MIN(snapshot_time) AS start_time,
-                    MAX(snapshot_time) AS end_time,
-                    COUNT(*)::INTEGER AS snapshot_count
-                FROM analytics_snapshots
-                WHERE session_id = %s
-            ) AS summary
-            WHERE session.session_id = %s
+            SELECT
+                MIN(snapshot_time) AS start_time,
+                MAX(snapshot_time) AS end_time,
+                COUNT(*)::INTEGER AS snapshot_count
+            FROM analytics_snapshots
+            WHERE session_id = %s
             """,
-            (session_id, session_id),
+            (session_id,),
+        )
+        start_time, end_time, snapshot_count = cursor.fetchone()
+        if int(snapshot_count) == 0:
+            cursor.execute("DELETE FROM replay_sessions WHERE session_id = %s", (session_id,))
+            return
+
+        cursor.execute(
+            """
+            UPDATE replay_sessions
+            SET start_time = %s,
+                end_time = %s,
+                snapshot_count = %s,
+                updated_at = NOW()
+            WHERE session_id = %s
+            """,
+            (start_time, end_time, snapshot_count, session_id),
         )
 
 

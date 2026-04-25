@@ -9,8 +9,10 @@ Run:
     pnpm install
     pnpm contracts:validate
     pnpm contracts:generate
-    pnpm test
     docker compose up -d
+    python3 -m venv .venv
+    .venv/bin/python -m pip install -e "apps/api[dev]"
+    pnpm test
 
 ### First Slice Verification
 
@@ -18,10 +20,10 @@ Run:
     pnpm contracts:validate
     pnpm contracts:generate
     pnpm --filter @gammascope/contracts typecheck:generated
-    pnpm typecheck:web
-    pnpm test:web
     python3 -m venv .venv
     .venv/bin/python -m pip install -e "apps/api[dev]"
+    pnpm typecheck:web
+    pnpm test:web
     .venv/bin/pytest apps/api/tests -q
 
 Run local services:

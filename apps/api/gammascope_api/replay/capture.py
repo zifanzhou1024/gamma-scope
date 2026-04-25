@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from gammascope_api.ingestion.collector_state import CollectorState
 from gammascope_api.ingestion.live_snapshot import build_live_snapshot
 from gammascope_api.replay.dependencies import capture_interval_seconds, get_replay_repository
 from gammascope_api.replay.repository import ReplayRepository
+
+PERSISTENCE_FAILURE_COOLDOWN_SECONDS = 30
+_persistence_unavailable_until: datetime | None = None
 
 
 class ReplayCaptureRecorder:
@@ -34,6 +37,8 @@ class ReplayCaptureRecorder:
         elapsed_seconds = (
             _parse_datetime(str(replay_snapshot["snapshot_time"])) - _parse_datetime(str(latest["snapshot_time"]))
         ).total_seconds()
+        if elapsed_seconds < 0:
+            return {"captured": False, "reason": "stale_snapshot"}
         if elapsed_seconds >= self.interval_seconds:
             summary = self.repository.insert_snapshot(replay_snapshot, source="ibkr")
             return {"captured": True, "action": "inserted", **summary}
@@ -43,15 +48,26 @@ class ReplayCaptureRecorder:
 
 
 def capture_live_snapshot_from_state(state: CollectorState) -> dict[str, Any]:
+    global _persistence_unavailable_until
+    now = datetime.now(UTC)
+    if _persistence_unavailable_until is not None and now < _persistence_unavailable_until:
+        return {"captured": False, "reason": "persistence_unavailable_recently"}
+
     recorder = ReplayCaptureRecorder(get_replay_repository(), interval_seconds=capture_interval_seconds())
     try:
         return recorder.capture(build_live_snapshot(state))
     except Exception as exc:
+        _persistence_unavailable_until = now + timedelta(seconds=PERSISTENCE_FAILURE_COOLDOWN_SECONDS)
         return {
             "captured": False,
             "reason": "persistence_unavailable",
             "message": str(exc),
         }
+
+
+def reset_replay_capture_circuit() -> None:
+    global _persistence_unavailable_until
+    _persistence_unavailable_until = None
 
 
 def _replay_ready_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
