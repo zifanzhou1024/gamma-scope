@@ -106,6 +106,14 @@ describe("LiveDashboard scenario panel", () => {
     expect(LiveDashboardModule.shouldPollLiveSnapshot(false, true)).toBe(false);
   });
 
+  it("refreshes collector health while live polling is active", () => {
+    expect(LiveDashboardModule.shouldPollCollectorHealth).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.shouldPollCollectorHealth(false, false)).toBe(true);
+    expect(LiveDashboardModule.shouldPollCollectorHealth(true, false)).toBe(false);
+    expect(LiveDashboardModule.shouldPollCollectorHealth(false, true)).toBe(false);
+  });
+
   it("creates a replay snapshot request from a selected replay session", () => {
     expect(LiveDashboardModule.createReplaySnapshotRequest).toBeTypeOf("function");
 

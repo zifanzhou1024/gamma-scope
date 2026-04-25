@@ -150,6 +150,29 @@ h1 {
   white-space: nowrap;
 }
 
+.collectorStatus-connected {
+  border-color: rgba(34, 197, 94, 0.42);
+  color: #86efac;
+}
+
+.collectorStatus-degraded,
+.collectorStatus-stale {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fcd34d;
+}
+
+.collectorStatus-disconnected,
+.collectorStatus-error {
+  border-color: rgba(248, 113, 113, 0.44);
+  color: #fca5a5;
+}
+
+.collectorMessage {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sessionBand {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(150px, 1fr));

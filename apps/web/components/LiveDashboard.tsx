@@ -9,6 +9,8 @@ import {
   saveClientSavedView
 } from "../lib/clientSavedViewsSource";
 import { loadClientDashboardSnapshot } from "../lib/clientSnapshotSource";
+import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
+import { loadClientCollectorHealth } from "../lib/clientCollectorStatusSource";
 import type { ScenarioRequest } from "../lib/clientScenarioSource";
 import { requestClientScenarioSnapshot } from "../lib/clientScenarioSource";
 import type { ReplaySnapshotRequest, ReplaySession } from "../lib/clientReplaySource";
@@ -102,6 +104,10 @@ export function shouldPollLiveSnapshot(isScenarioModeActive: boolean, isReplayMo
   return !isScenarioModeActive && !isReplayModeActive;
 }
 
+export function shouldPollCollectorHealth(isScenarioModeActive: boolean, isReplayModeActive = false): boolean {
+  return shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive);
+}
+
 export function canApplyLiveSnapshot({
   isScenarioModeActive,
   isReplayModeActive = false,
@@ -129,6 +135,7 @@ export function canApplyReplaySnapshot({
 
 export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [replaySessions, setReplaySessions] = useState<ReplaySession[]>([]);
   const [selectedReplaySessionId, setSelectedReplaySessionId] = useState<string | null>(null);
   const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
@@ -232,6 +239,18 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
         }
       },
       intervalMs: 1000
+    });
+  }, [isScenarioModeActive, isReplayModeActive]);
+
+  useEffect(() => {
+    if (!shouldPollCollectorHealth(isScenarioModeActive, isReplayModeActive)) {
+      return undefined;
+    }
+
+    return startSnapshotPolling<CollectorHealth>({
+      loadSnapshot: loadClientCollectorHealth,
+      applySnapshot: setCollectorHealth,
+      intervalMs: 5000
     });
   }, [isScenarioModeActive, isReplayModeActive]);
 
@@ -381,6 +400,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   return (
     <DashboardView
       snapshot={snapshot}
+      collectorHealth={collectorHealth}
       replayPanel={
         <ReplayPanel
           selectedSessionId={selectedReplaySessionId}

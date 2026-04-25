@@ -1,16 +1,14 @@
-import type { AnalyticsSnapshot } from "./contracts";
-
-interface StartSnapshotPollingOptions {
-  loadSnapshot: () => Promise<AnalyticsSnapshot | null>;
-  applySnapshot: (snapshot: AnalyticsSnapshot) => void;
+interface StartSnapshotPollingOptions<T> {
+  loadSnapshot: () => Promise<T | null>;
+  applySnapshot: (snapshot: T) => void;
   intervalMs: number;
 }
 
-export function startSnapshotPolling({
+export function startSnapshotPolling<T>({
   loadSnapshot,
   applySnapshot,
   intervalMs
-}: StartSnapshotPollingOptions): () => void {
+}: StartSnapshotPollingOptions<T>): () => void {
   let active = true;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import type { CSSProperties } from "react";
 import { DashboardChart } from "./DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import {
   type ChainSide,
   filterChainRowsBySide,
@@ -25,6 +26,7 @@ import {
 
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
+  collectorHealth?: CollectorHealth | null;
   initialChainSide?: ChainSide;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
@@ -39,6 +41,7 @@ const chainFilterOptions: Array<{ side: ChainSide; label: string }> = [
 
 export function DashboardView({
   snapshot,
+  collectorHealth,
   initialChainSide = "all",
   replayPanel,
   savedViewsPanel,
@@ -69,6 +72,17 @@ export function DashboardView({
           <span>{formatStatusLabel(snapshot.mode)}</span>
           <span>{formatStatusLabel(snapshot.source_status)}</span>
           <span>{snapshot.freshness_ms} ms</span>
+          {collectorHealth ? (
+            <>
+              <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
+                Collector {formatStatusLabel(collectorHealth.status)}
+              </span>
+              <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
+              <span className="collectorMessage" title={collectorHealth.message}>
+                {collectorHealth.message}
+              </span>
+            </>
+          ) : null}
         </div>
       </header>
 
@@ -211,6 +225,14 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {
+  if (accountMode === "unknown") {
+    return "Unknown";
+  }
+
+  return formatStatusLabel(accountMode);
 }
 
 function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {

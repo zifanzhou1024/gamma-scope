@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { seedSnapshot } from "../lib/seedSnapshot";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+import type { CollectorHealth } from "@gammascope/contracts/collector-events";
 
 vi.mock("../components/DashboardChart", () => ({
   DashboardChart: ({ title }: { title: string }) => <section>{title}</section>
@@ -70,6 +71,26 @@ describe("DashboardView", () => {
     const markup = renderToStaticMarkup(<DashboardView snapshot={comparisonSnapshot} />);
 
     expect(markup).toContain("Stale");
+  });
+
+  it("renders compact collector health context near the status area", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "IBKR market data delayed",
+      event_time: "2026-04-24T15:00:00Z",
+      received_time: "2026-04-24T15:00:01Z"
+    } satisfies CollectorHealth;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} collectorHealth={collectorHealth} />);
+
+    expect(markup).toContain("Collector");
+    expect(markup).toContain("Degraded");
+    expect(markup).toContain("IBKR Paper");
+    expect(markup).toContain("IBKR market data delayed");
   });
 
   it("can render a calls-only chain while keeping the strike spine visible", async () => {
