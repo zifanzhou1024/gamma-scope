@@ -11,6 +11,7 @@ import {
 import { loadClientDashboardSnapshot } from "../lib/clientSnapshotSource";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import { loadClientCollectorHealth } from "../lib/clientCollectorStatusSource";
+import type { LiveTransportStatus } from "../lib/dashboardMetrics";
 import type { ScenarioRequest } from "../lib/clientScenarioSource";
 import { requestClientScenarioSnapshot } from "../lib/clientScenarioSource";
 import type { ReplaySnapshotRequest, ReplaySession } from "../lib/clientReplaySource";
@@ -22,6 +23,7 @@ import {
 } from "../lib/clientReplaySource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
 import { startLiveSnapshotUpdates } from "../lib/snapshotUpdates";
+import type { LiveSnapshotUpdateSource } from "../lib/snapshotUpdates";
 import { DashboardView } from "./DashboardView";
 import { ReplayPanel } from "./ReplayPanel";
 import { SavedViewsPanel } from "./SavedViewsPanel";
@@ -44,6 +46,11 @@ interface LiveSnapshotApplyState {
   isReplayModeActive?: boolean;
   responseRequestId: number;
   latestRequestId: number;
+}
+
+interface LiveStreamSnapshotApplyState {
+  isScenarioModeActive: boolean;
+  isReplayModeActive?: boolean;
 }
 
 interface ScenarioSnapshotApplyState {
@@ -118,6 +125,13 @@ export function canApplyLiveSnapshot({
   return !isScenarioModeActive && !isReplayModeActive && responseRequestId === latestRequestId;
 }
 
+export function canApplyLiveStreamSnapshot({
+  isScenarioModeActive,
+  isReplayModeActive = false
+}: LiveStreamSnapshotApplyState): boolean {
+  return !isScenarioModeActive && !isReplayModeActive;
+}
+
 export function canApplyScenarioSnapshot({
   responseRequestId,
   latestRequestId,
@@ -137,6 +151,7 @@ export function canApplyReplaySnapshot({
 export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
+  const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
   const [replaySessions, setReplaySessions] = useState<ReplaySession[]>([]);
   const [selectedReplaySessionId, setSelectedReplaySessionId] = useState<string | null>(null);
   const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
@@ -216,6 +231,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     replayModeRef.current = isReplayModeActive;
 
     if (!shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive)) {
+      setLiveTransportStatus(null);
       return undefined;
     }
 
@@ -229,7 +245,17 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
           return liveSnapshot;
         });
       },
-      applySnapshot: (liveSnapshot) => {
+      applySnapshot: (liveSnapshot, source: LiveSnapshotUpdateSource) => {
+        if (source === "stream") {
+          if (canApplyLiveStreamSnapshot({
+            isScenarioModeActive: scenarioModeRef.current,
+            isReplayModeActive: replayModeRef.current
+          })) {
+            setSnapshot(liveSnapshot);
+          }
+          return;
+        }
+
         if (canApplyLiveSnapshot({
           isScenarioModeActive: scenarioModeRef.current,
           isReplayModeActive: replayModeRef.current,
@@ -239,7 +265,8 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
           setSnapshot(liveSnapshot);
         }
       },
-      intervalMs: 1000
+      intervalMs: 1000,
+      onTransportStatus: setLiveTransportStatus
     });
   }, [isScenarioModeActive, isReplayModeActive]);
 
@@ -402,6 +429,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     <DashboardView
       snapshot={snapshot}
       collectorHealth={collectorHealth}
+      transportStatus={liveTransportStatus}
       replayPanel={
         <ReplayPanel
           selectedSessionId={selectedReplaySessionId}

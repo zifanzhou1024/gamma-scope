@@ -93,6 +93,63 @@ describe("DashboardView", () => {
     expect(markup).toContain("IBKR market data delayed");
   });
 
+  it("renders transport status, operational notices, and row issue chips", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const degradedSnapshot = {
+      ...snapshot,
+      source_status: "degraded",
+      coverage_status: "partial",
+      rows: snapshot.rows.map((row, index) => {
+        if (index === 0) {
+          return { ...row, bid: 14.25, ask: 14, calc_status: "stale_underlying" as const };
+        }
+        return row;
+      })
+    } satisfies AnalyticsSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "disconnected",
+      ibkr_account_mode: "paper",
+      message: "Collector socket disconnected",
+      event_time: "2026-04-24T15:00:00Z",
+      received_time: "2026-04-24T15:00:01Z"
+    } satisfies CollectorHealth;
+    const markup = renderToStaticMarkup(
+      <DashboardView
+        snapshot={degradedSnapshot}
+        collectorHealth={collectorHealth}
+        transportStatus="fallback_polling"
+      />
+    );
+
+    expect(markup).toContain("Transport Fallback polling");
+    expect(markup).toContain("Partial chain");
+    expect(markup).toContain("Source degraded");
+    expect(markup).toContain("Collector disconnected");
+    expect(markup).toContain("Crossed quotes");
+    expect(markup).toContain("Calculation issues");
+    expect(markup).toContain("Stale underlying");
+    expect(markup).toContain("Crossed quote");
+  });
+
+  it("renders disconnected transport and both row chips when quote and calc issues coexist", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const degradedSnapshot = {
+      ...snapshot,
+      rows: snapshot.rows.map((row, index) =>
+        index === 0 ? { ...row, bid: 14.25, ask: 14, calc_status: "stale_underlying" as const } : row
+      )
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={degradedSnapshot} transportStatus="disconnected" />);
+
+    expect(markup).toContain("Transport Disconnected");
+    expect(markup).toContain("WebSocket stream disconnected.");
+    expect(markup).toContain("Crossed quote");
+    expect(markup).toContain("Stale underlying");
+  });
+
   it("can render a calls-only chain while keeping the strike spine visible", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} initialChainSide="calls" />);

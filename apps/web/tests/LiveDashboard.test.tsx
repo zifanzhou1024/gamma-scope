@@ -161,6 +161,23 @@ describe("LiveDashboard scenario panel", () => {
     })).toBe(false);
   });
 
+  it("allows recovered stream snapshots while a fallback poll is still in flight", () => {
+    expect(LiveDashboardModule.canApplyLiveStreamSnapshot).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.canApplyLiveStreamSnapshot({
+      isScenarioModeActive: false,
+      isReplayModeActive: false
+    })).toBe(true);
+    expect(LiveDashboardModule.canApplyLiveStreamSnapshot({
+      isScenarioModeActive: true,
+      isReplayModeActive: false
+    })).toBe(false);
+    expect(LiveDashboardModule.canApplyLiveStreamSnapshot({
+      isScenarioModeActive: false,
+      isReplayModeActive: true
+    })).toBe(false);
+  });
+
   it("only applies the latest active scenario response", () => {
     expect(LiveDashboardModule.canApplyScenarioSnapshot).toBeTypeOf("function");
 

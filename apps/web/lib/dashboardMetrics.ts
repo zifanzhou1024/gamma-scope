@@ -1,13 +1,30 @@
 import type { AnalyticsSnapshot } from "./contracts";
+import type { CollectorHealth } from "./clientCollectorStatusSource";
 
 type AnalyticsRow = AnalyticsSnapshot["rows"][number];
+type CalcStatus = AnalyticsRow["calc_status"];
 type ComparisonStatus = AnalyticsRow["comparison_status"];
+type SourceStatus = AnalyticsSnapshot["source_status"];
+type CoverageStatus = AnalyticsSnapshot["coverage_status"];
+type CollectorStatus = CollectorHealth["status"];
 
 export type ComparisonTone = "ok" | "warning" | "muted";
+export type OperationalTone = "ok" | "warning" | "error" | "muted";
+export type LiveTransportStatus = "connecting" | "streaming" | "disconnected" | "fallback_polling" | "reconnecting";
 
 export interface ComparisonStatusDisplay {
   label: string;
   tone: ComparisonTone;
+}
+
+export interface OperationalStatusDisplay {
+  label: string;
+  tone: OperationalTone;
+}
+
+export interface OperationalNotice extends OperationalStatusDisplay {
+  key: string;
+  message: string;
 }
 
 export interface SnapshotSummary {
@@ -108,6 +125,114 @@ export function getComparisonStatusDisplay(status: ComparisonStatus | null | und
   };
 }
 
+export function getTransportStatusDisplay(status: LiveTransportStatus): OperationalStatusDisplay {
+  if (status === "streaming") {
+    return { label: "Streaming", tone: "ok" };
+  }
+  if (status === "disconnected") {
+    return { label: "Disconnected", tone: "error" };
+  }
+  if (status === "fallback_polling") {
+    return { label: "Fallback polling", tone: "warning" };
+  }
+  if (status === "reconnecting") {
+    return { label: "Reconnecting", tone: "muted" };
+  }
+  return { label: "Connecting", tone: "muted" };
+}
+
+export function getRowOperationalStatusDisplay(row: AnalyticsRow | null | undefined): OperationalStatusDisplay | null {
+  return getRowOperationalStatusDisplays(row)[0] ?? null;
+}
+
+export function getRowOperationalStatusDisplays(row: AnalyticsRow | null | undefined): OperationalStatusDisplay[] {
+  if (row == null) {
+    return [];
+  }
+
+  const statuses: OperationalStatusDisplay[] = [];
+
+  if (isCrossedQuote(row)) {
+    statuses.push({ label: "Crossed quote", tone: "warning" });
+  }
+
+  if (row.calc_status !== "ok") {
+    statuses.push({
+      label: formatOperationalStatusLabel(row.calc_status),
+      tone: calcStatusTone(row.calc_status)
+    });
+  }
+
+  return statuses;
+}
+
+export function deriveOperationalNotices(
+  snapshot: AnalyticsSnapshot,
+  collectorHealth?: CollectorHealth | null,
+  transportStatus?: LiveTransportStatus | null
+): OperationalNotice[] {
+  const notices: OperationalNotice[] = [];
+
+  if (transportStatus && transportStatus !== "streaming") {
+    const display = getTransportStatusDisplay(transportStatus);
+    notices.push({
+      key: `transport-${transportStatus}`,
+      label: display.label,
+      message: transportStatusMessage(transportStatus),
+      tone: display.tone
+    });
+  }
+
+  if (snapshot.coverage_status !== "full") {
+    notices.push({
+      key: `coverage-${snapshot.coverage_status}`,
+      label: coverageStatusLabel(snapshot.coverage_status),
+      message: coverageStatusMessage(snapshot.coverage_status),
+      tone: snapshot.coverage_status === "empty" ? "error" : "warning"
+    });
+  }
+
+  if (snapshot.source_status !== "connected") {
+    notices.push({
+      key: `source-${snapshot.source_status}`,
+      label: `Source ${formatStatusLabel(snapshot.source_status).toLowerCase()}`,
+      message: `Snapshot source is ${formatStatusLabel(snapshot.source_status).toLowerCase()}.`,
+      tone: sourceStatusTone(snapshot.source_status)
+    });
+  }
+
+  if (collectorHealth && collectorHealth.status !== "connected") {
+    notices.push({
+      key: `collector-${collectorHealth.status}`,
+      label: `Collector ${formatStatusLabel(collectorHealth.status).toLowerCase()}`,
+      message: collectorHealth.message || `Collector is ${formatStatusLabel(collectorHealth.status).toLowerCase()}.`,
+      tone: collectorStatusTone(collectorHealth.status)
+    });
+  }
+
+  const crossedQuoteCount = snapshot.rows.filter(isCrossedQuote).length;
+  if (crossedQuoteCount > 0) {
+    notices.push({
+      key: "quotes-crossed",
+      label: "Crossed quotes",
+      message: `${crossedQuoteCount} ${crossedQuoteCount === 1 ? "option has" : "options have"} bid above ask.`,
+      tone: "warning"
+    });
+  }
+
+  const calcCounts = countCalcIssues(snapshot.rows);
+  if (calcCounts.size > 0) {
+    notices.push({
+      key: "calc-issues",
+      label: "Calculation issues",
+      message: formatCalcIssueSummary(calcCounts),
+      tone: [...calcCounts.keys()].some((status) => calcStatusTone(status) === "error") ? "error" : "warning"
+    });
+  }
+
+  return dedupeNotices(notices);
+}
+
 export function formatStrikeRange(range: [number, number] | null): string {
   if (range == null) {
     return "—";
@@ -205,6 +330,94 @@ function formatSignedFixed(value: number, digits: number): string {
 }
 
 function formatComparisonStatusLabel(status: ComparisonStatus): string {
+  return formatOperationalStatusLabel(status);
+}
+
+function formatOperationalStatusLabel(status: string): string {
   const label = formatStatusLabel(status);
   return `${label.charAt(0)}${label.slice(1).toLowerCase()}`;
+}
+
+function isCrossedQuote(row: AnalyticsRow): boolean {
+  return row.bid != null && row.ask != null && row.bid > row.ask;
+}
+
+function calcStatusTone(status: CalcStatus): OperationalTone {
+  if (status === "solver_failed") {
+    return "error";
+  }
+  if (status === "out_of_model_scope") {
+    return "muted";
+  }
+  return "warning";
+}
+
+function sourceStatusTone(status: SourceStatus): OperationalTone {
+  if (status === "disconnected" || status === "error") {
+    return "error";
+  }
+  if (status === "degraded" || status === "stale") {
+    return "warning";
+  }
+  return "muted";
+}
+
+function collectorStatusTone(status: CollectorStatus): OperationalTone {
+  if (status === "disconnected" || status === "error") {
+    return "error";
+  }
+  if (status === "degraded" || status === "stale") {
+    return "warning";
+  }
+  return "muted";
+}
+
+function coverageStatusLabel(status: CoverageStatus): string {
+  return status === "empty" ? "Empty chain" : "Partial chain";
+}
+
+function coverageStatusMessage(status: CoverageStatus): string {
+  return status === "empty" ? "Option chain coverage is empty." : "Option chain coverage is partial.";
+}
+
+function transportStatusMessage(status: LiveTransportStatus): string {
+  if (status === "fallback_polling") {
+    return "WebSocket unavailable; polling is keeping the dashboard updated.";
+  }
+  if (status === "disconnected") {
+    return "WebSocket stream disconnected.";
+  }
+  if (status === "reconnecting") {
+    return "Attempting to reconnect the WebSocket stream.";
+  }
+  return "Opening WebSocket stream.";
+}
+
+function countCalcIssues(rows: AnalyticsRow[]): Map<CalcStatus, number> {
+  const counts = new Map<CalcStatus, number>();
+  for (const row of rows) {
+    if (row.calc_status === "ok") {
+      continue;
+    }
+    counts.set(row.calc_status, (counts.get(row.calc_status) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function formatCalcIssueSummary(counts: Map<CalcStatus, number>): string {
+  return [...counts.entries()]
+    .map(([status, count]) => `${formatOperationalStatusLabel(status)}: ${count}`)
+    .join("; ")
+    .concat(".");
+}
+
+function dedupeNotices(notices: OperationalNotice[]): OperationalNotice[] {
+  const seen = new Set<string>();
+  return notices.filter((notice) => {
+    if (seen.has(notice.key)) {
+      return false;
+    }
+    seen.add(notice.key);
+    return true;
+  });
 }

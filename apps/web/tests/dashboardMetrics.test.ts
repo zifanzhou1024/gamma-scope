@@ -9,6 +9,10 @@ import {
   formatInteger,
   formatSnapshotTime,
   formatStatusLabel,
+  deriveOperationalNotices,
+  getRowOperationalStatusDisplays,
+  getRowOperationalStatusDisplay,
+  getTransportStatusDisplay,
   getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
@@ -62,6 +66,121 @@ describe("dashboard metrics", () => {
     expect(getComparisonStatusDisplay("missing")).toEqual({ label: "Missing", tone: "muted" });
     expect(getComparisonStatusDisplay(null)).toEqual({ label: "No IBKR", tone: "muted" });
     expect(getComparisonStatusDisplay(undefined)).toEqual({ label: "No IBKR", tone: "muted" });
+  });
+
+  it("maps live transport statuses to compact labels and tones", () => {
+    expect(getTransportStatusDisplay("connecting")).toEqual({ label: "Connecting", tone: "muted" });
+    expect(getTransportStatusDisplay("streaming")).toEqual({ label: "Streaming", tone: "ok" });
+    expect(getTransportStatusDisplay("disconnected")).toEqual({ label: "Disconnected", tone: "error" });
+    expect(getTransportStatusDisplay("fallback_polling")).toEqual({ label: "Fallback polling", tone: "warning" });
+    expect(getTransportStatusDisplay("reconnecting")).toEqual({ label: "Reconnecting", tone: "muted" });
+  });
+
+  it("derives an explicit disconnected transport notice", () => {
+    expect(deriveOperationalNotices({ ...seedSnapshot, coverage_status: "full" }, null, "disconnected")).toEqual([
+      {
+        key: "transport-disconnected",
+        label: "Disconnected",
+        message: "WebSocket stream disconnected.",
+        tone: "error"
+      }
+    ]);
+  });
+
+  it("derives deterministic operational notices for degraded live data", () => {
+    const degradedSnapshot = {
+      ...seedSnapshot,
+      source_status: "stale",
+      coverage_status: "partial",
+      rows: seedSnapshot.rows.map((row, index) => {
+        if (index === 0) {
+          return { ...row, bid: 12.1, ask: 11.9, calc_status: "missing_quote" as const };
+        }
+        if (index === 1) {
+          return { ...row, calc_status: "solver_failed" as const };
+        }
+        return row;
+      })
+    } satisfies typeof seedSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "Market data delayed",
+      event_time: "2026-04-24T15:00:00Z",
+      received_time: "2026-04-24T15:00:01Z"
+    } as const;
+
+    expect(deriveOperationalNotices(degradedSnapshot, collectorHealth, "fallback_polling")).toEqual([
+      {
+        key: "transport-fallback_polling",
+        label: "Fallback polling",
+        message: "WebSocket unavailable; polling is keeping the dashboard updated.",
+        tone: "warning"
+      },
+      {
+        key: "coverage-partial",
+        label: "Partial chain",
+        message: "Option chain coverage is partial.",
+        tone: "warning"
+      },
+      {
+        key: "source-stale",
+        label: "Source stale",
+        message: "Snapshot source is stale.",
+        tone: "warning"
+      },
+      {
+        key: "collector-degraded",
+        label: "Collector degraded",
+        message: "Market data delayed",
+        tone: "warning"
+      },
+      {
+        key: "quotes-crossed",
+        label: "Crossed quotes",
+        message: "1 option has bid above ask.",
+        tone: "warning"
+      },
+      {
+        key: "calc-issues",
+        label: "Calculation issues",
+        message: "Missing quote: 1; Solver failed: 1.",
+        tone: "error"
+      }
+    ]);
+  });
+
+  it("maps row operational statuses including crossed quotes", () => {
+    expect(getRowOperationalStatusDisplay(seedSnapshot.rows[0]!)).toEqual(null);
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, bid: 12.1, ask: 11.9 })).toEqual({
+      label: "Crossed quote",
+      tone: "warning"
+    });
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, calc_status: "out_of_model_scope" })).toEqual({
+      label: "Out of model scope",
+      tone: "muted"
+    });
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, calc_status: "solver_failed" })).toEqual({
+      label: "Solver failed",
+      tone: "error"
+    });
+  });
+
+  it("keeps crossed quote and calculation issue visible for the same row", () => {
+    expect(
+      getRowOperationalStatusDisplays({
+        ...seedSnapshot.rows[0]!,
+        bid: 12.1,
+        ask: 11.9,
+        calc_status: "stale_underlying"
+      })
+    ).toEqual([
+      { label: "Crossed quote", tone: "warning" },
+      { label: "Stale underlying", tone: "warning" }
+    ]);
   });
 
   it("formats snapshot time in the SPX market timezone", () => {

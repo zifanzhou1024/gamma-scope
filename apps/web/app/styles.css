@@ -173,6 +173,25 @@ h1 {
   text-overflow: ellipsis;
 }
 
+.transportStatus-ok {
+  border-color: rgba(34, 197, 94, 0.42);
+  color: #86efac;
+}
+
+.transportStatus-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fcd34d;
+}
+
+.transportStatus-error {
+  border-color: rgba(248, 113, 113, 0.44);
+  color: #fca5a5;
+}
+
+.transportStatus-muted {
+  color: var(--muted);
+}
+
 .sessionBand {
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(150px, 1fr));
@@ -203,6 +222,48 @@ h1 {
 .sessionBand strong {
   display: block;
   overflow-wrap: anywhere;
+}
+
+.operationalNotices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -10px 0 18px;
+}
+
+.operationalNotice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 7px 10px;
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.operationalNotice strong {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.operationalNotice span {
+  color: var(--muted);
+}
+
+.operationalNotice-ok {
+  border-color: rgba(34, 197, 94, 0.32);
+}
+
+.operationalNotice-warning {
+  border-color: rgba(245, 158, 11, 0.36);
+}
+
+.operationalNotice-error {
+  border-color: rgba(248, 113, 113, 0.36);
 }
 
 .dashboardControls {
@@ -929,6 +990,15 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+.operationalLine {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 3px;
+}
+
 .comparisonIbkr {
   color: rgba(203, 213, 225, 0.76);
 }
@@ -942,6 +1012,35 @@ tbody tr:last-child td {
   padding: 0 5px;
   background: rgba(15, 23, 42, 0.46);
   color: #cbd5e1;
+}
+
+.operationalPill {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 4px;
+  padding: 0 5px;
+  background: rgba(15, 23, 42, 0.46);
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.operationalPill-warning {
+  border-color: rgba(250, 204, 21, 0.36);
+  color: #fde68a;
+}
+
+.operationalPill-error {
+  border-color: rgba(248, 113, 113, 0.36);
+  color: #fca5a5;
+}
+
+.operationalPill-muted {
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
 }
 
 .comparison-ok {

@@ -7,6 +7,8 @@ import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import {
   type ChainSide,
+  type LiveTransportStatus,
+  deriveOperationalNotices,
   filterChainRowsBySide,
   formatGammaDiff,
   formatInteger,
@@ -17,6 +19,8 @@ import {
   formatSnapshotTime,
   formatStatusLabel,
   formatStrikeRange,
+  getRowOperationalStatusDisplays,
+  getTransportStatusDisplay,
   getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
@@ -27,6 +31,7 @@ import {
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
   collectorHealth?: CollectorHealth | null;
+  transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
@@ -42,6 +47,7 @@ const chainFilterOptions: Array<{ side: ChainSide; label: string }> = [
 export function DashboardView({
   snapshot,
   collectorHealth,
+  transportStatus,
   initialChainSide = "all",
   replayPanel,
   savedViewsPanel,
@@ -57,6 +63,8 @@ export function DashboardView({
   const atmStrike = nearestStrike(snapshot);
   const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
+  const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
+  const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
 
   return (
     <main className="dashboardShell">
@@ -72,6 +80,11 @@ export function DashboardView({
           <span>{formatStatusLabel(snapshot.mode)}</span>
           <span>{formatStatusLabel(snapshot.source_status)}</span>
           <span>{snapshot.freshness_ms} ms</span>
+          {transportDisplay ? (
+            <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
+              Transport {transportDisplay.label}
+            </span>
+          ) : null}
           {collectorHealth ? (
             <>
               <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
@@ -104,6 +117,17 @@ export function DashboardView({
           <strong>{snapshot.expiry}</strong>
         </div>
       </section>
+
+      {operationalNotices.length > 0 ? (
+        <section className="operationalNotices" aria-label="Operational notices">
+          {operationalNotices.map((notice) => (
+            <div key={notice.key} className={`operationalNotice operationalNotice-${notice.tone}`}>
+              <strong>{notice.label}</strong>
+              <span>{notice.message}</span>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       {replayPanel || savedViewsPanel || scenarioPanel ? (
         <section className="dashboardControls" aria-label="Dashboard controls">
@@ -239,6 +263,7 @@ function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undef
   return (
     <td className="smallOptional comparisonCell">
       <span className="cellMain">{formatPercent(row?.custom_iv)}</span>
+      <OperationalLine row={row} />
       <ComparisonLine
         row={row}
         hasComparisonValue={row?.ibkr_iv != null || row?.iv_diff != null}
@@ -246,6 +271,24 @@ function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undef
         diffValue={formatIvDiffBasisPoints(row?.iv_diff)}
       />
     </td>
+  );
+}
+
+function OperationalLine({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {
+  const statuses = getRowOperationalStatusDisplays(row);
+
+  if (statuses.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="operationalLine">
+      {statuses.map((status) => (
+        <span key={status.label} className={`operationalPill operationalPill-${status.tone}`}>
+          {status.label}
+        </span>
+      ))}
+    </span>
   );
 }
 
