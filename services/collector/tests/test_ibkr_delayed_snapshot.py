@@ -399,6 +399,31 @@ def test_real_adapter_maps_delayed_option_prices_sizes_and_greeks() -> None:
     adapter.disconnect()
 
 
+def test_real_adapter_starts_option_snapshot_requests_as_a_batch() -> None:
+    FakeEClient.instances.clear()
+    adapter = _create_real_adapter(importer=fake_ibapi_importer)
+    adapter.connect("127.0.0.1", 4002, 21)
+    client = FakeEClient.instances[-1]
+    client.wrapper.nextValidId(1201)
+    adapter.wait_until_ready(0.5)
+
+    contracts = [contract_event("call", 867905902), contract_event("put", 867906222)]
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(adapter.snapshot_options, contracts, 0.5)
+        requests = _wait_for_request_count(client, "reqMktData", 2)
+        for index, request in enumerate(requests, start=1):
+            req_id = int(request[1])
+            client.wrapper.tickPrice(req_id, 66, 20.0 + index, None)
+            client.wrapper.tickPrice(req_id, 67, 21.0 + index, None)
+            client.wrapper.tickSnapshotEnd(req_id)
+        quotes = future.result()
+
+    assert set(quotes) == {"SPX-2026-04-27-C-7050", "SPX-2026-04-27-P-7050"}
+    assert quotes["SPX-2026-04-27-C-7050"].bid == 21.0
+    assert quotes["SPX-2026-04-27-P-7050"].ask == 23.0
+    adapter.disconnect()
+
+
 def test_real_adapter_request_scoped_error_fails_matching_option_snapshot() -> None:
     FakeEClient.instances.clear()
     adapter = _create_real_adapter(importer=fake_ibapi_importer)
@@ -410,10 +435,35 @@ def test_real_adapter_request_scoped_error_fails_matching_option_snapshot() -> N
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(adapter.snapshot_options, [contract_event("call", 867905902)], 0.5)
         req_id = int(_wait_for_request(client, "reqMktData")[1])
-        client.wrapper.error(req_id, 354, "Requested market data is not subscribed")
-        with pytest.raises(OSError, match="354.*not subscribed"):
+        client.wrapper.error(req_id, 321, "Error validating request")
+        with pytest.raises(OSError, match="321.*validating"):
             future.result()
 
+    adapter.disconnect()
+
+
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        (354, "Requested market data is not subscribed"),
+        (10197, "No market data during competing live session"),
+    ],
+)
+def test_real_adapter_no_data_error_returns_empty_option_quote(code: int, message: str) -> None:
+    FakeEClient.instances.clear()
+    adapter = _create_real_adapter(importer=fake_ibapi_importer)
+    adapter.connect("127.0.0.1", 4002, 21)
+    client = FakeEClient.instances[-1]
+    client.wrapper.nextValidId(1201)
+    adapter.wait_until_ready(0.5)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(adapter.snapshot_options, [contract_event("call", 867905902)], 0.5)
+        req_id = int(_wait_for_request(client, "reqMktData")[1])
+        client.wrapper.error(req_id, code, message)
+        quotes = future.result()
+
+    assert quotes["SPX-2026-04-27-C-7050"] == DelayedMarketDataQuote()
     adapter.disconnect()
 
 
@@ -454,3 +504,13 @@ def _wait_for_request(client: FakeEClient, name: str) -> tuple[object, ...]:
                 return request
         time.sleep(0.01)
     raise AssertionError(f"timed out waiting for {name}")
+
+
+def _wait_for_request_count(client: FakeEClient, name: str, count: int) -> list[tuple[object, ...]]:
+    deadline = time.monotonic() + 0.5
+    while time.monotonic() < deadline:
+        requests = [request for request in client.requests if request[0] == name]
+        if len(requests) >= count:
+            return requests[:count]
+        time.sleep(0.01)
+    raise AssertionError(f"timed out waiting for {count} {name} requests")

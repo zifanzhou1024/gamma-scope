@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -24,6 +25,7 @@ from gammascope_collector.publisher import PublishSummary, publish_events
 
 DELAYED_MARKET_DATA_TYPE = 3
 _INFORMATIONAL_ERROR_CODES = {10090, 10167, 10168, 2104, 2106, 2108, 2158}
+_NO_DATA_QUOTE_ERROR_CODES = {354, 10197}
 
 
 class IbkrDelayedMarketDataTimeout(TimeoutError):
@@ -306,24 +308,30 @@ class _RealIbkrDelayedSnapshotAdapter:
         contracts: Iterable[dict[str, object]],
         timeout_seconds: float,
     ) -> dict[str, DelayedMarketDataQuote]:
-        quotes: dict[str, DelayedMarketDataQuote] = {}
-        for contract_event in contracts:
-            contract = self._contract()
-            contract.conId = int(contract_event["ibkr_con_id"])
-            contract.symbol = "SPX"
-            contract.secType = "OPT"
-            contract.exchange = "SMART"
-            contract.currency = str(contract_event["currency"])
-            contract.lastTradeDateOrContractMonth = str(contract_event["expiry"]).replace("-", "")
-            contract.strike = float(contract_event["strike"])
-            contract.right = "C" if contract_event["right"] == "call" else "P"
-            contract.multiplier = str(int(float(contract_event["multiplier"])))
-            quotes[str(contract_event["contract_id"])] = self._snapshot_contract(
-                contract,
-                timeout_seconds,
-                label=str(contract_event["contract_id"]),
-            )
-        return quotes
+        pending_requests: list[tuple[int, dict[str, object], _PendingMarketData]] = []
+        try:
+            for contract_event in contracts:
+                req_id = self._request_id()
+                pending = _PendingMarketData()
+                pending_requests.append((req_id, contract_event, pending))
+                self._client._pending_market_data[req_id] = pending
+                self._client.reqMktData(req_id, self._option_contract(contract_event), "", True, False, [])
+
+            deadline = time.monotonic() + timeout_seconds
+            quotes: dict[str, DelayedMarketDataQuote] = {}
+            for _req_id, contract_event, pending in pending_requests:
+                remaining_seconds = max(0.0, deadline - time.monotonic())
+                if not pending.event.wait(remaining_seconds):
+                    raise IbkrDelayedMarketDataTimeout(
+                        _timeout_message(f"{len(pending_requests)} option snapshots", timeout_seconds, self._metadata)
+                    )
+                if pending.error is not None:
+                    raise IbkrBrokerError(f"IBKR API broker error {_broker_error_message(pending.error)}")
+                quotes[str(contract_event["contract_id"])] = pending.quote()
+            return quotes
+        finally:
+            for req_id, _contract_event, _pending in pending_requests:
+                self._cancel_snapshot(req_id)
 
     def disconnect(self) -> None:
         try:
@@ -343,13 +351,29 @@ class _RealIbkrDelayedSnapshotAdapter:
                 raise IbkrBrokerError(f"IBKR API broker error {_broker_error_message(pending.error)}")
             return pending.quote()
         finally:
-            cancel = getattr(self._client, "cancelMktData", None)
-            if cancel is not None:
-                try:
-                    cancel(req_id)
-                except Exception:
-                    pass
-            self._client._pending_market_data.pop(req_id, None)
+            self._cancel_snapshot(req_id)
+
+    def _option_contract(self, contract_event: dict[str, object]) -> object:
+        contract = self._contract()
+        contract.conId = int(contract_event["ibkr_con_id"])
+        contract.symbol = "SPX"
+        contract.secType = "OPT"
+        contract.exchange = "SMART"
+        contract.currency = str(contract_event["currency"])
+        contract.lastTradeDateOrContractMonth = str(contract_event["expiry"]).replace("-", "")
+        contract.strike = float(contract_event["strike"])
+        contract.right = "C" if contract_event["right"] == "call" else "P"
+        contract.multiplier = str(int(float(contract_event["multiplier"])))
+        return contract
+
+    def _cancel_snapshot(self, req_id: int) -> None:
+        cancel = getattr(self._client, "cancelMktData", None)
+        if cancel is not None:
+            try:
+                cancel(req_id)
+            except Exception:
+                pass
+        self._client._pending_market_data.pop(req_id, None)
 
     def _join_thread(self) -> None:
         if self._thread is not None and self._thread.is_alive() and self._thread is not threading.current_thread():
@@ -434,9 +458,13 @@ def _create_real_adapter(*, importer: Importer = __import__) -> IbkrDelayedSnaps
             errors = metadata.setdefault("errors", [])
             if isinstance(errors, list):
                 errors.append(error)
-            if int(error["code"]) in _INFORMATIONAL_ERROR_CODES:
+            code = int(error["code"])
+            if code in _INFORMATIONAL_ERROR_CODES:
                 return
-            if _RealIbkrDelayedSnapshotAdapter.is_connection_error_code(int(error["code"])):
+            if code in _NO_DATA_QUOTE_ERROR_CODES:
+                self._complete_matching_pending_without_quote(error)
+                return
+            if _RealIbkrDelayedSnapshotAdapter.is_connection_error_code(code):
                 metadata["terminal_error"] = error
                 self._fail_all_pending(error)
                 ready_event.set()
@@ -523,6 +551,14 @@ def _create_real_adapter(*, importer: Importer = __import__) -> IbkrDelayedSnaps
             pending = self._pending_market_data.get(req_id)
             if pending is not None:
                 pending.error = error
+                pending.event.set()
+
+        def _complete_matching_pending_without_quote(self, error: dict[str, object]) -> None:
+            req_id = error.get("id")
+            if not isinstance(req_id, int) or req_id < 0:
+                return
+            pending = self._pending_market_data.get(req_id)
+            if pending is not None:
                 pending.event.set()
 
     return _RealIbkrDelayedSnapshotAdapter(DelayedSnapshotClient(), Contract, ready_event, metadata)

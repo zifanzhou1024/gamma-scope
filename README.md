@@ -132,6 +132,10 @@ With the API running, publish the delayed snapshot into local ingestion:
 
     pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 10 --max-strikes 1 --publish
 
+For a fuller option-chain view, widen the strike window and request more strikes:
+
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 50 --max-strikes 21 --publish
+
 `--spot` can be used when SPX index top-of-book data is not subscribed or unavailable. The resulting dashboard data is still delayed and should be treated as a testing mode, not as real-time trading data.
 
 ## Analytics Conventions
