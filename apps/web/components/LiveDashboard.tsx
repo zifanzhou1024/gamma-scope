@@ -21,6 +21,7 @@ import {
   replayTimestampOptions
 } from "../lib/clientReplaySource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
+import { startLiveSnapshotUpdates } from "../lib/snapshotUpdates";
 import { DashboardView } from "./DashboardView";
 import { ReplayPanel } from "./ReplayPanel";
 import { SavedViewsPanel } from "./SavedViewsPanel";
@@ -218,7 +219,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       return undefined;
     }
 
-    return startSnapshotPolling({
+    return startLiveSnapshotUpdates({
       loadSnapshot: () => {
         latestLiveRequestIdRef.current += 1;
         const requestId = latestLiveRequestIdRef.current;

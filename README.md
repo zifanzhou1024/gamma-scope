@@ -73,7 +73,7 @@ To test the dashboard against local API state, run the API, publish the mock cyc
     pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-24 --strikes 5190,5200,5210
     GAMMASCOPE_API_BASE_URL=http://127.0.0.1:8000 pnpm dev:web
 
-Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard polls the web snapshot route once per second so live mock snapshots refresh without a manual browser reload.
+Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard connects to `ws://127.0.0.1:8000/ws/spx/0dte` for live snapshot updates and falls back to once-per-second polling if the WebSocket is unavailable. Set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` when the WebSocket endpoint is not on the default local API host.
 
 The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and stored in the FastAPI process memory for now.
 
