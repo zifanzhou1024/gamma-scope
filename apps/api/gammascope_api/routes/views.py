@@ -1,18 +1,41 @@
 from fastapi import APIRouter
 
 from gammascope_api.contracts.generated.saved_view import SavedView
+from gammascope_api.saved_views.dependencies import (
+    degrade_saved_view_repository_to_fallback,
+    get_saved_view_repository,
+)
+from gammascope_api.saved_views.repository import SavedViewRepository
 
 
 router = APIRouter()
-_views: list[SavedView] = []
 
 
 @router.get("/api/views", response_model=list[SavedView])
 def list_views() -> list[SavedView]:
-    return _views
+    repository = _available_repository()
+    try:
+        views = repository.list_views()
+    except Exception:
+        views = degrade_saved_view_repository_to_fallback().list_views()
+    return [SavedView.model_validate(view) for view in views]
 
 
 @router.post("/api/views", response_model=SavedView)
 def create_view(payload: SavedView) -> SavedView:
-    _views.append(payload)
-    return payload
+    repository = _available_repository()
+    normalized = payload.model_dump(mode="json")
+    try:
+        saved = repository.save_view(normalized)
+    except Exception:
+        saved = degrade_saved_view_repository_to_fallback().save_view(normalized)
+    return SavedView.model_validate(saved)
+
+
+def _available_repository() -> SavedViewRepository:
+    repository = get_saved_view_repository()
+    try:
+        repository.ensure_schema()
+    except Exception:
+        return degrade_saved_view_repository_to_fallback()
+    return repository

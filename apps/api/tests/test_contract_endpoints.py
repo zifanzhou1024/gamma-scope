@@ -7,6 +7,11 @@ from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
 from gammascope_api.replay.repository import NullReplayRepository
+from gammascope_api.saved_views.dependencies import (
+    reset_saved_view_repository_override,
+    set_saved_view_repository_override,
+)
+from gammascope_api.saved_views.repository import InMemorySavedViewRepository
 
 
 client = TestClient(app)
@@ -15,7 +20,12 @@ client = TestClient(app)
 def setup_function() -> None:
     collector_state.clear()
     set_replay_repository_override(NullReplayRepository())
+    set_saved_view_repository_override(InMemorySavedViewRepository())
     reset_replay_capture_circuit()
+
+
+def teardown_function() -> None:
+    reset_saved_view_repository_override()
 
 
 def test_collector_ingest_accepts_health_event() -> None:
@@ -534,7 +544,7 @@ def test_scenario_prefers_matching_ingested_live_snapshot() -> None:
     }
 
 
-def test_saved_views_round_trip_in_memory() -> None:
+def test_saved_views_round_trip_via_repository_override() -> None:
     view = {
         "view_id": "seed-default-view",
         "owner_scope": "public_demo",
@@ -549,6 +559,76 @@ def test_saved_views_round_trip_in_memory() -> None:
     list_response = client.get("/api/views")
 
     assert create_response.status_code == 200
+    assert list_response.status_code == 200
+    assert view in list_response.json()
+
+
+def test_saved_views_upsert_without_process_global_route_list() -> None:
+    original_view = {
+        "view_id": "saved-view-upsert",
+        "owner_scope": "public_demo",
+        "name": "Original view",
+        "mode": "replay",
+        "strike_window": {"levels_each_side": 20},
+        "visible_charts": ["iv_smile"],
+        "created_at": "2026-04-23T16:00:00Z",
+    }
+    updated_view = {
+        **original_view,
+        "name": "Updated view",
+        "mode": "scenario",
+        "created_at": "2026-04-24T16:00:00Z",
+    }
+
+    first_response = client.post("/api/views", json=original_view)
+    second_response = client.post("/api/views", json=updated_view)
+    list_response = client.get("/api/views")
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second_response.json()["name"] == "Updated view"
+    matching_views = [view for view in list_response.json() if view["view_id"] == "saved-view-upsert"]
+    assert matching_views == [updated_view]
+
+
+def test_saved_views_fall_back_to_memory_when_repository_unavailable() -> None:
+    set_saved_view_repository_override(FailingSavedViewRepository())
+    view = {
+        "view_id": "fallback-view",
+        "owner_scope": "public_demo",
+        "name": "Fallback view",
+        "mode": "live",
+        "strike_window": {"levels_each_side": 10},
+        "visible_charts": ["iv_smile"],
+        "created_at": "2026-04-25T16:00:00Z",
+    }
+
+    create_response = client.post("/api/views", json=view)
+    list_response = client.get("/api/views")
+
+    assert create_response.status_code == 200
+    assert create_response.json() == view
+    assert list_response.status_code == 200
+    assert list_response.json() == [view]
+
+
+def test_saved_views_keep_using_fallback_after_save_failure() -> None:
+    set_saved_view_repository_override(SaveFailingSavedViewRepository())
+    view = {
+        "view_id": "fallback-after-save-failure",
+        "owner_scope": "public_demo",
+        "name": "Fallback after save failure",
+        "mode": "replay",
+        "strike_window": {"levels_each_side": 12},
+        "visible_charts": ["gamma_by_strike"],
+        "created_at": "2026-04-25T17:00:00Z",
+    }
+
+    create_response = client.post("/api/views", json=view)
+    list_response = client.get("/api/views")
+
+    assert create_response.status_code == 200
+    assert create_response.json() == view
     assert list_response.status_code == 200
     assert view in list_response.json()
 
@@ -597,6 +677,28 @@ class FailingReplayRepository:
     def nearest_snapshot(self, session_id: str, at: str | None = None):
         self.calls += 1
         raise RuntimeError("database unavailable")
+
+
+class FailingSavedViewRepository:
+    def ensure_schema(self) -> None:
+        raise RuntimeError("database unavailable")
+
+    def save_view(self, payload):
+        raise RuntimeError("database unavailable")
+
+    def list_views(self):
+        raise RuntimeError("database unavailable")
+
+
+class SaveFailingSavedViewRepository:
+    def ensure_schema(self) -> None:
+        return None
+
+    def save_view(self, payload):
+        raise RuntimeError("database unavailable")
+
+    def list_views(self):
+        return []
 
 
 def _health_event(event_time: str) -> dict[str, object]:

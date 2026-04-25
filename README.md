@@ -75,7 +75,7 @@ To test the dashboard against local API state, run the API, publish the mock cyc
 
 Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard connects to `ws://127.0.0.1:8000/ws/spx/0dte` for live snapshot updates and falls back to once-per-second polling if the WebSocket is unavailable. Set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` when the WebSocket endpoint is not on the default local API host.
 
-The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and stored in the FastAPI process memory for now.
+The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and persisted in Postgres using `GAMMASCOPE_DATABASE_URL` when available. If the Postgres-backed repository is unavailable at runtime, the FastAPI route falls back to in-memory saved views so local dashboard flows keep working.
 
 ### Local IBKR Health Probe
 
