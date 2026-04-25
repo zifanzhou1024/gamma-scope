@@ -9,12 +9,15 @@ interface ReplayPanelProps {
   selectedSnapshotIndex: number;
   selectedSnapshotTime: string | null;
   isReplayModeActive: boolean;
+  isReplayStreamActive: boolean;
   isLoadingSessions: boolean;
   isLoadingReplay: boolean;
   errorMessage: string | null;
   onSelectSessionId: (sessionId: string) => void;
   onSelectSnapshotIndex: (index: number) => void;
   onLoadReplay: () => void;
+  onPlayReplayStream: () => void;
+  onStopReplayStream: () => void;
   onReturnToLive: () => void;
 }
 
@@ -26,17 +29,20 @@ export function ReplayPanel({
   selectedSnapshotIndex,
   selectedSnapshotTime,
   isReplayModeActive,
+  isReplayStreamActive,
   isLoadingSessions,
   isLoadingReplay,
   errorMessage,
   onSelectSessionId,
   onSelectSnapshotIndex,
   onLoadReplay,
+  onPlayReplayStream,
+  onStopReplayStream,
   onReturnToLive
 }: ReplayPanelProps) {
   const statusMessage = errorMessage ?? (!isLoadingSessions && !hasSessions ? "No replay sessions available." : null);
   const maxSnapshotIndex = Math.max(snapshotTimes.length - 1, 0);
-  const isScrubberDisabled = isLoadingSessions || isLoadingReplay || snapshotTimes.length <= 1;
+  const isScrubberDisabled = isLoadingSessions || isLoadingReplay || isReplayStreamActive || snapshotTimes.length <= 1;
   const selectedPosition = snapshotTimes.length > 0 ? selectedSnapshotIndex + 1 : 0;
 
   return (
@@ -47,7 +53,7 @@ export function ReplayPanel({
           <span>Replay session</span>
           <select
             value={selectedSessionId ?? ""}
-            disabled={isLoadingSessions || isLoadingReplay || sessions.length === 0}
+            disabled={isLoadingSessions || isLoadingReplay || isReplayStreamActive || sessions.length === 0}
             onChange={(event) => {
               onSelectSessionId(event.currentTarget.value);
             }}
@@ -105,6 +111,19 @@ export function ReplayPanel({
         </div>
       </div>
       <div className="replayActions">
+        {isReplayStreamActive ? (
+          <button type="button" className="secondaryButton" onClick={onStopReplayStream}>
+            Stop replay
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onPlayReplayStream}
+            disabled={isLoadingReplay || isLoadingSessions || !hasSessions}
+          >
+            Play replay
+          </button>
+        )}
         <button type="button" onClick={onLoadReplay} disabled={isLoadingReplay || isLoadingSessions || !hasSessions}>
           {isLoadingReplay ? "Loading replay" : "Load replay"}
         </button>

@@ -49,6 +49,18 @@ def get_replay_snapshot(session_id: str, at: str | None = None) -> dict:
     return nearest_replay_snapshot(snapshots, at)
 
 
+def replay_stream_snapshots(session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+    persisted_snapshots = _persisted_replay_snapshots(session_id, at)
+    if persisted_snapshots:
+        return persisted_snapshots
+
+    snapshots = seed_replay_snapshots()
+    if session_id == snapshots[0]["session_id"]:
+        return snapshots_at_or_after(snapshots, at)
+
+    return [{**snapshots[-1], "coverage_status": "empty", "rows": []}]
+
+
 def _persisted_replay_sessions() -> list[dict[str, Any]]:
     try:
         return get_replay_repository().list_sessions()
@@ -63,6 +75,16 @@ def _persisted_replay_snapshot(session_id: str, at: str | None) -> dict[str, Any
         snapshots = seed_replay_snapshots()
         if session_id == snapshots[0]["session_id"]:
             return None
+        raise HTTPException(status_code=503, detail="Replay persistence unavailable") from None
+
+
+def _persisted_replay_snapshots(session_id: str, at: str | None) -> list[dict[str, Any]]:
+    try:
+        return get_replay_repository().replay_snapshots(session_id, at)
+    except Exception:
+        snapshots = seed_replay_snapshots()
+        if session_id == snapshots[0]["session_id"]:
+            return []
         raise HTTPException(status_code=503, detail="Replay persistence unavailable") from None
 
 
@@ -110,6 +132,21 @@ def nearest_replay_snapshot(snapshots: list[dict[str, Any]], at: str | None) -> 
         snapshots,
         key=lambda snapshot: abs((_parse_replay_time(snapshot["snapshot_time"]) - target_time).total_seconds()),
     )
+
+
+def snapshots_at_or_after(snapshots: list[dict[str, Any]], at: str | None) -> list[dict[str, Any]]:
+    if not at:
+        return snapshots
+
+    target_time = _parse_replay_time(at)
+    if target_time is None:
+        return snapshots
+
+    return [
+        snapshot
+        for snapshot in snapshots
+        if _parse_replay_time(snapshot["snapshot_time"]) >= target_time
+    ]
 
 
 def _parse_replay_time(value: str) -> datetime | None:

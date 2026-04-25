@@ -22,6 +22,7 @@ import {
   replayTimestampOptions
 } from "../lib/clientReplaySource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
+import { startReplayStream } from "../lib/replayStream";
 import { startLiveSnapshotUpdates } from "../lib/snapshotUpdates";
 import type { LiveSnapshotUpdateSource } from "../lib/snapshotUpdates";
 import { DashboardView } from "./DashboardView";
@@ -44,6 +45,7 @@ interface ScenarioControlValues {
 interface LiveSnapshotApplyState {
   isScenarioModeActive: boolean;
   isReplayModeActive?: boolean;
+  isReplayStreamActive?: boolean;
   responseRequestId: number;
   latestRequestId: number;
 }
@@ -51,6 +53,7 @@ interface LiveSnapshotApplyState {
 interface LiveStreamSnapshotApplyState {
   isScenarioModeActive: boolean;
   isReplayModeActive?: boolean;
+  isReplayStreamActive?: boolean;
 }
 
 interface ScenarioSnapshotApplyState {
@@ -72,6 +75,22 @@ interface ReplayStartState {
   isApplyingScenario: boolean;
   isLoadingReplay: boolean;
   replayError: string | null;
+}
+
+interface ReplayStreamStartState {
+  scenarioRequestsCanceled: boolean;
+  replayRequestsCanceled: boolean;
+  isApplyingScenario: boolean;
+  isLoadingReplay: boolean;
+  replayError: string | null;
+  isReplayStreamActive: boolean;
+  isReplayModeActive: boolean;
+}
+
+interface ReplayStreamUnavailableState {
+  isReplayStreamActive: boolean;
+  isReplayModeActive: boolean;
+  replayError: string;
 }
 
 export function createScenarioRequest(
@@ -108,28 +127,58 @@ export function createReplayStartState(): ReplayStartState {
   };
 }
 
-export function shouldPollLiveSnapshot(isScenarioModeActive: boolean, isReplayModeActive = false): boolean {
-  return !isScenarioModeActive && !isReplayModeActive;
+export function createReplayStreamStartState(): ReplayStreamStartState {
+  return {
+    scenarioRequestsCanceled: true,
+    replayRequestsCanceled: true,
+    isApplyingScenario: false,
+    isLoadingReplay: false,
+    replayError: null,
+    isReplayStreamActive: true,
+    isReplayModeActive: false
+  };
 }
 
-export function shouldPollCollectorHealth(isScenarioModeActive: boolean, isReplayModeActive = false): boolean {
-  return shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive);
+export function createReplayStreamUnavailableState(hasReceivedSnapshot: boolean): ReplayStreamUnavailableState {
+  return {
+    isReplayStreamActive: false,
+    isReplayModeActive: hasReceivedSnapshot,
+    replayError: "Replay stream unavailable."
+  };
+}
+
+export function shouldPollLiveSnapshot(
+  isScenarioModeActive: boolean,
+  isReplayModeActive = false,
+  isReplayStreamActive = false
+): boolean {
+  return !isScenarioModeActive && !isReplayModeActive && !isReplayStreamActive;
+}
+
+export function shouldPollCollectorHealth(
+  isScenarioModeActive: boolean,
+  isReplayModeActive = false,
+  isReplayStreamActive = false
+): boolean {
+  return shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive, isReplayStreamActive);
 }
 
 export function canApplyLiveSnapshot({
   isScenarioModeActive,
   isReplayModeActive = false,
+  isReplayStreamActive = false,
   responseRequestId,
   latestRequestId
 }: LiveSnapshotApplyState): boolean {
-  return !isScenarioModeActive && !isReplayModeActive && responseRequestId === latestRequestId;
+  return !isScenarioModeActive && !isReplayModeActive && !isReplayStreamActive && responseRequestId === latestRequestId;
 }
 
 export function canApplyLiveStreamSnapshot({
   isScenarioModeActive,
-  isReplayModeActive = false
+  isReplayModeActive = false,
+  isReplayStreamActive = false
 }: LiveStreamSnapshotApplyState): boolean {
-  return !isScenarioModeActive && !isReplayModeActive;
+  return !isScenarioModeActive && !isReplayModeActive && !isReplayStreamActive;
 }
 
 export function canApplyScenarioSnapshot({
@@ -157,6 +206,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
   const [isLoadingReplaySessions, setIsLoadingReplaySessions] = useState(true);
   const [isReplayModeActive, setIsReplayModeActive] = useState(false);
+  const [isReplayStreamActive, setIsReplayStreamActive] = useState(false);
   const [isLoadingReplay, setIsLoadingReplay] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [spotShift, setSpotShift] = useState("0");
@@ -178,6 +228,9 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const scenarioRequestsCanceledRef = useRef(false);
   const latestReplayRequestIdRef = useRef(0);
   const replayRequestsCanceledRef = useRef(false);
+  const stopReplayStreamRef = useRef<(() => void) | null>(null);
+  const hasReplayStreamSnapshotRef = useRef(false);
+  const replayStreamActiveRef = useRef(false);
 
   const selectedReplaySession = useMemo(
     () => replaySessions.find((session) => session.session_id === selectedReplaySessionId) ?? replaySessions[0] ?? null,
@@ -229,8 +282,9 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   useEffect(() => {
     scenarioModeRef.current = isScenarioModeActive;
     replayModeRef.current = isReplayModeActive;
+    replayStreamActiveRef.current = isReplayStreamActive;
 
-    if (!shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive)) {
+    if (!shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive, isReplayStreamActive)) {
       setLiveTransportStatus(null);
       return undefined;
     }
@@ -249,7 +303,8 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
         if (source === "stream") {
           if (canApplyLiveStreamSnapshot({
             isScenarioModeActive: scenarioModeRef.current,
-            isReplayModeActive: replayModeRef.current
+            isReplayModeActive: replayModeRef.current,
+            isReplayStreamActive: replayStreamActiveRef.current
           })) {
             setSnapshot(liveSnapshot);
           }
@@ -259,6 +314,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
         if (canApplyLiveSnapshot({
           isScenarioModeActive: scenarioModeRef.current,
           isReplayModeActive: replayModeRef.current,
+          isReplayStreamActive: replayStreamActiveRef.current,
           responseRequestId: pollingResponseRequestIdRef.current,
           latestRequestId: latestLiveRequestIdRef.current
         })) {
@@ -268,10 +324,16 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       intervalMs: 1000,
       onTransportStatus: setLiveTransportStatus
     });
-  }, [isScenarioModeActive, isReplayModeActive]);
+  }, [isScenarioModeActive, isReplayModeActive, isReplayStreamActive]);
 
   useEffect(() => {
-    if (!shouldPollCollectorHealth(isScenarioModeActive, isReplayModeActive)) {
+    return () => {
+      stopReplayStreamRef.current?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shouldPollCollectorHealth(isScenarioModeActive, isReplayModeActive, isReplayStreamActive)) {
       return undefined;
     }
 
@@ -280,7 +342,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       applySnapshot: setCollectorHealth,
       intervalMs: 5000
     });
-  }, [isScenarioModeActive, isReplayModeActive]);
+  }, [isScenarioModeActive, isReplayModeActive, isReplayStreamActive]);
 
   const loadReplay = async () => {
     const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId, selectedReplayTime);
@@ -291,12 +353,16 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     }
 
     latestReplayRequestIdRef.current += 1;
+    stopReplayStreamRef.current?.();
+    stopReplayStreamRef.current = null;
+    replayStreamActiveRef.current = false;
     const responseRequestId = latestReplayRequestIdRef.current;
     const replayStartState = createReplayStartState();
     scenarioRequestsCanceledRef.current = replayStartState.scenarioRequestsCanceled;
     replayRequestsCanceledRef.current = replayStartState.replayRequestsCanceled;
     setIsApplyingScenario(replayStartState.isApplyingScenario);
     setIsLoadingReplay(replayStartState.isLoadingReplay);
+    setIsReplayStreamActive(false);
     setReplayError(replayStartState.replayError);
 
     const replaySnapshot = await loadClientReplaySnapshot(replayRequest);
@@ -324,15 +390,81 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     setScenarioError(null);
   };
 
+  const stopReplayStream = () => {
+    stopReplayStreamRef.current?.();
+    stopReplayStreamRef.current = null;
+    replayStreamActiveRef.current = false;
+    setIsReplayStreamActive(false);
+  };
+
+  const playReplayStream = () => {
+    const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId, selectedReplayTime);
+
+    if (!replayRequest) {
+      setReplayError("No replay sessions available.");
+      return;
+    }
+
+    stopReplayStreamRef.current?.();
+    latestReplayRequestIdRef.current += 1;
+    const replayStartState = createReplayStreamStartState();
+    scenarioRequestsCanceledRef.current = replayStartState.scenarioRequestsCanceled;
+    replayRequestsCanceledRef.current = replayStartState.replayRequestsCanceled;
+    hasReplayStreamSnapshotRef.current = false;
+    replayStreamActiveRef.current = replayStartState.isReplayStreamActive;
+    scenarioModeRef.current = false;
+    replayModeRef.current = replayStartState.isReplayModeActive;
+    setIsApplyingScenario(replayStartState.isApplyingScenario);
+    setIsLoadingReplay(replayStartState.isLoadingReplay);
+    setIsReplayStreamActive(replayStartState.isReplayStreamActive);
+    setIsScenarioModeActive(false);
+    setIsReplayModeActive(replayStartState.isReplayModeActive);
+    setScenarioError(null);
+    setReplayError(replayStartState.replayError);
+
+    stopReplayStreamRef.current = startReplayStream({
+      sessionId: replayRequest.session_id,
+      at: replayRequest.at,
+      intervalMs: 250,
+      onSnapshot: (replaySnapshot) => {
+        hasReplayStreamSnapshotRef.current = true;
+        scenarioModeRef.current = false;
+        replayModeRef.current = true;
+        setSnapshot(replaySnapshot);
+        setIsScenarioModeActive(false);
+        setIsReplayModeActive(true);
+        setScenarioError(null);
+      },
+      onComplete: () => {
+        stopReplayStreamRef.current = null;
+        replayStreamActiveRef.current = false;
+        setIsReplayStreamActive(false);
+      },
+      onUnavailable: () => {
+        const replayUnavailableState = createReplayStreamUnavailableState(hasReplayStreamSnapshotRef.current);
+        stopReplayStreamRef.current = null;
+        replayStreamActiveRef.current = replayUnavailableState.isReplayStreamActive;
+        replayModeRef.current = replayUnavailableState.isReplayModeActive;
+        setIsReplayStreamActive(replayUnavailableState.isReplayStreamActive);
+        setIsReplayModeActive(replayUnavailableState.isReplayModeActive);
+        setReplayError(replayUnavailableState.replayError);
+      }
+    });
+  };
+
   const applyScenario = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     latestScenarioRequestIdRef.current += 1;
+    stopReplayStreamRef.current?.();
+    stopReplayStreamRef.current = null;
+    replayStreamActiveRef.current = false;
     const responseRequestId = latestScenarioRequestIdRef.current;
     scenarioRequestsCanceledRef.current = false;
     replayRequestsCanceledRef.current = true;
     replayModeRef.current = false;
     setIsApplyingScenario(true);
     setIsLoadingReplay(false);
+    setIsReplayStreamActive(false);
     setIsReplayModeActive(false);
     setScenarioError(null);
 
@@ -368,12 +500,16 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   };
 
   const returnToLive = () => {
+    stopReplayStreamRef.current?.();
+    stopReplayStreamRef.current = null;
+    replayStreamActiveRef.current = false;
     scenarioModeRef.current = false;
     replayModeRef.current = false;
     scenarioRequestsCanceledRef.current = true;
     replayRequestsCanceledRef.current = true;
     setIsScenarioModeActive(false);
     setIsReplayModeActive(false);
+    setIsReplayStreamActive(false);
     setIsApplyingScenario(false);
     setIsLoadingReplay(false);
     setScenarioError(null);
@@ -439,6 +575,7 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
           selectedSnapshotIndex={clampedReplayIndex}
           selectedSnapshotTime={selectedReplayTime}
           isReplayModeActive={isReplayModeActive}
+          isReplayStreamActive={isReplayStreamActive}
           isLoadingSessions={isLoadingReplaySessions}
           isLoadingReplay={isLoadingReplay}
           errorMessage={replayError}
@@ -451,6 +588,8 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
             setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
           }}
           onLoadReplay={loadReplay}
+          onPlayReplayStream={playReplayStream}
+          onStopReplayStream={stopReplayStream}
           onReturnToLive={returnToLive}
         />
       }

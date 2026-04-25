@@ -73,6 +73,26 @@ def test_repository_lists_sessions_and_selects_nearest_snapshot(
     assert nearest["spot"] == 5210.25
 
 
+def test_repository_lists_replay_snapshots_in_chronological_order_from_requested_start(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    session_id = f"pytest-replay-{uuid4()}"
+    session_ids.append(session_id)
+
+    repo.insert_snapshot(_snapshot(session_id, "2026-04-24T15:50:00Z", spot=5250.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(session_id, "2026-04-24T15:30:00Z", spot=5230.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(session_id, "2026-04-24T15:40:00Z", spot=5240.25), source="ibkr")
+
+    snapshots = repo.replay_snapshots(session_id, "2026-04-24T15:35:00Z")
+
+    assert [snapshot["snapshot_time"] for snapshot in snapshots] == [
+        "2026-04-24T15:40:00Z",
+        "2026-04-24T15:50:00Z",
+    ]
+    assert [snapshot["spot"] for snapshot in snapshots] == [5240.25, 5250.25]
+
+
 def test_repository_updates_latest_snapshot_without_duplicating_capture_bucket(
     replay_repository: tuple[PostgresReplayRepository, list[str]],
 ) -> None:

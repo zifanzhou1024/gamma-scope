@@ -1,4 +1,8 @@
+import asyncio
+
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.ingestion.collector_state import collector_state
@@ -6,6 +10,8 @@ from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
 from gammascope_api.replay.repository import NullReplayRepository
+from gammascope_api.routes import stream as stream_routes
+from gammascope_api.routes.replay import seed_replay_snapshots
 
 
 client = TestClient(app)
@@ -61,6 +67,97 @@ def test_websocket_first_message_falls_back_to_seeded_replay_without_live_snapsh
     AnalyticsSnapshot.model_validate(payload)
     assert payload["mode"] == "replay"
     assert payload["session_id"] == "seed-spx-2026-04-23"
+
+
+def test_replay_websocket_streams_seeded_snapshots_in_chronological_order() -> None:
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "seed-spx-2026-04-23", "interval_ms": "50"},
+    ) as websocket:
+        payloads = [websocket.receive_json() for _ in range(4)]
+
+    for payload in payloads:
+        AnalyticsSnapshot.model_validate(payload)
+        assert payload["mode"] == "replay"
+        assert payload["session_id"] == "seed-spx-2026-04-23"
+
+    assert [payload["snapshot_time"] for payload in payloads] == [
+        "2026-04-23T15:30:00Z",
+        "2026-04-23T15:40:00Z",
+        "2026-04-23T15:50:00Z",
+        "2026-04-23T16:00:00Z",
+    ]
+
+
+def test_replay_websocket_fetches_snapshots_off_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    is_event_loop_thread_by_call: list[bool] = []
+
+    def fake_replay_stream_snapshots(session_id: str, at: str | None = None) -> list[dict]:
+        try:
+            asyncio.get_running_loop()
+            is_event_loop_thread_by_call.append(True)
+        except RuntimeError:
+            is_event_loop_thread_by_call.append(False)
+        return [seed_replay_snapshots()[0]]
+
+    monkeypatch.setattr(stream_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "seed-spx-2026-04-23", "interval_ms": "50"},
+    ) as websocket:
+        payload = websocket.receive_json()
+
+    AnalyticsSnapshot.model_validate(payload)
+    assert is_event_loop_thread_by_call == [False]
+
+
+def test_replay_websocket_starts_at_first_seeded_snapshot_at_or_after_requested_time() -> None:
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={
+            "session_id": "seed-spx-2026-04-23",
+            "at": "2026-04-23T15:35:00Z",
+            "interval_ms": "50",
+        },
+    ) as websocket:
+        payloads = [websocket.receive_json() for _ in range(3)]
+
+    assert [payload["snapshot_time"] for payload in payloads] == [
+        "2026-04-23T15:40:00Z",
+        "2026-04-23T15:50:00Z",
+        "2026-04-23T16:00:00Z",
+    ]
+
+
+def test_replay_websocket_closes_after_final_replay_snapshot() -> None:
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={
+            "session_id": "seed-spx-2026-04-23",
+            "at": "2026-04-23T16:00:00Z",
+            "interval_ms": "50",
+        },
+    ) as websocket:
+        payload = websocket.receive_json()
+        with pytest.raises(WebSocketDisconnect) as disconnect:
+            websocket.receive_json()
+
+    assert payload["snapshot_time"] == "2026-04-23T16:00:00Z"
+    assert disconnect.value.code == 1000
+
+
+def test_replay_websocket_sends_empty_replay_snapshot_for_unknown_session() -> None:
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "unknown-session", "interval_ms": "50"},
+    ) as websocket:
+        payload = websocket.receive_json()
+
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["session_id"] == "seed-spx-2026-04-23"
+    assert payload["coverage_status"] == "empty"
+    assert payload["rows"] == []
 
 
 def _live_events(session_id: str) -> list[dict[str, object]]:

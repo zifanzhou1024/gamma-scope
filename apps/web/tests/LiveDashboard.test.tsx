@@ -106,12 +106,19 @@ describe("LiveDashboard scenario panel", () => {
     expect(LiveDashboardModule.shouldPollLiveSnapshot(false, true)).toBe(false);
   });
 
+  it("disables live polling while replay stream is active before replay mode starts", () => {
+    expect(LiveDashboardModule.shouldPollLiveSnapshot).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.shouldPollLiveSnapshot(false, false, true)).toBe(false);
+  });
+
   it("refreshes collector health while live polling is active", () => {
     expect(LiveDashboardModule.shouldPollCollectorHealth).toBeTypeOf("function");
 
     expect(LiveDashboardModule.shouldPollCollectorHealth(false, false)).toBe(true);
     expect(LiveDashboardModule.shouldPollCollectorHealth(true, false)).toBe(false);
     expect(LiveDashboardModule.shouldPollCollectorHealth(false, true)).toBe(false);
+    expect(LiveDashboardModule.shouldPollCollectorHealth(false, false, true)).toBe(false);
   });
 
   it("creates a replay snapshot request from a selected replay session", () => {
@@ -141,6 +148,40 @@ describe("LiveDashboard scenario panel", () => {
     });
   });
 
+  it("creates replay stream start state without activating replay mode before the first snapshot", () => {
+    expect(LiveDashboardModule.createReplayStreamStartState).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createReplayStreamStartState()).toEqual({
+      scenarioRequestsCanceled: true,
+      replayRequestsCanceled: true,
+      isApplyingScenario: false,
+      isLoadingReplay: false,
+      replayError: null,
+      isReplayStreamActive: true,
+      isReplayModeActive: false
+    });
+  });
+
+  it("keeps replay mode inactive when replay stream fails before a snapshot arrives", () => {
+    expect(LiveDashboardModule.createReplayStreamUnavailableState).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createReplayStreamUnavailableState(false)).toEqual({
+      isReplayStreamActive: false,
+      isReplayModeActive: false,
+      replayError: "Replay stream unavailable."
+    });
+  });
+
+  it("keeps replay mode active when replay stream fails after applying a snapshot", () => {
+    expect(LiveDashboardModule.createReplayStreamUnavailableState).toBeTypeOf("function");
+
+    expect(LiveDashboardModule.createReplayStreamUnavailableState(true)).toEqual({
+      isReplayStreamActive: false,
+      isReplayModeActive: true,
+      replayError: "Replay stream unavailable."
+    });
+  });
+
   it("only applies the latest live refresh while scenario mode is inactive", () => {
     expect(LiveDashboardModule.canApplyLiveSnapshot).toBeTypeOf("function");
 
@@ -159,6 +200,15 @@ describe("LiveDashboard scenario panel", () => {
       responseRequestId: 2,
       latestRequestId: 3
     })).toBe(false);
+
+    const replayStreamPendingState = {
+      isScenarioModeActive: false,
+      isReplayModeActive: false,
+      isReplayStreamActive: true,
+      responseRequestId: 3,
+      latestRequestId: 3
+    };
+    expect(LiveDashboardModule.canApplyLiveSnapshot(replayStreamPendingState)).toBe(false);
   });
 
   it("allows recovered stream snapshots while a fallback poll is still in flight", () => {
@@ -176,6 +226,13 @@ describe("LiveDashboard scenario panel", () => {
       isScenarioModeActive: false,
       isReplayModeActive: true
     })).toBe(false);
+
+    const replayStreamPendingState = {
+      isScenarioModeActive: false,
+      isReplayModeActive: false,
+      isReplayStreamActive: true
+    };
+    expect(LiveDashboardModule.canApplyLiveStreamSnapshot(replayStreamPendingState)).toBe(false);
   });
 
   it("only applies the latest active scenario response", () => {

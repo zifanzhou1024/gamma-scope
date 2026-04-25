@@ -24,6 +24,9 @@ class ReplayRepository(Protocol):
     def nearest_snapshot(self, session_id: str, at: str | None = None) -> dict[str, Any] | None:
         ...
 
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+        ...
+
 
 class NullReplayRepository:
     def ensure_schema(self) -> None:
@@ -48,6 +51,9 @@ class NullReplayRepository:
 
     def nearest_snapshot(self, session_id: str, at: str | None = None) -> dict[str, Any] | None:
         return None
+
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+        return []
 
 
 class PostgresReplayRepository:
@@ -236,6 +242,37 @@ class PostgresReplayRepository:
         if record is None:
             return None
         return deepcopy(record[0])
+
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        target_time = _parse_optional_datetime(at)
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                if target_time is None:
+                    cursor.execute(
+                        """
+                        SELECT payload
+                        FROM analytics_snapshots
+                        WHERE session_id = %s
+                        ORDER BY snapshot_time ASC, snapshot_id ASC
+                        """,
+                        (session_id,),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT payload
+                        FROM analytics_snapshots
+                        WHERE session_id = %s
+                          AND snapshot_time >= %s
+                        ORDER BY snapshot_time ASC, snapshot_id ASC
+                        """,
+                        (session_id, target_time),
+                    )
+                records = cursor.fetchall()
+
+        return [deepcopy(record[0]) for record in records]
 
     def delete_session(self, session_id: str) -> None:
         self.ensure_schema()
