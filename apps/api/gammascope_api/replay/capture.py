@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import UTC, datetime
+from typing import Any
+
+from gammascope_api.ingestion.collector_state import CollectorState
+from gammascope_api.ingestion.live_snapshot import build_live_snapshot
+from gammascope_api.replay.dependencies import capture_interval_seconds, get_replay_repository
+from gammascope_api.replay.repository import ReplayRepository
+
+
+class ReplayCaptureRecorder:
+    def __init__(self, repository: ReplayRepository, *, interval_seconds: int) -> None:
+        self.repository = repository
+        self.interval_seconds = interval_seconds
+
+    def capture(self, snapshot: dict[str, Any] | None) -> dict[str, Any]:
+        if snapshot is None:
+            return {"captured": False, "reason": "snapshot_not_ready"}
+        if snapshot.get("mode") != "live":
+            return {"captured": False, "reason": "not_live"}
+        if not snapshot.get("rows"):
+            return {"captured": False, "reason": "empty_snapshot"}
+
+        replay_snapshot = _replay_ready_snapshot(snapshot)
+        session_id = str(replay_snapshot["session_id"])
+        latest = self.repository.latest_snapshot_summary(session_id)
+
+        if latest is None:
+            summary = self.repository.insert_snapshot(replay_snapshot, source="ibkr")
+            return {"captured": True, "action": "inserted", **summary}
+
+        elapsed_seconds = (
+            _parse_datetime(str(replay_snapshot["snapshot_time"])) - _parse_datetime(str(latest["snapshot_time"]))
+        ).total_seconds()
+        if elapsed_seconds >= self.interval_seconds:
+            summary = self.repository.insert_snapshot(replay_snapshot, source="ibkr")
+            return {"captured": True, "action": "inserted", **summary}
+
+        summary = self.repository.update_snapshot(int(latest["snapshot_id"]), replay_snapshot, source="ibkr")
+        return {"captured": True, "action": "updated", **summary}
+
+
+def capture_live_snapshot_from_state(state: CollectorState) -> dict[str, Any]:
+    recorder = ReplayCaptureRecorder(get_replay_repository(), interval_seconds=capture_interval_seconds())
+    try:
+        return recorder.capture(build_live_snapshot(state))
+    except Exception as exc:
+        return {
+            "captured": False,
+            "reason": "persistence_unavailable",
+            "message": str(exc),
+        }
+
+
+def _replay_ready_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    replay_snapshot = deepcopy(snapshot)
+    replay_snapshot["mode"] = "replay"
+    return replay_snapshot
+
+
+def _parse_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)

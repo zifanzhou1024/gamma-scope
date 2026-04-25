@@ -47,7 +47,14 @@ The API can accept one normalized collector event at a time during local testing
     POST /api/spx/0dte/collector/events
     GET  /api/spx/0dte/collector/state
 
-For now this stores the latest collector health, contracts, underlying ticks, and option ticks in process memory only. It is a local integration harness; Postgres/Redis persistence and snapshot assembly come in later slices.
+For now this keeps the latest collector health, contracts, underlying ticks, and option ticks in process memory for live snapshot assembly.
+
+Replay capture now persists replay-ready analytics snapshots to local Postgres when a valid live collector snapshot is available. The API uses:
+
+    GAMMASCOPE_DATABASE_URL=postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope
+    GAMMASCOPE_REPLAY_CAPTURE_INTERVAL_SECONDS=5
+
+If Postgres is unavailable, collector ingestion still works and replay falls back to the seeded demo session.
 
 With the API running, publish the mock collector cycle into that ingestion endpoint:
 
@@ -137,6 +144,16 @@ For a fuller option-chain view, widen the strike window and request more strikes
     pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7164.29 --strike-window-points 125 --max-strikes 50 --publish
 
 Use `--market-data-type 3` to force delayed streaming during market hours, or `--market-data-type 4` to force delayed frozen outside market hours. `--spot` can be used when SPX index top-of-book data is not subscribed or unavailable. The resulting dashboard data is still delayed and should be treated as a testing mode, not as real-time trading data.
+
+After publishing, inspect captured replay sessions:
+
+    curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
+
+Use the captured `session_id` to replay the persisted IBKR snapshot:
+
+    curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=<captured-session-id>" | python -m json.tool
+
+Then open `http://localhost:3000`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
 
 ## Analytics Conventions
 

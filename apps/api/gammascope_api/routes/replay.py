@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from gammascope_api.fixtures import load_json_fixture
+from gammascope_api.replay.dependencies import get_replay_repository
 
 
 router = APIRouter()
@@ -19,10 +20,12 @@ REPLAY_TIMES = [
 
 @router.get("/api/spx/0dte/replay/sessions")
 def list_replay_sessions() -> list[dict]:
+    persisted_sessions = _persisted_replay_sessions()
     snapshots = seed_replay_snapshots()
     first_snapshot = snapshots[0]
     last_snapshot = snapshots[-1]
     return [
+        *persisted_sessions,
         {
             "session_id": first_snapshot["session_id"],
             "symbol": first_snapshot["symbol"],
@@ -36,10 +39,28 @@ def list_replay_sessions() -> list[dict]:
 
 @router.get("/api/spx/0dte/replay/snapshot")
 def get_replay_snapshot(session_id: str, at: str | None = None) -> dict:
+    persisted_snapshot = _persisted_replay_snapshot(session_id, at)
+    if persisted_snapshot is not None:
+        return persisted_snapshot
+
     snapshots = seed_replay_snapshots()
     if session_id != snapshots[0]["session_id"]:
         return {**snapshots[-1], "coverage_status": "empty", "rows": []}
     return nearest_replay_snapshot(snapshots, at)
+
+
+def _persisted_replay_sessions() -> list[dict[str, Any]]:
+    try:
+        return get_replay_repository().list_sessions()
+    except Exception:
+        return []
+
+
+def _persisted_replay_snapshot(session_id: str, at: str | None) -> dict[str, Any] | None:
+    try:
+        return get_replay_repository().nearest_snapshot(session_id, at)
+    except Exception:
+        return None
 
 
 def seed_replay_snapshots() -> list[dict[str, Any]]:

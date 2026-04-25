@@ -4,6 +4,8 @@ from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnaps
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
 from gammascope_api.main import app
+from gammascope_api.replay.dependencies import set_replay_repository_override
+from gammascope_api.replay.repository import NullReplayRepository
 
 
 client = TestClient(app)
@@ -11,6 +13,7 @@ client = TestClient(app)
 
 def setup_function() -> None:
     collector_state.clear()
+    set_replay_repository_override(NullReplayRepository())
 
 
 def test_collector_ingest_accepts_health_event() -> None:
