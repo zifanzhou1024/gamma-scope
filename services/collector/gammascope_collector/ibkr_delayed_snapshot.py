@@ -7,10 +7,11 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import UTC, date, datetime, time as datetime_time
 from math import isfinite
 from typing import Protocol
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from gammascope_collector.events import health_event, option_tick_event, underlying_tick_event
 from gammascope_collector.ibkr_config import IbkrHealthConfig, ibkr_health_config_from_env
@@ -24,6 +25,14 @@ from gammascope_collector.ibkr_contracts import (
 from gammascope_collector.publisher import PublishSummary, publish_events
 
 DELAYED_MARKET_DATA_TYPE = 3
+DELAYED_FROZEN_MARKET_DATA_TYPE = 4
+_MARKET_DATA_TYPE_NAMES = {
+    DELAYED_MARKET_DATA_TYPE: "delayed",
+    DELAYED_FROZEN_MARKET_DATA_TYPE: "delayed_frozen",
+}
+_EASTERN_TIME = ZoneInfo("America/New_York")
+_REGULAR_SESSION_START = datetime_time(hour=9, minute=30)
+_REGULAR_SESSION_END = datetime_time(hour=16, minute=15)
 _INFORMATIONAL_ERROR_CODES = {10090, 10167, 10168, 2104, 2106, 2108, 2158}
 _NO_DATA_QUOTE_ERROR_CODES = {354, 10197}
 
@@ -64,6 +73,7 @@ class DelayedSnapshotConfig:
     max_strikes: int | None = None
     session_id: str = ""
     symbol: str = "SPX"
+    market_data_type: int = DELAYED_MARKET_DATA_TYPE
 
     def with_overrides(self, **overrides: object) -> DelayedSnapshotConfig:
         return replace(self, **overrides)
@@ -79,7 +89,8 @@ class DelayedSnapshotResult:
     events: list[dict[str, object]]
     contracts_count: int
     option_ticks_count: int
-    market_data_type: str = "delayed"
+    market_data_type: str
+    market_data_type_id: int
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -90,6 +101,7 @@ class DelayedSnapshotResult:
             "contracts_count": self.contracts_count,
             "option_ticks_count": self.option_ticks_count,
             "market_data_type": self.market_data_type,
+            "market_data_type_id": self.market_data_type_id,
             "events": self.events,
         }
 
@@ -101,7 +113,7 @@ class IbkrDelayedSnapshotAdapter(Protocol):
     def wait_until_ready(self, timeout_seconds: float) -> dict[str, object]:
         ...
 
-    def request_delayed_market_data(self) -> None:
+    def request_market_data_type(self, market_data_type: int) -> None:
         ...
 
     def snapshot_underlying(self, timeout_seconds: float) -> DelayedMarketDataQuote:
@@ -135,7 +147,7 @@ def collect_delayed_snapshot(
     adapter_maker = adapter_factory or _create_real_adapter
 
     if config.spot is None:
-        underlying_quote = _snapshot_underlying(config.ibkr, adapter_maker)
+        underlying_quote = _snapshot_underlying(config.ibkr, adapter_maker, config.market_data_type)
         spot = underlying_quote.spot()
         if spot is None:
             raise IbkrDelayedMarketDataTimeout("IBKR delayed SPX snapshot did not include a usable spot")
@@ -158,13 +170,14 @@ def collect_delayed_snapshot(
 
     option_quotes: dict[str, DelayedMarketDataQuote] = {}
     if discovery.events:
-        option_quotes = _snapshot_options(config.ibkr, adapter_maker, discovery.events)
+        option_quotes = _snapshot_options(config.ibkr, adapter_maker, discovery.events, config.market_data_type)
 
+    market_data_type_name = _market_data_type_name(config.market_data_type)
     health = health_event(
         collector_id=config.ibkr.collector_id,
         status="degraded",
         ibkr_account_mode=config.ibkr.account_mode,
-        message="IBKR delayed market data snapshot emitted",
+        message=f"IBKR {market_data_type_name.replace('_', ' ')} market data snapshot emitted",
     )
     underlying = underlying_tick_event(
         session_id=session_id,
@@ -188,6 +201,8 @@ def collect_delayed_snapshot(
         events=events,
         contracts_count=len(discovery.events),
         option_ticks_count=len(option_events),
+        market_data_type=market_data_type_name,
+        market_data_type_id=config.market_data_type,
     )
 
 
@@ -212,6 +227,12 @@ def main(
     parser.add_argument("--strike-window-points", type=float, default=100.0)
     parser.add_argument("--max-strikes", type=int)
     parser.add_argument("--session-id")
+    parser.add_argument(
+        "--market-data-type",
+        default="auto",
+        choices=["auto", "3", "4", "delayed", "delayed-frozen", "delayed_frozen"],
+        help="IBKR market data type: auto, 3/delayed, or 4/delayed-frozen.",
+    )
     parser.add_argument("--publish", action="store_true")
     args = parser.parse_args(_normalize_argv(argv if argv is not None else sys.argv[1:]))
 
@@ -232,6 +253,7 @@ def main(
         strike_window_points=args.strike_window_points,
         max_strikes=args.max_strikes,
         session_id=args.session_id or "",
+        market_data_type=_resolve_market_data_type(args.market_data_type),
     )
 
     try:
@@ -257,6 +279,7 @@ def main(
                 "session_id": result.session_id,
                 "target_expiry": result.target_expiry,
                 "market_data_type": result.market_data_type,
+                "market_data_type_id": result.market_data_type_id,
             }
         )
         _print_json(summary)
@@ -292,8 +315,8 @@ class _RealIbkrDelayedSnapshotAdapter:
             raise IbkrBrokerError(f"IBKR API broker error {terminal_error}")
         return dict(self._metadata)
 
-    def request_delayed_market_data(self) -> None:
-        self._client.reqMarketDataType(DELAYED_MARKET_DATA_TYPE)
+    def request_market_data_type(self, market_data_type: int) -> None:
+        self._client.reqMarketDataType(market_data_type)
 
     def snapshot_underlying(self, timeout_seconds: float) -> DelayedMarketDataQuote:
         contract = self._contract()
@@ -407,6 +430,7 @@ class _PendingMarketData:
         self.ibkr_gamma: float | None = None
         self.ibkr_vega: float | None = None
         self.ibkr_theta: float | None = None
+        self.market_data_type: int | None = None
         self.error: dict[str, object] | None = None
         self.snapshot_ended = False
 
@@ -539,6 +563,12 @@ def _create_real_adapter(*, importer: Importer = __import__) -> IbkrDelayedSnaps
                 pending.snapshot_ended = True
                 pending.event.set()
 
+        def marketDataType(self, reqId: int, marketDataType: int) -> None:
+            pending = self._pending_market_data.get(reqId)
+            if pending is not None:
+                pending.market_data_type = int(marketDataType)
+            metadata["latest_market_data_type"] = int(marketDataType)
+
         def _fail_all_pending(self, error: dict[str, object]) -> None:
             for pending in self._pending_market_data.values():
                 pending.error = error
@@ -564,12 +594,16 @@ def _create_real_adapter(*, importer: Importer = __import__) -> IbkrDelayedSnaps
     return _RealIbkrDelayedSnapshotAdapter(DelayedSnapshotClient(), Contract, ready_event, metadata)
 
 
-def _snapshot_underlying(ibkr: IbkrHealthConfig, adapter_factory: AdapterFactory) -> DelayedMarketDataQuote:
+def _snapshot_underlying(
+    ibkr: IbkrHealthConfig,
+    adapter_factory: AdapterFactory,
+    market_data_type: int,
+) -> DelayedMarketDataQuote:
     adapter = adapter_factory()
     try:
         adapter.connect(ibkr.host, ibkr.port, ibkr.client_id)
         adapter.wait_until_ready(ibkr.timeout_seconds)
-        adapter.request_delayed_market_data()
+        adapter.request_market_data_type(market_data_type)
         return adapter.snapshot_underlying(ibkr.timeout_seconds)
     except BaseException as exc:
         _disconnect_preserving_primary(adapter, exc)
@@ -585,12 +619,13 @@ def _snapshot_options(
     ibkr: IbkrHealthConfig,
     adapter_factory: AdapterFactory,
     contracts: Iterable[dict[str, object]],
+    market_data_type: int,
 ) -> dict[str, DelayedMarketDataQuote]:
     adapter = adapter_factory()
     try:
         adapter.connect(ibkr.host, ibkr.port, ibkr.client_id)
         adapter.wait_until_ready(ibkr.timeout_seconds)
-        adapter.request_delayed_market_data()
+        adapter.request_market_data_type(market_data_type)
         return adapter.snapshot_options(contracts, ibkr.timeout_seconds)
     except BaseException as exc:
         _disconnect_preserving_primary(adapter, exc)
@@ -711,6 +746,37 @@ def _summary_dict(summary: PublishSummary | dict[str, object]) -> dict[str, obje
     if isinstance(summary, dict):
         return dict(summary)
     return summary.as_dict()
+
+
+def _resolve_market_data_type(value: str | int, *, now: datetime | None = None) -> int:
+    if isinstance(value, int):
+        if value in _MARKET_DATA_TYPE_NAMES:
+            return value
+        raise ValueError("market_data_type must be 3, 4, delayed, delayed-frozen, or auto")
+
+    normalized = value.strip().lower().replace("_", "-")
+    if normalized in {"3", "delayed"}:
+        return DELAYED_MARKET_DATA_TYPE
+    if normalized in {"4", "delayed-frozen"}:
+        return DELAYED_FROZEN_MARKET_DATA_TYPE
+    if normalized == "auto":
+        return DELAYED_MARKET_DATA_TYPE if _is_regular_market_hours(now or datetime.now(UTC)) else DELAYED_FROZEN_MARKET_DATA_TYPE
+    raise ValueError("market_data_type must be 3, 4, delayed, delayed-frozen, or auto")
+
+
+def _is_regular_market_hours(now: datetime) -> bool:
+    local_now = now.astimezone(_EASTERN_TIME)
+    return (
+        local_now.weekday() < 5
+        and _REGULAR_SESSION_START <= local_now.time().replace(tzinfo=None) < _REGULAR_SESSION_END
+    )
+
+
+def _market_data_type_name(market_data_type: int) -> str:
+    try:
+        return _MARKET_DATA_TYPE_NAMES[market_data_type]
+    except KeyError as exc:
+        raise ValueError("market_data_type must be 3 or 4") from exc
 
 
 def _positive_or_none(value: object) -> float | None:

@@ -124,19 +124,19 @@ If no contracts are discovered, the command still publishes zero events and prin
 
 For local testing without real-time market-data subscriptions, request a one-shot delayed snapshot:
 
-    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 10 --max-strikes 1
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7164.29 --strike-window-points 20 --max-strikes 9
 
-This command uses IBKR delayed market data mode (`reqMarketDataType(3)`), discovers the requested SPX/SPXW contracts, snapshots delayed option quotes and Greeks, and emits a collector health event, an underlying tick, contract discovery events, and option tick events.
+This command uses IBKR market-data type `auto`: delayed streaming (`reqMarketDataType(3)`) during regular market hours and delayed frozen (`reqMarketDataType(4)`) outside regular market hours or on weekends. It discovers the requested SPX/SPXW contracts, snapshots delayed option quotes and Greeks, and emits a collector health event, an underlying tick, contract discovery events, and option tick events.
 
 With the API running, publish the delayed snapshot into local ingestion:
 
-    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 10 --max-strikes 1 --publish
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7164.29 --strike-window-points 20 --max-strikes 9 --publish
 
 For a fuller option-chain view, widen the strike window and request more strikes:
 
-    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 50 --max-strikes 21 --publish
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7164.29 --strike-window-points 125 --max-strikes 50 --publish
 
-`--spot` can be used when SPX index top-of-book data is not subscribed or unavailable. The resulting dashboard data is still delayed and should be treated as a testing mode, not as real-time trading data.
+Use `--market-data-type 3` to force delayed streaming during market hours, or `--market-data-type 4` to force delayed frozen outside market hours. `--spot` can be used when SPX index top-of-book data is not subscribed or unavailable. The resulting dashboard data is still delayed and should be treated as a testing mode, not as real-time trading data.
 
 ## Analytics Conventions
 

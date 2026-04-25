@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import json
 from types import SimpleNamespace
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -20,6 +21,7 @@ from gammascope_collector.ibkr_delayed_snapshot import (
     DelayedSnapshotConfig,
     IbkrDelayedMarketDataTimeout,
     _create_real_adapter,
+    _resolve_market_data_type,
     collect_delayed_snapshot,
     main,
 )
@@ -71,6 +73,29 @@ def discovery_result(events: list[dict[str, object]]) -> ContractDiscoveryResult
     )
 
 
+def test_auto_market_data_type_uses_delayed_streaming_during_market_hours() -> None:
+    market_open = datetime(2026, 4, 27, 11, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    assert _resolve_market_data_type("auto", now=market_open) == 3
+
+
+def test_auto_market_data_type_uses_delayed_frozen_outside_market_hours() -> None:
+    saturday = datetime(2026, 4, 25, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+    after_close = datetime(2026, 4, 27, 17, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    assert _resolve_market_data_type("auto", now=saturday) == 4
+    assert _resolve_market_data_type("auto", now=after_close) == 4
+
+
+def test_explicit_market_data_type_override_accepts_delayed_and_delayed_frozen() -> None:
+    market_open = datetime(2026, 4, 27, 11, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    assert _resolve_market_data_type("3", now=market_open) == 3
+    assert _resolve_market_data_type("delayed", now=market_open) == 3
+    assert _resolve_market_data_type("4", now=market_open) == 4
+    assert _resolve_market_data_type("delayed-frozen", now=market_open) == 4
+
+
 @dataclass
 class FakeDelayedAdapter:
     underlying_quote: DelayedMarketDataQuote | None = None
@@ -79,7 +104,7 @@ class FakeDelayedAdapter:
     option_error: Exception | None = None
     disconnected: bool = False
     connect_calls: list[tuple[str, int, int]] | None = None
-    delayed_calls: int = 0
+    market_data_type_calls: list[int] | None = None
     underlying_calls: list[float] | None = None
     option_calls: list[list[dict[str, object]]] | None = None
 
@@ -92,8 +117,9 @@ class FakeDelayedAdapter:
             raise self.wait_error
         return {"next_order_id": 1201}
 
-    def request_delayed_market_data(self) -> None:
-        self.delayed_calls += 1
+    def request_market_data_type(self, market_data_type: int) -> None:
+        self.market_data_type_calls = self.market_data_type_calls or []
+        self.market_data_type_calls.append(market_data_type)
 
     def snapshot_underlying(self, timeout_seconds: float) -> DelayedMarketDataQuote:
         self.underlying_calls = self.underlying_calls or []
@@ -235,7 +261,7 @@ def test_collect_delayed_snapshot_with_spot_override_builds_contract_and_option_
     assert captured_discovery_configs[0].spot == 7050.0
     assert captured_discovery_configs[0].session_id == "delayed-session"
     assert adapter.underlying_calls is None
-    assert adapter.delayed_calls == 1
+    assert adapter.market_data_type_calls == [3]
     assert result.contracts_count == 2
     assert result.option_ticks_count == 2
     assert [event.get("status") for event in result.events if "collector_id" in event] == ["degraded"]
@@ -269,12 +295,31 @@ def test_collect_delayed_snapshot_without_spot_uses_delayed_underlying_before_di
     )
 
     assert captured_spots == [7050.0]
-    assert underlying_adapter.delayed_calls == 1
+    assert underlying_adapter.market_data_type_calls == [3]
     assert underlying_adapter.disconnected is True
     assert option_adapter.connect_calls is None
     assert result.underlying_tick["mark"] == 7050.0
     assert result.contracts_count == 0
     assert result.option_ticks_count == 0
+
+
+def test_collect_delayed_snapshot_uses_configured_delayed_frozen_market_data_type() -> None:
+    call_event = contract_event("call", 867905902)
+    adapter = FakeDelayedAdapter(
+        option_quotes={
+            867905902: DelayedMarketDataQuote(bid=26.4, ask=27.2, last=26.8),
+        }
+    )
+
+    result = collect_delayed_snapshot(
+        snapshot_config(market_data_type=4),
+        discovery_runner=lambda _config: discovery_result([call_event]),
+        adapter_factory=lambda: adapter,
+    )
+
+    assert adapter.market_data_type_calls == [4]
+    assert result.market_data_type == "delayed_frozen"
+    assert result.market_data_type_id == 4
 
 
 def test_cli_publish_mode_publishes_all_snapshot_events_and_prints_summary(
@@ -315,6 +360,8 @@ def test_cli_publish_mode_publishes_all_snapshot_events_and_prints_summary(
             "7050",
             "--session-id",
             "delayed-session",
+            "--market-data-type",
+            "4",
         ],
         discovery_runner=discover,
         adapter_factory=lambda: adapter,
@@ -325,9 +372,11 @@ def test_cli_publish_mode_publishes_all_snapshot_events_and_prints_summary(
     assert summary["accepted_count"] == 4
     assert summary["contracts_count"] == 1
     assert summary["option_ticks_count"] == 1
-    assert summary["market_data_type"] == "delayed"
+    assert summary["market_data_type"] == "delayed_frozen"
+    assert summary["market_data_type_id"] == 4
     assert summary["event_types"] == ["CollectorHealth", "UnderlyingTick", "ContractDiscovered", "OptionTick"]
     assert len(captured_events) == 4
+    assert adapter.market_data_type_calls == [4]
 
 
 def test_real_adapter_requests_delayed_market_data_and_maps_delayed_underlying_ticks() -> None:
@@ -338,7 +387,7 @@ def test_real_adapter_requests_delayed_market_data_and_maps_delayed_underlying_t
 
     client.wrapper.nextValidId(1201)
     adapter.wait_until_ready(0.5)
-    adapter.request_delayed_market_data()
+    adapter.request_market_data_type(3)
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(adapter.snapshot_underlying, 0.5)
