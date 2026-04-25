@@ -1,6 +1,14 @@
 import type { AnalyticsSnapshot } from "./contracts";
 
 type AnalyticsRow = AnalyticsSnapshot["rows"][number];
+type ComparisonStatus = AnalyticsRow["comparison_status"];
+
+export type ComparisonTone = "ok" | "warning" | "muted";
+
+export interface ComparisonStatusDisplay {
+  label: string;
+  tone: ComparisonTone;
+}
 
 export interface SnapshotSummary {
   rowCount: number;
@@ -54,6 +62,21 @@ export function formatBasisPointDiff(value: number | null | undefined): string {
   return `${(value * 10000).toFixed(1)} bp`;
 }
 
+export function formatIvDiffBasisPoints(value: number | null | undefined): string {
+  if (value == null) {
+    return "—";
+  }
+  const basisPoints = value * 10000;
+  return `${formatSignedFixed(basisPoints, 1)} bp`;
+}
+
+export function formatGammaDiff(value: number | null | undefined): string {
+  if (value == null) {
+    return "—";
+  }
+  return formatSignedFixed(value, 5);
+}
+
 export function formatInteger(value: number | null | undefined): string {
   if (value == null) {
     return "—";
@@ -66,6 +89,23 @@ export function formatStatusLabel(value: string): string {
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(" ");
+}
+
+export function getComparisonStatusDisplay(status: ComparisonStatus | null | undefined): ComparisonStatusDisplay {
+  if (status == null) {
+    return { label: "No IBKR", tone: "muted" };
+  }
+
+  if (status === "ok") {
+    return { label: "OK", tone: "ok" };
+  }
+
+  const warningStatuses: ComparisonStatus[] = ["stale", "outside_tolerance"];
+
+  return {
+    label: formatComparisonStatusLabel(status),
+    tone: warningStatuses.includes(status) ? "warning" : "muted"
+  };
 }
 
 export function formatStrikeRange(range: [number, number] | null): string {
@@ -156,4 +196,15 @@ function average(values: number[]): number | null {
 
 function sumAbs(values: number[]): number {
   return values.reduce((total, value) => total + Math.abs(value), 0);
+}
+
+function formatSignedFixed(value: number, digits: number): string {
+  const normalized = Object.is(value, -0) ? 0 : value;
+  const sign = normalized > 0 ? "+" : "";
+  return `${sign}${normalized.toFixed(digits)}`;
+}
+
+function formatComparisonStatusLabel(status: ComparisonStatus): string {
+  const label = formatStatusLabel(status);
+  return `${label.charAt(0)}${label.slice(1).toLowerCase()}`;
 }

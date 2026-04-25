@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   filterChainRowsBySide,
   formatBasisPointDiff,
+  formatGammaDiff,
+  formatIvDiffBasisPoints,
   formatNumber,
   formatPercent,
   formatInteger,
   formatSnapshotTime,
   formatStatusLabel,
+  getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
   summarizeSnapshot
@@ -35,6 +38,30 @@ describe("dashboard metrics", () => {
     expect(formatInteger(2614)).toBe("2,614");
     expect(formatInteger(null)).toBe("—");
     expect(formatStatusLabel("partial")).toBe("Partial");
+  });
+
+  it("formats IBKR comparison deltas compactly", () => {
+    expect(formatIvDiffBasisPoints(-0.0015)).toBe("-15.0 bp");
+    expect(formatIvDiffBasisPoints(0.001)).toBe("+10.0 bp");
+    expect(formatIvDiffBasisPoints(null)).toBe("—");
+    expect(formatIvDiffBasisPoints(undefined)).toBe("—");
+
+    expect(formatGammaDiff(0.000302)).toBe("+0.00030");
+    expect(formatGammaDiff(-0.000242)).toBe("-0.00024");
+    expect(formatGammaDiff(-0)).toBe("0.00000");
+    expect(formatGammaDiff(null)).toBe("—");
+    expect(formatGammaDiff(undefined)).toBe("—");
+  });
+
+  it("maps IBKR comparison statuses to compact labels and tones", () => {
+    expect(getComparisonStatusDisplay("ok")).toEqual({ label: "OK", tone: "ok" });
+    expect(getComparisonStatusDisplay("outside_tolerance")).toEqual({
+      label: "Outside tolerance",
+      tone: "warning"
+    });
+    expect(getComparisonStatusDisplay("missing")).toEqual({ label: "Missing", tone: "muted" });
+    expect(getComparisonStatusDisplay(null)).toEqual({ label: "No IBKR", tone: "muted" });
+    expect(getComparisonStatusDisplay(undefined)).toEqual({ label: "No IBKR", tone: "muted" });
   });
 
   it("formats snapshot time in the SPX market timezone", () => {

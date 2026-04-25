@@ -7,13 +7,16 @@ import type { AnalyticsSnapshot } from "../lib/contracts";
 import {
   type ChainSide,
   filterChainRowsBySide,
+  formatGammaDiff,
   formatInteger,
+  formatIvDiffBasisPoints,
   formatNumber,
   formatPercent,
   formatPrice,
   formatSnapshotTime,
   formatStatusLabel,
   formatStrikeRange,
+  getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
   sortRowsByStrike,
@@ -172,7 +175,7 @@ export function DashboardView({
                       <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
                       <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
                       <td>{formatPrice(row.call?.mid)}</td>
-                      <td className="smallOptional">{formatPercent(row.call?.custom_iv)}</td>
+                      <IvCell row={row.call} />
                       <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
                       <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
                     </>
@@ -186,7 +189,7 @@ export function DashboardView({
                       <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
                       <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
                       <td>{formatPrice(row.put?.mid)}</td>
-                      <td className="smallOptional">{formatPercent(row.put?.custom_iv)}</td>
+                      <IvCell row={row.put} />
                       <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
                       <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
                     </>
@@ -210,6 +213,20 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {
+  return (
+    <td className="smallOptional comparisonCell">
+      <span className="cellMain">{formatPercent(row?.custom_iv)}</span>
+      <ComparisonLine
+        row={row}
+        hasComparisonValue={row?.ibkr_iv != null || row?.iv_diff != null}
+        ibkrValue={formatPercent(row?.ibkr_iv)}
+        diffValue={formatIvDiffBasisPoints(row?.iv_diff)}
+      />
+    </td>
+  );
+}
+
 function RiskCell({
   row,
   maxGamma,
@@ -227,10 +244,49 @@ function RiskCell({
   } as CSSProperties;
 
   return (
-    <td className={`riskCell ${side}Risk`} style={style}>
+    <td className={`riskCell comparisonCell ${side}Risk`} style={style}>
       <span className="heatFill" aria-hidden="true" />
-      <span>{formatNumber(gamma, 5)}</span>
+      <span className="cellMain">{formatNumber(gamma, 5)}</span>
+      <ComparisonLine
+        row={row}
+        hasComparisonValue={row?.ibkr_gamma != null || row?.gamma_diff != null}
+        ibkrValue={formatNumber(row?.ibkr_gamma, 5)}
+        diffValue={formatGammaDiff(row?.gamma_diff)}
+      />
     </td>
+  );
+}
+
+function ComparisonLine({
+  row,
+  hasComparisonValue,
+  ibkrValue,
+  diffValue
+}: {
+  row: AnalyticsSnapshot["rows"][number] | null | undefined;
+  hasComparisonValue: boolean;
+  ibkrValue: string;
+  diffValue: string;
+}) {
+  if (row == null) {
+    return null;
+  }
+
+  const status = getComparisonStatusDisplay(row.comparison_status);
+
+  if (status.tone !== "ok" || !hasComparisonValue) {
+    return (
+      <span className="comparisonLine">
+        <span className={`comparisonPill comparison-${status.tone}`}>{status.label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="comparisonLine">
+      {ibkrValue !== "—" ? <span className="comparisonIbkr">IBKR {ibkrValue}</span> : null}
+      {diffValue !== "—" ? <span className="comparisonPill comparison-ok">{diffValue}</span> : null}
+    </span>
   );
 }
 

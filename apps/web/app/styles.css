@@ -853,9 +853,63 @@ tbody tr:last-child td {
   overflow: hidden;
 }
 
-.riskCell > span:last-child {
+.comparisonCell {
+  min-width: 126px;
+  line-height: 1.1;
+}
+
+.cellMain,
+.comparisonLine {
   position: relative;
   z-index: 1;
+}
+
+.cellMain {
+  display: block;
+}
+
+.comparisonLine {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-height: 16px;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.comparisonIbkr {
+  color: rgba(203, 213, 225, 0.76);
+}
+
+.comparisonPill {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 4px;
+  padding: 0 5px;
+  background: rgba(15, 23, 42, 0.46);
+  color: #cbd5e1;
+}
+
+.comparison-ok {
+  border-color: rgba(20, 184, 166, 0.28);
+  color: #99f6e4;
+}
+
+.comparison-warning {
+  border-color: rgba(250, 204, 21, 0.36);
+  color: #fde68a;
+}
+
+.comparison-muted {
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
 }
 
 .heatFill {
