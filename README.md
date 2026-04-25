@@ -68,6 +68,18 @@ Open `http://localhost:3000`. After the mock publish populates API state, the da
 
 The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and stored in the FastAPI process memory for now.
 
+### Local IBKR Health Probe
+
+Check whether a local TWS or IB Gateway TCP endpoint is reachable:
+
+    pnpm collector:ibkr-health
+
+With the API running, publish that single `CollectorHealth` event into the local ingestion endpoint:
+
+    pnpm collector:ibkr-health -- --publish
+
+This is only a TCP reachability health probe. It does not perform a full IBKR API handshake, subscribe to market data, or discover option chains yet.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
