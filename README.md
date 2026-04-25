@@ -120,6 +120,20 @@ With the API running, publish discovered contracts into local ingestion:
 
 If no contracts are discovered, the command still publishes zero events and prints `contracts_count: 0`. This slice only discovers contracts; it does not subscribe to option ticks or stream live quotes.
 
+### Local IBKR Delayed Snapshot
+
+For local testing without real-time market-data subscriptions, request a one-shot delayed snapshot:
+
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 10 --max-strikes 1
+
+This command uses IBKR delayed market data mode (`reqMarketDataType(3)`), discovers the requested SPX/SPXW contracts, snapshots delayed option quotes and Greeks, and emits a collector health event, an underlying tick, contract discovery events, and option tick events.
+
+With the API running, publish the delayed snapshot into local ingestion:
+
+    pnpm collector:ibkr-delayed-snapshot -- --port 4002 --expiry 2026-04-27 --spot 7050 --strike-window-points 10 --max-strikes 1 --publish
+
+`--spot` can be used when SPX index top-of-book data is not subscribed or unavailable. The resulting dashboard data is still delayed and should be treated as a testing mode, not as real-time trading data.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.

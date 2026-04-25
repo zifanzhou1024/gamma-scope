@@ -15,6 +15,7 @@
     "collector:ibkr-health": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_health",
     "collector:ibkr-handshake": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_handshake",
     "collector:ibkr-contracts": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_contracts",
+    "collector:ibkr-delayed-snapshot": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_delayed_snapshot",
     "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
     "test": "pnpm test:scripts && pnpm test:contracts && pnpm typecheck:web && pnpm test:web"
