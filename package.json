@@ -13,6 +13,7 @@
     "dev:api": ".venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api",
     "collector:mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.cli",
     "collector:ibkr-health": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_health",
+    "collector:ibkr-handshake": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_handshake",
     "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
     "test": "pnpm test:scripts && pnpm test:contracts && pnpm typecheck:web && pnpm test:web"

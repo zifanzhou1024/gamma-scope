@@ -80,6 +80,22 @@ With the API running, publish that single `CollectorHealth` event into the local
 
 This is only a TCP reachability health probe. It does not perform a full IBKR API handshake, subscribe to market data, or discover option chains yet.
 
+### Local IBKR API Handshake
+
+The TCP probe only checks that a socket is reachable:
+
+    pnpm collector:ibkr-health -- --port 4002
+
+The API handshake command connects through the official IBKR `EClient`/`EWrapper` API and waits for `nextValidId`:
+
+    pnpm collector:ibkr-handshake -- --port 4002
+
+With the API running, publish that single handshake status event into local ingestion:
+
+    pnpm collector:ibkr-handshake -- --port 4002 --publish
+
+The handshake requires the official `ibapi` package in the project venv and IB Gateway or TWS API access enabled. A handshake timeout is reported as `stale`, because the TCP connection may exist while the API readiness callback has not arrived. This slice still does not subscribe to market data or discover SPX option chains.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
