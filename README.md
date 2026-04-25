@@ -96,6 +96,30 @@ With the API running, publish that single handshake status event into local inge
 
 The handshake requires the official `ibapi` package in the project venv and IB Gateway or TWS API access enabled. A handshake timeout is reported as `stale`, because the TCP connection may exist while the API readiness callback has not arrived. This slice still does not subscribe to market data or discover SPX option chains.
 
+### Local IBKR SPX 0DTE Contract Discovery
+
+Discover the SPX 0DTE option contracts available from a local IB Gateway or TWS session:
+
+    pnpm collector:ibkr-contracts -- --port 4002
+
+By default the target expiry is the local calendar date. On weekends and market holidays, that can return zero contracts; pass an explicit trading date for local smoke tests:
+
+    pnpm collector:ibkr-contracts -- --port 4002 --expiry 2026-04-24
+
+The command resolves the SPX underlying, requests SPX/SPXW option metadata, prefers SPXW when same-expiry metadata exists, filters strikes around spot, resolves concrete option contract IDs, and prints a JSON object with `session_id`, `symbol`, `target_expiry`, `spot`, `contracts_count`, and `events`.
+
+Useful controls:
+
+    pnpm collector:ibkr-contracts -- --expiry 2026-04-24 --spot 5202 --strike-window-points 100 --max-strikes 21
+
+`--spot` skips live SPX market data lookup. Without it, the collector requests a snapshot and uses last, midpoint, mark, or close in that order. `--strike-window-points` defaults to 100 index points around spot, and `--max-strikes` keeps the nearest strikes before resolving calls and puts.
+
+With the API running, publish discovered contracts into local ingestion:
+
+    pnpm collector:ibkr-contracts -- --port 4002 --expiry 2026-04-24 --publish
+
+If no contracts are discovered, the command still publishes zero events and prints `contracts_count: 0`. This slice only discovers contracts; it does not subscribe to option ticks or stream live quotes.
+
 ## Analytics Conventions
 
 GammaScope uses a forward/discount-factor Black-Scholes-Merton convention for SPX-style European index options. Time to expiry is annualized with ACT/365, rates and dividend/carry inputs are continuously compounded annual decimals, and volatility is stored as annualized decimal volatility rather than percentage points.
