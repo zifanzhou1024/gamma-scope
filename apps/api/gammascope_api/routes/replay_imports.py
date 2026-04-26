@@ -21,6 +21,7 @@ from gammascope_api.replay.importer import ReplayParquetImporter
 
 REQUIRED_FILENAMES = {"snapshots": "snapshots.parquet", "quotes": "quotes.parquet"}
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
+_MULTIPART_BODY_OVERHEAD_BYTES = 64 * 1024
 
 router = APIRouter()
 
@@ -33,6 +34,7 @@ async def create_replay_import(
 ) -> dict[str, Any]:
     require_admin_token(x_gammascope_admin_token)
     max_bytes = replay_import_max_bytes()
+    _limit_request_body(request, max_bytes=_multipart_body_max_bytes(max_bytes))
     snapshots, quotes = await _validate_file_fields(request, max_bytes=max_bytes)
     _validate_filenames(snapshots=snapshots, quotes=quotes)
 
@@ -122,6 +124,26 @@ async def _save_upload_to_temp(upload: UploadFile, *, max_bytes: int) -> tuple[P
     except Exception:
         shutil.rmtree(path.parent, ignore_errors=True)
         raise
+
+
+def _multipart_body_max_bytes(max_file_bytes: int) -> int:
+    return len(REQUIRED_FILENAMES) * max_file_bytes + _MULTIPART_BODY_OVERHEAD_BYTES
+
+
+def _limit_request_body(request: Request, *, max_bytes: int) -> None:
+    receive = request._receive
+    consumed = 0
+
+    async def limited_receive() -> dict[str, Any]:
+        nonlocal consumed
+        message = await receive()
+        if message["type"] == "http.request":
+            consumed += len(message.get("body", b""))
+            if consumed > max_bytes:
+                raise HTTPException(status_code=413, detail="Replay import upload is too large")
+        return message
+
+    request._receive = limited_receive
 
 
 def temporary_upload_path(filename: str | None) -> Path:

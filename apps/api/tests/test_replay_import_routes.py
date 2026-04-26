@@ -211,6 +211,30 @@ def test_upload_rejects_oversize_file_without_leaking_temp_directory(
     assert list(temp_root.glob("gammascope-replay-import-*")) == []
 
 
+def test_upload_rejects_oversize_body_before_post_parse_copy(
+    importer_override: "_FakeImporter",
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_if_post_parse_copy_runs(*_args: Any, **_kwargs: Any) -> int:
+        raise AssertionError("oversize body reached post-parse copy")
+
+    monkeypatch.setenv("GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES", "16")
+    monkeypatch.setattr(replay_imports, "copy_upload_with_limit", fail_if_post_parse_copy_runs)
+    guarded_client = TestClient(app, raise_server_exceptions=False)
+
+    response = guarded_client.post(
+        "/api/replay/imports",
+        headers=_admin_headers(),
+        files=[
+            ("snapshots", ("snapshots.parquet", b"s" * (70 * 1024), "application/octet-stream")),
+            ("quotes", ("quotes.parquet", b"quote bytes", "application/octet-stream")),
+        ],
+    )
+
+    assert response.status_code == 413
+    assert importer_override.create_calls == []
+
+
 def test_successful_upload_returns_import_result_shape(
     client: TestClient,
     importer_override: "_FakeImporter",
