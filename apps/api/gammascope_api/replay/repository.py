@@ -209,6 +209,7 @@ class PostgresReplayRepository:
                     """
                     SELECT session_id, symbol, expiry, start_time, end_time, snapshot_count, source
                     FROM replay_sessions
+                    WHERE source <> 'parquet_import'
                     ORDER BY end_time DESC, session_id
                     """
                 )
@@ -223,6 +224,7 @@ class PostgresReplayRepository:
                 "end_time": _format_datetime(record[4]),
                 "snapshot_count": record[5],
                 "source": record[6],
+                "timestamp_source": "estimated",
             }
             for record in records
         ]

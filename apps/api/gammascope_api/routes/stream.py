@@ -38,11 +38,15 @@ async def stream_spx_0dte_replay(
     websocket: WebSocket,
     session_id: str = Query(...),
     at: str | None = None,
+    source_snapshot_id: str | None = None,
     interval_ms: int = DEFAULT_REPLAY_INTERVAL_MS,
 ) -> None:
     await websocket.accept()
     interval_seconds = _replay_interval_seconds(interval_ms)
-    snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at)
+    if source_snapshot_id is None:
+        snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at)
+    else:
+        snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at, source_snapshot_id)
 
     if not snapshots:
         snapshots = [_empty_replay_snapshot()]

@@ -8,8 +8,17 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request as StarletteRequest
 
 from gammascope_api.main import app
-from gammascope_api.replay.dependencies import get_replay_parquet_importer
+from gammascope_api.replay.dependencies import (
+    get_replay_parquet_importer,
+    reset_replay_import_repository_override,
+    reset_replay_repository_override,
+    set_replay_import_repository_override,
+    set_replay_repository_override,
+)
+from gammascope_api.replay.import_repository import ImportedSnapshotData, ImportedSnapshotHeader
 from gammascope_api.replay.importer import ImportResult
+from gammascope_api.replay.parquet_reader import QuoteRecord
+from gammascope_api.replay.repository import NullReplayRepository
 from gammascope_api.routes import replay_imports
 
 from replay_parquet_fixtures import write_replay_parquet_pair
@@ -31,6 +40,19 @@ def importer_override(monkeypatch: pytest.MonkeyPatch) -> "_FakeImporter":
 @pytest.fixture()
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture()
+def public_replay_client() -> tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"]:
+    import_repository = _FakeReplayImportRepository()
+    replay_repository = _FakeReplayRepository()
+    set_replay_import_repository_override(import_repository)
+    set_replay_repository_override(replay_repository)
+    try:
+        yield TestClient(app), import_repository, replay_repository
+    finally:
+        reset_replay_import_repository_override()
+        reset_replay_repository_override()
 
 
 def test_upload_requires_admin_token(
@@ -394,6 +416,112 @@ def test_cancel_completed_import_returns_409(
     assert response.json()["status"] == "completed"
 
 
+def test_public_replay_sessions_prepend_completed_imports_and_mark_timestamp_source(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+
+    response = client.get("/api/spx/0dte/replay/sessions")
+
+    assert response.status_code == 200
+    sessions = response.json()
+    session_ids = [session["session_id"] for session in sessions]
+    assert session_ids[:3] == ["import-session-ready", "live-session-ready", "seed-spx-2026-04-23"]
+    assert session_ids.count("import-session-ready") == 1
+    assert "import-session-failed" not in session_ids
+    assert "import-session-cancelled" not in session_ids
+    assert "import-session-awaiting" not in session_ids
+    assert sessions[0]["timestamp_source"] == "exact"
+    assert sessions[0]["snapshot_count"] == len(import_repository.snapshots)
+    assert sessions[1]["timestamp_source"] == "estimated"
+    assert sessions[2]["timestamp_source"] == "estimated"
+    assert sessions[2]["snapshot_count"] == 4
+
+
+def test_public_replay_session_timestamps_expose_import_source_order_and_estimated_empty(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+
+    imported_response = client.get("/api/spx/0dte/replay/sessions/import-session-ready/timestamps")
+    live_response = client.get("/api/spx/0dte/replay/sessions/live-session-ready/timestamps")
+
+    assert imported_response.status_code == 200
+    assert imported_response.json() == {
+        "session_id": "import-session-ready",
+        "timestamp_source": "exact",
+        "timestamps": [
+            {
+                "index": snapshot.header.source_order,
+                "snapshot_time": snapshot.header.snapshot_time,
+                "source_snapshot_id": snapshot.header.source_snapshot_id,
+            }
+            for snapshot in import_repository.snapshots
+        ],
+    }
+    assert live_response.status_code == 200
+    assert live_response.json() == {
+        "session_id": "live-session-ready",
+        "timestamp_source": "estimated",
+        "timestamps": [],
+    }
+
+
+def test_public_replay_snapshot_selects_imported_source_id_and_at_ties_by_source_order(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, _import_repository, _replay_repository = public_replay_client
+
+    duplicate_response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "source_snapshot_id": "src-duplicate-later"},
+    )
+    tied_response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "at": "2026-04-24T15:35:00Z"},
+    )
+    unknown_source_response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "source_snapshot_id": "missing-source"},
+    )
+
+    assert duplicate_response.status_code == 200
+    duplicate_payload = duplicate_response.json()
+    assert duplicate_payload["session_id"] == "import-session-ready"
+    assert duplicate_payload["snapshot_time"] == "2026-04-24T15:40:00Z"
+    assert duplicate_payload["spot"] == 5220.25
+    assert [row["contract_id"] for row in duplicate_payload["rows"]] == ["SPX-C-5220"]
+
+    assert tied_response.status_code == 200
+    tied_payload = tied_response.json()
+    assert tied_payload["snapshot_time"] == "2026-04-24T15:30:00Z"
+    assert tied_payload["spot"] == 5200.25
+
+    assert unknown_source_response.status_code == 200
+    unknown_payload = unknown_source_response.json()
+    assert unknown_payload["coverage_status"] == "empty"
+    assert unknown_payload["rows"] == []
+
+
+def test_public_replay_websocket_streams_imported_session_in_source_order(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, _import_repository, _replay_repository = public_replay_client
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "import-session-ready", "interval_ms": "50"},
+    ) as websocket:
+        payloads = [websocket.receive_json() for _ in range(3)]
+
+    assert [payload["snapshot_time"] for payload in payloads] == [
+        "2026-04-24T15:30:00Z",
+        "2026-04-24T15:40:00Z",
+        "2026-04-24T15:40:00Z",
+    ]
+    assert [payload["spot"] for payload in payloads] == [5200.25, 5210.25, 5220.25]
+
+
 class _FakeImporter:
     def __init__(self) -> None:
         self.create_result = _result(status="awaiting_confirmation")
@@ -428,6 +556,176 @@ class _FakeImporter:
         if import_id not in self.cancel_results:
             raise KeyError(import_id)
         return self.cancel_results[import_id]
+
+
+class _FakeReplayRepository(NullReplayRepository):
+    def list_sessions(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "session_id": "live-session-ready",
+                "symbol": "SPX",
+                "expiry": "2026-04-24",
+                "start_time": "2026-04-24T15:30:00Z",
+                "end_time": "2026-04-24T15:30:00Z",
+                "snapshot_count": 1,
+                "source": "ibkr",
+                "timestamp_source": "estimated",
+            }
+        ]
+
+    def nearest_snapshot(self, session_id: str, at: str | None = None) -> dict[str, Any] | None:
+        if session_id != "live-session-ready":
+            return None
+        return {
+            "schema_version": "1.0.0",
+            "session_id": "live-session-ready",
+            "mode": "replay",
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "snapshot_time": "2026-04-24T15:30:00Z",
+            "spot": 5201.25,
+            "forward": 5201.25,
+            "discount_factor": 1.0,
+            "risk_free_rate": 0.0,
+            "dividend_yield": 0.0,
+            "source_status": "connected",
+            "freshness_ms": 0,
+            "coverage_status": "empty",
+            "scenario_params": None,
+            "rows": [],
+        }
+
+
+class _FakeReplayImportRepository:
+    def __init__(self) -> None:
+        self.snapshots = [
+            _imported_snapshot("src-before", 0, "2026-04-24T15:30:00Z", 5200.25, "SPX-C-5200"),
+            _imported_snapshot("src-duplicate-earlier", 1, "2026-04-24T15:40:00Z", 5210.25, "SPX-C-5210"),
+            _imported_snapshot("src-duplicate-later", 2, "2026-04-24T15:40:00Z", 5220.25, "SPX-C-5220"),
+        ]
+
+    def list_completed_sessions(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "session_id": "import-session-ready",
+                "symbol": "SPX",
+                "expiry": "2026-04-24",
+                "start_time": "2026-04-24T15:30:00Z",
+                "end_time": "2026-04-24T15:40:00Z",
+                "snapshot_count": len(self.snapshots),
+                "source": "parquet_import",
+                "timestamp_source": "exact",
+                "import_id": "import-completed",
+            }
+        ]
+
+    def timestamps(self, session_id: str) -> list[dict[str, Any]]:
+        if session_id != "import-session-ready":
+            return []
+        return [
+            {
+                "index": snapshot.header.source_order,
+                "snapshot_time": snapshot.header.snapshot_time,
+                "source_snapshot_id": snapshot.header.source_snapshot_id,
+            }
+            for snapshot in self.snapshots
+        ]
+
+    def snapshot_by_source_id(self, session_id: str, source_snapshot_id: str) -> ImportedSnapshotData | None:
+        if session_id != "import-session-ready":
+            return None
+        return next(
+            (
+                snapshot
+                for snapshot in self.snapshots
+                if snapshot.header.source_snapshot_id == source_snapshot_id
+            ),
+            None,
+        )
+
+    def nearest_snapshot(self, session_id: str, at: str | None) -> ImportedSnapshotData | None:
+        if session_id != "import-session-ready":
+            return None
+        if at is None:
+            return self.snapshots[-1]
+        from datetime import datetime
+
+        target = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        return min(
+            self.snapshots,
+            key=lambda snapshot: (
+                abs(
+                    (
+                        datetime.fromisoformat(snapshot.header.snapshot_time.replace("Z", "+00:00")) - target
+                    ).total_seconds()
+                ),
+                snapshot.header.source_order,
+            ),
+        )
+
+    def stream_snapshots(
+        self,
+        session_id: str,
+        at: str | None,
+        source_snapshot_id: str | None,
+    ) -> list[ImportedSnapshotData]:
+        if session_id != "import-session-ready":
+            return []
+        if source_snapshot_id is not None:
+            snapshot = self.snapshot_by_source_id(session_id, source_snapshot_id)
+            return [] if snapshot is None else [snapshot]
+        if at is None:
+            return self.snapshots
+        return [
+            snapshot
+            for snapshot in self.snapshots
+            if snapshot.header.snapshot_time >= at
+        ]
+
+
+def _imported_snapshot(
+    source_snapshot_id: str,
+    source_order: int,
+    snapshot_time: str,
+    spot: float,
+    contract_id: str,
+) -> ImportedSnapshotData:
+    return ImportedSnapshotData(
+        header=ImportedSnapshotHeader(
+            session_id="import-session-ready",
+            source_snapshot_id=source_snapshot_id,
+            source_order=source_order,
+            snapshot_time=snapshot_time,
+            expiry="2026-04-24",
+            spot=spot,
+            pricing_spot=spot,
+            forward=spot + 1,
+            risk_free_rate=0.04,
+            t_minutes=390.0,
+            selected_strike_count=1,
+            valid_mid_contract_count=1,
+            stale_contract_count=0,
+            row_count=1,
+        ),
+        quotes=[
+            QuoteRecord(
+                session_id="import-session-ready",
+                source_snapshot_id=source_snapshot_id,
+                source_order=source_order,
+                contract_id=contract_id,
+                strike=spot,
+                right="call",
+                bid=10.0,
+                ask=10.2,
+                mid=10.1,
+                ibkr_iv=0.21,
+                open_interest=2400,
+                quote_valid=True,
+                ln_kf=0.0,
+                distance_from_atm=0.0,
+            )
+        ],
+    )
 
 
 def _upload_files(

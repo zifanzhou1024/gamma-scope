@@ -17,7 +17,11 @@ from gammascope_api.ingestion.latest_state_cache import (
 )
 from gammascope_api.main import app
 from gammascope_api.replay.capture import ReplayCaptureRecorder
-from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
+from gammascope_api.replay.dependencies import (
+    reset_replay_import_repository_override,
+    reset_replay_repository_override,
+    set_replay_repository_override,
+)
 from gammascope_api.replay.repository import PostgresReplayRepository
 
 
@@ -50,6 +54,7 @@ def api_client(replay_repository: tuple[PostgresReplayRepository, list[str]]) ->
     finally:
         collector_state.clear()
         reset_latest_state_cache_override()
+        reset_replay_import_repository_override()
         reset_replay_repository_override()
 
 
@@ -75,6 +80,7 @@ def test_repository_lists_sessions_and_selects_nearest_snapshot(
         "end_time": "2026-04-24T15:40:00Z",
         "snapshot_count": 2,
         "source": "ibkr",
+        "timestamp_source": "estimated",
     }
     assert nearest is not None
     assert nearest["snapshot_time"] == "2026-04-24T15:40:00Z"
@@ -308,6 +314,33 @@ def test_repository_cleanup_old_snapshots_refreshes_sessions(
     assert repo.nearest_snapshot(mixed_session_id)["spot"] == 5200.25
 
 
+def test_repository_filters_imported_metadata_from_jsonb_replay_session_list(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    live_session_id = f"pytest-live-jsonb-{uuid4()}"
+    imported_session_id = f"pytest-import-jsonb-{uuid4()}"
+    session_ids.extend([live_session_id, imported_session_id])
+
+    repo.insert_snapshot(_snapshot(live_session_id, "2026-04-24T15:30:00Z"), source="ibkr")
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO replay_sessions (
+                    session_id, symbol, expiry, source, start_time, end_time, snapshot_count
+                )
+                VALUES (%s, 'SPX', '2026-04-24', 'parquet_import', %s, %s, 2)
+                """,
+                (imported_session_id, "2026-04-24T14:30:00Z", "2026-04-24T14:40:00Z"),
+            )
+
+    session_ids_from_jsonb_repo = {session["session_id"] for session in repo.list_sessions()}
+
+    assert live_session_id in session_ids_from_jsonb_repo
+    assert imported_session_id not in session_ids_from_jsonb_repo
+
+
 def test_seeded_replay_still_works_when_repository_has_no_session(api_client: TestClient) -> None:
     response = api_client.get(
         "/api/spx/0dte/replay/snapshot",
@@ -410,3 +443,9 @@ def _option_tick(session_id: str, contract_id: str, event_time: str, *, bid: flo
         "event_time": event_time,
         "quote_status": "valid",
     }
+
+
+def _connect():
+    import psycopg
+
+    return psycopg.connect(TEST_DATABASE_URL, connect_timeout=2)
