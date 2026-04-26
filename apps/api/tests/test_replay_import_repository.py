@@ -23,15 +23,7 @@ def import_repository() -> tuple[PostgresReplayImportRepository, list[str], list
     session_ids: list[str] = []
     yield repo, import_ids, session_ids
 
-    with _connect() as connection:
-        with connection.cursor() as cursor:
-            for session_id in session_ids:
-                cursor.execute("DELETE FROM replay_import_quotes WHERE session_id = %s", (session_id,))
-                cursor.execute("DELETE FROM replay_import_snapshots WHERE session_id = %s", (session_id,))
-                cursor.execute("DELETE FROM analytics_snapshots WHERE session_id = %s", (session_id,))
-                cursor.execute("DELETE FROM replay_sessions WHERE session_id = %s", (session_id,))
-            for import_id in import_ids:
-                cursor.execute("DELETE FROM replay_imports WHERE import_id = %s", (import_id,))
+    _cleanup_created_records(session_ids=session_ids, import_ids=import_ids)
 
 
 def test_ensure_schema_creates_import_tables_and_extends_replay_sessions(
@@ -168,6 +160,7 @@ def test_publish_import_rolls_back_all_session_rows_when_quote_insert_fails(
             quote_count = int(cursor.fetchone()[0])
 
     assert (session_count, snapshot_count, quote_count) == (0, 0, 0)
+    assert repo.get_import(record.import_id).status == "publishing"
 
 
 def test_publish_import_stores_normalized_source_records_and_query_methods(
@@ -197,14 +190,16 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
         snapshots=snapshots,
         quotes=quotes,
     )
-    repo.mark_completed(record.import_id, session_id=session_id)
 
+    completed = repo.get_import(record.import_id)
     completed_sessions = repo.list_completed_sessions()
     timestamps = repo.timestamps(session_id)
     first_snapshot = repo.snapshot_by_source_id(session_id, "src-1")
     nearest = repo.nearest_snapshot(session_id, "2026-04-24T15:34:00Z")
     streamed = repo.stream_snapshots(session_id, at="2026-04-24T15:35:00Z", source_snapshot_id=None)
 
+    assert completed.status == "completed"
+    assert completed.session_id == session_id
     session = next(item for item in completed_sessions if item["session_id"] == session_id)
     assert session["source"] == "parquet_import"
     assert session["timestamp_source"] == "exact"
@@ -225,6 +220,31 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
     assert [snapshot.header.source_snapshot_id for snapshot in streamed] == ["src-2"]
 
 
+def test_cleanup_created_records_does_not_require_analytics_snapshots_table(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+) -> None:
+    repo, import_ids, _session_ids = import_repository
+    record = _create_import(repo, import_ids)
+    session_id = f"pytest-cleanup-import-session-{uuid4()}"
+    _publish_import(repo, record.import_id, session_id)
+
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("DROP TABLE IF EXISTS analytics_snapshots")
+
+    _cleanup_created_records(session_ids=[session_id], import_ids=[record.import_id])
+
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM replay_sessions WHERE session_id = %s", (session_id,))
+            session_count = int(cursor.fetchone()[0])
+            cursor.execute("SELECT COUNT(*) FROM replay_imports WHERE import_id = %s", (record.import_id,))
+            import_count = int(cursor.fetchone()[0])
+
+    assert (session_count, import_count) == (0, 0)
+    import_ids.remove(record.import_id)
+
+
 def test_list_completed_sessions_excludes_unfinished_and_private_sessions(
     import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
 ) -> None:
@@ -237,9 +257,11 @@ def test_list_completed_sessions_excludes_unfinished_and_private_sessions(
     unfinished_session_id = f"pytest-unfinished-import-session-{uuid4()}"
     session_ids.extend([public_session_id, private_session_id, unfinished_session_id])
 
-    _publish_completed(repo, public_import.import_id, public_session_id)
-    _publish_completed(repo, private_import.import_id, private_session_id)
-    _publish_without_completion(repo, unfinished_import.import_id, unfinished_session_id)
+    _publish_import(repo, public_import.import_id, public_session_id)
+    _publish_import(repo, private_import.import_id, private_session_id)
+    repo.mark_validating(unfinished_import.import_id)
+    repo.mark_awaiting_confirmation(unfinished_import.import_id, session_id=unfinished_session_id)
+    repo.mark_publishing(unfinished_import.import_id)
 
     with _connect() as connection:
         with connection.cursor() as cursor:
@@ -267,12 +289,7 @@ def _create_import(repo: PostgresReplayImportRepository, import_ids: list[str]):
     return record
 
 
-def _publish_completed(repo: PostgresReplayImportRepository, import_id: str, session_id: str) -> None:
-    _publish_without_completion(repo, import_id, session_id)
-    repo.mark_completed(import_id, session_id=session_id)
-
-
-def _publish_without_completion(repo: PostgresReplayImportRepository, import_id: str, session_id: str) -> None:
+def _publish_import(repo: PostgresReplayImportRepository, import_id: str, session_id: str) -> None:
     repo.mark_validating(import_id)
     repo.mark_awaiting_confirmation(import_id, session_id=session_id)
     repo.mark_publishing(import_id)
@@ -286,6 +303,17 @@ def _publish_without_completion(repo: PostgresReplayImportRepository, import_id:
         snapshots=_snapshots(session_id),
         quotes=[_quote(session_id, "src-1", 0, f"{session_id}-SPX-C-5200")],
     )
+
+
+def _cleanup_created_records(*, session_ids: list[str], import_ids: list[str]) -> None:
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            for session_id in session_ids:
+                cursor.execute("DELETE FROM replay_import_quotes WHERE session_id = %s", (session_id,))
+                cursor.execute("DELETE FROM replay_import_snapshots WHERE session_id = %s", (session_id,))
+                cursor.execute("DELETE FROM replay_sessions WHERE session_id = %s", (session_id,))
+            for import_id in import_ids:
+                cursor.execute("DELETE FROM replay_imports WHERE import_id = %s", (import_id,))
 
 
 def _snapshots(session_id: str) -> list[SnapshotRecord]:

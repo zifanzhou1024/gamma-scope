@@ -577,6 +577,16 @@ class PostgresReplayImportRepository:
                             quote.distance_from_atm,
                         ),
                     )
+                cursor.execute(
+                    """
+                    UPDATE replay_imports
+                    SET status = 'completed',
+                        session_id = %s,
+                        updated_at = NOW()
+                    WHERE import_id = %s
+                    """,
+                    (session_id, import_id),
+                )
 
     def list_completed_sessions(self) -> list[dict[str, Any]]:
         self.ensure_schema()
