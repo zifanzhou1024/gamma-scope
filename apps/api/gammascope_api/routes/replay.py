@@ -95,8 +95,8 @@ def replay_stream_snapshots(
 def _completed_imported_replay_sessions() -> list[dict[str, Any]]:
     try:
         return get_replay_import_repository().list_completed_sessions()
-    except Exception as exc:
-        raise _imported_replay_unavailable() from exc
+    except Exception:
+        return []
 
 
 def _is_completed_imported_session(session_id: str) -> bool:

@@ -235,14 +235,15 @@ describe("LiveDashboard scenario panel", () => {
     });
   });
 
-  it("creates replay stream requests from exact selections without narrowing to one source snapshot", () => {
+  it("creates replay stream requests from exact selections with the selected source snapshot id", () => {
     expect(LiveDashboardModule.createReplayStreamRequest("import-session", {
       index: 1,
       snapshot_time: "2026-04-24T15:30:00.000Z",
       source_snapshot_id: "snapshot-a"
     })).toEqual({
       sessionId: "import-session",
-      at: "2026-04-24T15:30:00.000Z"
+      at: "2026-04-24T15:30:00.000Z",
+      sourceSnapshotId: "snapshot-a"
     });
   });
 

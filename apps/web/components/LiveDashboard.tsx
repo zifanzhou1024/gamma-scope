@@ -238,15 +238,21 @@ export function createReplayLoadRequest(
 export function createReplayStreamRequest(
   selectedSessionId: string | null,
   selectedReplayEntry: ReplayTimelineEntry | null
-): { sessionId: string; at: string } | null {
+): { sessionId: string; at: string; sourceSnapshotId?: string } | null {
   if (!selectedSessionId || !selectedReplayEntry) {
     return null;
   }
 
-  return {
+  const request: { sessionId: string; at: string; sourceSnapshotId?: string } = {
     sessionId: selectedSessionId,
     at: selectedReplayEntry.snapshot_time
   };
+
+  if (selectedReplayEntry.source_snapshot_id) {
+    request.sourceSnapshotId = selectedReplayEntry.source_snapshot_id;
+  }
+
+  return request;
 }
 
 export function shouldLoadExactReplayTimestamps(session: ReplaySession | null): boolean {
@@ -854,6 +860,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     stopReplayStreamRef.current = startReplayStream({
       sessionId: replayRequest.sessionId,
       at: replayRequest.at,
+      sourceSnapshotId: replayRequest.sourceSnapshotId,
       intervalMs: 250,
       onSnapshot: (replaySnapshot) => {
         hasReplayStreamSnapshotRef.current = true;

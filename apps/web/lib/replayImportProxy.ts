@@ -4,6 +4,7 @@ import { isReplayImportResult } from "./replayImportSource";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const DEFAULT_REPLAY_IMPORT_MAX_BYTES = 100 * 1024 * 1024;
+const REPLAY_IMPORT_MULTIPART_OVERHEAD_BYTES = 16 * 1024;
 
 interface ProxyContext {
   apiBaseUrl: string;
@@ -67,7 +68,7 @@ export function replayImportUploadTooLarge(request: Request): boolean {
   }
 
   const length = Number(contentLength);
-  return Number.isFinite(length) && length > replayImportMaxBytes();
+  return Number.isFinite(length) && length > replayImportUploadTotalMaxBytes();
 }
 
 export function replayImportTooLargeResponse(): Response {
@@ -189,4 +190,8 @@ function replayImportMaxBytes(): number {
   return Number.isFinite(maxBytes) && maxBytes >= 0
     ? Math.trunc(maxBytes)
     : DEFAULT_REPLAY_IMPORT_MAX_BYTES;
+}
+
+function replayImportUploadTotalMaxBytes(): number {
+  return replayImportMaxBytes() * 2 + REPLAY_IMPORT_MULTIPART_OVERHEAD_BYTES;
 }

@@ -331,6 +331,114 @@ def test_stream_snapshots_fetches_quotes_for_all_selected_snapshots_without_per_
     ]
 
 
+def test_stream_snapshots_from_source_id_starts_at_matching_source_order_and_continues(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    record = _create_import(repo, import_ids)
+    session_id = f"pytest-exact-stream-import-session-{uuid4()}"
+    session_ids.append(session_id)
+    snapshots = [
+        SnapshotRecord(
+            session_id=session_id,
+            source_snapshot_id="src-before",
+            source_order=0,
+            snapshot_time="2026-04-24T15:30:00Z",
+            expiry="2026-04-24",
+            spot=5200.25,
+            pricing_spot=5200.5,
+            forward=5201.25,
+            risk_free_rate=0.04,
+            t_minutes=390.0,
+            selected_strike_count=4,
+            valid_mid_contract_count=1,
+            stale_contract_count=0,
+            row_count=1,
+        ),
+        SnapshotRecord(
+            session_id=session_id,
+            source_snapshot_id="src-duplicate-earlier",
+            source_order=1,
+            snapshot_time="2026-04-24T15:40:00Z",
+            expiry="2026-04-24",
+            spot=5210.25,
+            pricing_spot=5210.5,
+            forward=5211.25,
+            risk_free_rate=0.04,
+            t_minutes=380.0,
+            selected_strike_count=4,
+            valid_mid_contract_count=1,
+            stale_contract_count=0,
+            row_count=1,
+        ),
+        SnapshotRecord(
+            session_id=session_id,
+            source_snapshot_id="src-duplicate-later",
+            source_order=2,
+            snapshot_time="2026-04-24T15:40:00Z",
+            expiry="2026-04-24",
+            spot=5220.25,
+            pricing_spot=5220.5,
+            forward=5221.25,
+            risk_free_rate=0.04,
+            t_minutes=380.0,
+            selected_strike_count=4,
+            valid_mid_contract_count=1,
+            stale_contract_count=0,
+            row_count=1,
+        ),
+        SnapshotRecord(
+            session_id=session_id,
+            source_snapshot_id="src-after",
+            source_order=3,
+            snapshot_time="2026-04-24T15:50:00Z",
+            expiry="2026-04-24",
+            spot=5230.25,
+            pricing_spot=5230.5,
+            forward=5231.25,
+            risk_free_rate=0.04,
+            t_minutes=370.0,
+            selected_strike_count=4,
+            valid_mid_contract_count=1,
+            stale_contract_count=0,
+            row_count=1,
+        ),
+    ]
+    repo.mark_validating(record.import_id)
+    repo.mark_awaiting_confirmation(record.import_id, session_id=session_id)
+    repo.mark_publishing(record.import_id)
+    repo.publish_import(
+        import_id=record.import_id,
+        session_id=session_id,
+        symbol="SPX",
+        expiry="2026-04-24",
+        start_time="2026-04-24T15:30:00Z",
+        end_time="2026-04-24T15:50:00Z",
+        snapshots=snapshots,
+        quotes=[
+            _quote(session_id, "src-before", 0, "SPX-C-5200"),
+            _quote(session_id, "src-duplicate-earlier", 1, "SPX-C-5210"),
+            _quote(session_id, "src-duplicate-later", 2, "SPX-C-5220"),
+            _quote(session_id, "src-after", 3, "SPX-C-5230"),
+        ],
+    )
+
+    streamed = repo.stream_snapshots(
+        session_id,
+        at="2026-04-24T15:40:00Z",
+        source_snapshot_id="src-duplicate-later",
+    )
+
+    assert [snapshot.header.source_snapshot_id for snapshot in streamed] == [
+        "src-duplicate-later",
+        "src-after",
+    ]
+    assert [[quote.contract_id for quote in snapshot.quotes] for snapshot in streamed] == [
+        ["SPX-C-5220"],
+        ["SPX-C-5230"],
+    ]
+
+
 def test_cleanup_created_records_does_not_require_shared_snapshot_table(
     import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
 ) -> None:

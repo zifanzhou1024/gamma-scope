@@ -172,7 +172,32 @@ describe("replay import proxy routes", () => {
     });
   });
 
-  it("returns 413 before forwarding uploads larger than the configured max bytes", async () => {
+  it("forwards two-file multipart uploads larger than one configured file max", async () => {
+    setAdminEnv({ GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES: "10" });
+    const upstream = importResult();
+    const fetcher = vi.fn(async () => jsonResponse(upstream, true, 201));
+    vi.stubGlobal("fetch", fetcher);
+    const formDataSpy = vi.spyOn(Request.prototype, "formData");
+    const { POST } = await import("../app/api/replay/imports/route");
+    const request = new Request("http://localhost/api/replay/imports", {
+      method: "POST",
+      headers: {
+        ...await adminHeaders(),
+        "Content-Type": "multipart/form-data; boundary=boundary",
+        "Content-Length": "11"
+      },
+      body: "two files"
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual(upstream);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 before forwarding uploads larger than the two-file proxy cap", async () => {
     setAdminEnv({ GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES: "10" });
     const fetcher = vi.fn(async () => jsonResponse(importResult()));
     vi.stubGlobal("fetch", fetcher);
@@ -184,7 +209,7 @@ describe("replay import proxy routes", () => {
       headers: {
         ...await adminHeaders(),
         "Content-Type": "multipart/form-data; boundary=boundary",
-        "Content-Length": "11"
+        "Content-Length": "16405"
       },
       body: "too much data"
     }));

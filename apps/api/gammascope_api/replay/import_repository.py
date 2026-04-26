@@ -767,13 +767,20 @@ class PostgresReplayImportRepository:
                 if source_snapshot_id is not None:
                     cursor.execute(
                         """
-                        SELECT *
-                        FROM replay_import_snapshots
-                        WHERE session_id = %s
-                          AND source_snapshot_id = %s
-                        ORDER BY source_order ASC
+                        WITH selected_snapshot AS (
+                            SELECT source_order
+                            FROM replay_import_snapshots
+                            WHERE session_id = %s
+                              AND source_snapshot_id = %s
+                        )
+                        SELECT snapshot.*
+                        FROM replay_import_snapshots snapshot
+                        JOIN selected_snapshot selected
+                          ON snapshot.source_order >= selected.source_order
+                        WHERE snapshot.session_id = %s
+                        ORDER BY snapshot.source_order ASC
                         """,
-                        (session_id, source_snapshot_id),
+                        (session_id, source_snapshot_id, session_id),
                     )
                 elif target_time is None:
                     cursor.execute(

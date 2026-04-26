@@ -631,17 +631,18 @@ def test_public_replay_websocket_streams_imported_session_in_source_order(
         "/ws/spx/0dte/replay",
         params={"session_id": "import-session-ready", "interval_ms": "50"},
     ) as websocket:
-        payloads = [websocket.receive_json() for _ in range(3)]
+        payloads = [websocket.receive_json() for _ in range(4)]
 
     assert [payload["snapshot_time"] for payload in payloads] == [
         "2026-04-24T15:30:00Z",
         "2026-04-24T15:40:00Z",
         "2026-04-24T15:40:00Z",
+        "2026-04-24T15:50:00Z",
     ]
-    assert [payload["spot"] for payload in payloads] == [5200.25, 5210.25, 5220.25]
+    assert [payload["spot"] for payload in payloads] == [5200.25, 5210.25, 5220.25, 5230.25]
 
 
-def test_public_replay_sessions_surface_import_repository_failure(
+def test_public_replay_sessions_degrade_when_import_repository_fails(
     public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
 ) -> None:
     client, import_repository, _replay_repository = public_replay_client
@@ -649,8 +650,9 @@ def test_public_replay_sessions_surface_import_repository_failure(
 
     response = client.get("/api/spx/0dte/replay/sessions")
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Imported replay persistence unavailable"
+    assert response.status_code == 200
+    session_ids = [session["session_id"] for session in response.json()]
+    assert session_ids == ["live-session-ready", "seed-spx-2026-04-23"]
 
 
 def test_public_replay_timestamps_surface_import_repository_failure(
@@ -761,6 +763,28 @@ def test_public_replay_websocket_sends_empty_snapshot_for_empty_import_selection
     assert payload["rows"] == []
 
 
+def test_public_replay_websocket_streams_from_exact_source_order(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, _import_repository, _replay_repository = public_replay_client
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={
+            "session_id": "import-session-ready",
+            "source_snapshot_id": "src-duplicate-later",
+            "interval_ms": "50",
+        },
+    ) as websocket:
+        payloads = [websocket.receive_json() for _ in range(2)]
+
+    assert [payload["snapshot_time"] for payload in payloads] == [
+        "2026-04-24T15:40:00Z",
+        "2026-04-24T15:50:00Z",
+    ]
+    assert [payload["spot"] for payload in payloads] == [5220.25, 5230.25]
+
+
 class _FakeImporter:
     def __init__(self) -> None:
         self.create_result = _result(status="awaiting_confirmation")
@@ -853,6 +877,7 @@ class _FakeReplayImportRepository:
             _imported_snapshot("src-before", 0, "2026-04-24T15:30:00Z", 5200.25, "SPX-C-5200"),
             _imported_snapshot("src-duplicate-earlier", 1, "2026-04-24T15:40:00Z", 5210.25, "SPX-C-5210"),
             _imported_snapshot("src-duplicate-later", 2, "2026-04-24T15:40:00Z", 5220.25, "SPX-C-5220"),
+            _imported_snapshot("src-after", 3, "2026-04-24T15:50:00Z", 5230.25, "SPX-C-5230"),
         ]
         self.list_completed_sessions_error: Exception | None = None
         self.is_completed_public_session_error: Exception | None = None
@@ -870,7 +895,7 @@ class _FakeReplayImportRepository:
                 "symbol": "SPX",
                 "expiry": "2026-04-24",
                 "start_time": "2026-04-24T15:30:00Z",
-                "end_time": "2026-04-24T15:40:00Z",
+                "end_time": "2026-04-24T15:50:00Z",
                 "snapshot_count": len(self.snapshots),
                 "source": "parquet_import",
                 "timestamp_source": "exact",
@@ -945,7 +970,13 @@ class _FakeReplayImportRepository:
             return []
         if source_snapshot_id is not None:
             snapshot = self.snapshot_by_source_id(session_id, source_snapshot_id)
-            return [] if snapshot is None else [snapshot]
+            if snapshot is None:
+                return []
+            return [
+                candidate
+                for candidate in self.snapshots
+                if candidate.header.source_order >= snapshot.header.source_order
+            ]
         if at is None:
             return self.snapshots
         return [
