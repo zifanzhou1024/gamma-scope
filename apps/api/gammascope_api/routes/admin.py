@@ -2,7 +2,7 @@ from typing import Any
 
 from fastapi import APIRouter, Header, HTTPException
 
-from gammascope_api.auth import require_admin_token
+from gammascope_api.auth import require_admin_token, require_live_admin_token
 from gammascope_api.maintenance.retention import RetentionCleanupUnavailable, cleanup_retention
 
 
@@ -14,6 +14,7 @@ def cleanup_retention_route(
     dry_run: bool = True,
     x_gammascope_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    require_live_admin_token(x_gammascope_admin_token)
     if not dry_run:
         require_admin_token(x_gammascope_admin_token)
     try:

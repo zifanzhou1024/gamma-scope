@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Header
 
-from gammascope_api.auth import is_valid_admin_token, private_mode_enabled, require_admin_token
+from gammascope_api.auth import is_valid_admin_token, live_admin_required, require_admin_token
 from gammascope_api.contracts.generated.saved_view import SavedView
 from gammascope_api.saved_views.dependencies import (
     degrade_saved_view_repository_to_fallback,
@@ -19,7 +19,7 @@ def list_views(x_gammascope_admin_token: str | None = Header(default=None)) -> l
         views = repository.list_views()
     except Exception:
         views = degrade_saved_view_repository_to_fallback().list_views()
-    if private_mode_enabled() and not is_valid_admin_token(x_gammascope_admin_token):
+    if live_admin_required() and not is_valid_admin_token(x_gammascope_admin_token):
         views = [view for view in views if view.get("owner_scope") == "public_demo"]
     return [SavedView.model_validate(view) for view in views]
 
@@ -29,7 +29,7 @@ def create_view(
     payload: SavedView,
     x_gammascope_admin_token: str | None = Header(default=None),
 ) -> SavedView:
-    if private_mode_enabled() and payload.owner_scope.value == "admin":
+    if live_admin_required() and payload.owner_scope.value == "admin":
         require_admin_token(x_gammascope_admin_token)
     repository = _available_repository()
     normalized = payload.model_dump(mode="json")

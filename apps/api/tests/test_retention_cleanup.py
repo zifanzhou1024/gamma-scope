@@ -26,6 +26,9 @@ def test_retention_cleanup_defaults_to_dry_run_and_reports_counts(monkeypatch) -
     saved_view_repository = CleanupSavedViewRepository()
     set_replay_repository_override(replay_repository)
     set_saved_view_repository_override(saved_view_repository)
+    monkeypatch.delenv("GAMMASCOPE_HOSTED_REPLAY_MODE", raising=False)
+    monkeypatch.delenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", raising=False)
+    monkeypatch.delenv("GAMMASCOPE_PRIVATE_MODE", raising=False)
     monkeypatch.setenv("GAMMASCOPE_REPLAY_RETENTION_DAYS", "20")
     monkeypatch.setenv("GAMMASCOPE_SAVED_VIEW_RETENTION_DAYS", "90")
 
@@ -38,6 +41,29 @@ def test_retention_cleanup_defaults_to_dry_run_and_reports_counts(monkeypatch) -
     assert set(payload["cutoffs"]) == {"replay", "saved_views"}
     assert payload["replay"] == {"snapshots_eligible": 3, "sessions_eligible": 1}
     assert payload["saved_views"] == {"views_eligible": 2}
+    assert replay_repository.calls == [True]
+    assert saved_view_repository.calls == [True]
+
+
+def test_retention_cleanup_dry_run_requires_admin_token_in_hosted_replay_mode(monkeypatch) -> None:
+    replay_repository = CleanupReplayRepository()
+    saved_view_repository = CleanupSavedViewRepository()
+    set_replay_repository_override(replay_repository)
+    set_saved_view_repository_override(saved_view_repository)
+    monkeypatch.setenv("GAMMASCOPE_HOSTED_REPLAY_MODE", "true")
+    monkeypatch.delenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", raising=False)
+    monkeypatch.delenv("GAMMASCOPE_PRIVATE_MODE", raising=False)
+    monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
+
+    missing_token_response = client.post("/api/admin/retention/cleanup")
+    admin_response = client.post(
+        "/api/admin/retention/cleanup",
+        headers={"X-GammaScope-Admin-Token": "local-admin-token"},
+    )
+
+    assert missing_token_response.status_code == 403
+    assert admin_response.status_code == 200
+    assert admin_response.json()["dry_run"] is True
     assert replay_repository.calls == [True]
     assert saved_view_repository.calls == [True]
 

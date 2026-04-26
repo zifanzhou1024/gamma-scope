@@ -6,7 +6,7 @@
     "contracts:validate": "pnpm --filter @gammascope/contracts validate",
     "contracts:generate": "pnpm --filter @gammascope/contracts generate",
     "test:contracts": "pnpm --filter @gammascope/contracts test",
-    "test:scripts": "node --test tests/package-scripts.test.mjs",
+    "test:scripts": "node --test tests/*.test.mjs",
     "test:api": "docker compose up -d postgres && .venv/bin/pytest apps/api/tests -q",
     "test:web": "pnpm --filter @gammascope/web test",
     "typecheck:web": "pnpm --filter @gammascope/web typecheck",

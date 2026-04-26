@@ -79,6 +79,35 @@ Open `http://localhost:3000`. After the mock publish populates API state, the da
 
 The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and persisted in Postgres using `GAMMASCOPE_DATABASE_URL` when available. If the Postgres-backed repository is unavailable at runtime, the FastAPI route falls back to in-memory saved views so local dashboard flows keep working.
 
+### Hosted Replay Demo
+
+Stage 2 hosted replay mode makes GammaScope deployable as a public demo/replay product. It keeps replay REST and replay WebSocket endpoints public, while live collector ingest, collector state, latest live snapshot, live status, live scenarios, saved admin views, and the live WebSocket require the admin token. Public latest/status/scenario requests fall back to the seeded replay demo when `GAMMASCOPE_HOSTED_REPLAY_MODE=true` and no valid admin token is supplied.
+
+Hosted replay intentionally excludes IBKR live access. The IBKR collector, handshake, contract discovery, and delayed snapshot tooling remain local-only for now; do not deploy a public service with live IBKR connectivity exposed.
+
+Use the hosted replay env example as a starting point:
+
+    cp deploy/hosted-replay.env.example .env.hosted-replay
+
+Build and run the API container from the repo root:
+
+    docker build -f apps/api/Dockerfile -t gammascope-api:hosted-replay .
+    docker run --rm -p 8000:8000 --env-file .env.hosted-replay gammascope-api:hosted-replay
+
+API smoke checks:
+
+    curl -s http://127.0.0.1:8000/healthz | python -m json.tool
+    curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
+    curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
+    curl -i http://127.0.0.1:8000/api/spx/0dte/collector/state
+
+For the web app, deploy `@gammascope/web` with `vercel.json`, set `GAMMASCOPE_API_BASE_URL` to the hosted API origin, and set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` to the hosted replay websocket origin. Browser smoke checks:
+
+    https://<web-host>/
+    https://<api-host>/healthz
+    https://<api-host>/api/spx/0dte/replay/sessions
+    wss://<api-host>/ws/spx/0dte/replay?session_id=seed-spx-2026-04-23
+
 ### Private Mode
 
 By default GammaScope keeps local development open: collector ingestion, live snapshots, live WebSocket updates, replay, scenarios, and saved views work without an admin token.
@@ -190,6 +219,8 @@ Then open `http://localhost:3000`, use the replay controls, and pick the capture
 For local maintenance testing, run a default-safe dry run of persisted replay and saved-view retention cleanup:
 
     curl -s -X POST "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=true" | python -m json.tool
+
+In hosted replay or private mode, retention cleanup dry runs also require `X-GammaScope-Admin-Token`.
 
 To execute destructive cleanup explicitly:
 

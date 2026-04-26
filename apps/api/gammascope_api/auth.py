@@ -7,6 +7,7 @@ from fastapi import HTTPException, WebSocket
 
 
 ADMIN_TOKEN_ENV = "GAMMASCOPE_ADMIN_TOKEN"
+HOSTED_REPLAY_MODE_ENV = "GAMMASCOPE_HOSTED_REPLAY_MODE"
 PRIVATE_MODE_ENABLED_ENV = "GAMMASCOPE_PRIVATE_MODE_ENABLED"
 PRIVATE_MODE_LEGACY_ENV = "GAMMASCOPE_PRIVATE_MODE"
 ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token"
@@ -17,6 +18,14 @@ _TRUTHY_VALUES = {"1", "true", "yes", "on", "enabled"}
 
 def private_mode_enabled() -> bool:
     return _truthy_env(PRIVATE_MODE_ENABLED_ENV) or _truthy_env(PRIVATE_MODE_LEGACY_ENV)
+
+
+def hosted_replay_mode_enabled() -> bool:
+    return _truthy_env(HOSTED_REPLAY_MODE_ENV)
+
+
+def live_admin_required() -> bool:
+    return private_mode_enabled() or hosted_replay_mode_enabled()
 
 
 def admin_token_configured() -> str:
@@ -35,13 +44,17 @@ def require_admin_token(token: str | None) -> None:
         raise HTTPException(status_code=403, detail="Admin token required")
 
 
-def require_private_mode_admin_token(token: str | None) -> None:
-    if private_mode_enabled():
+def require_live_admin_token(token: str | None) -> None:
+    if live_admin_required():
         require_admin_token(token)
 
 
+def require_private_mode_admin_token(token: str | None) -> None:
+    require_live_admin_token(token)
+
+
 def can_read_live_state(token: str | None) -> bool:
-    return not private_mode_enabled() or is_valid_admin_token(token)
+    return not live_admin_required() or is_valid_admin_token(token)
 
 
 def websocket_admin_token(websocket: WebSocket) -> str | None:
