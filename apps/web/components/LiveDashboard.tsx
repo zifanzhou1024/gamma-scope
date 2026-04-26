@@ -48,6 +48,7 @@ const CSRF_HEADER_NAME = "X-GammaScope-CSRF";
 interface LiveDashboardProps {
   initialSnapshot: AnalyticsSnapshot;
   initialAdminSession?: InitialAdminSession;
+  initialReplayImport?: ReplayImportResult | null;
 }
 
 interface InitialAdminSession {
@@ -123,6 +124,51 @@ interface DashboardAdminState {
 interface ConfirmedImportReplaySelection {
   selectedReplaySessionId: string;
   selectedReplayIndex: number;
+}
+
+type ConfirmReplayImportClient = (importId: string, csrfToken: string) => Promise<ReplayImportResult | null>;
+type CancelReplayImportClient = (importId: string, csrfToken: string) => Promise<ReplayImportResult | null>;
+type ReplaySessionsLoader = () => Promise<ReplaySession[]>;
+type DashboardFetcher = (input: string, init: RequestInit) => Promise<Response>;
+
+interface ConfirmReplayImportDashboardActionOptions {
+  importId: string;
+  csrfToken: string | null;
+  confirmImport?: ConfirmReplayImportClient;
+  loadReplaySessions?: ReplaySessionsLoader;
+}
+
+interface ConfirmReplayImportDashboardActionResult {
+  result: ReplayImportResult | null;
+  replaySessions: ReplaySession[];
+  selection: ConfirmedImportReplaySelection | null;
+  errorMessage: string | null;
+}
+
+interface CancelReplayImportDashboardActionOptions {
+  importId: string;
+  currentImportId: string | null;
+  csrfToken: string | null;
+  cancelImport?: CancelReplayImportClient;
+}
+
+interface CancelReplayImportDashboardActionResult {
+  result: ReplayImportResult | null;
+  shouldClearCurrentImport: boolean;
+  errorMessage: string | null;
+}
+
+interface LogoutAdminDashboardActionOptions {
+  csrfToken: string | null;
+  fetcher?: DashboardFetcher;
+}
+
+interface LogoutAdminDashboardActionResult {
+  adminState: DashboardAdminState;
+  currentReplayImport: ReplayImportResult | null;
+  replayImportError: string | null;
+  isUploadingReplayImport: boolean;
+  isConfirmingReplayImport: boolean;
 }
 
 export function createScenarioRequest(
@@ -284,7 +330,103 @@ export function shouldClearReplayImportAfterCancel(
   return importResult.status === "cancelled" && importResult.import_id === currentImportId;
 }
 
-export function LiveDashboard({ initialSnapshot, initialAdminSession }: LiveDashboardProps) {
+export async function confirmReplayImportDashboardAction({
+  importId,
+  csrfToken,
+  confirmImport = confirmReplayImport,
+  loadReplaySessions = loadClientReplaySessions
+}: ConfirmReplayImportDashboardActionOptions): Promise<ConfirmReplayImportDashboardActionResult> {
+  if (!csrfToken) {
+    return {
+      result: null,
+      replaySessions: [],
+      selection: null,
+      errorMessage: "Admin session expired. Log in again."
+    };
+  }
+
+  const result = await confirmImport(importId, csrfToken);
+  if (!result) {
+    return {
+      result: null,
+      replaySessions: [],
+      selection: null,
+      errorMessage: "Replay import confirm failed."
+    };
+  }
+
+  if (result.status !== "completed" || !result.session_id) {
+    return {
+      result,
+      replaySessions: [],
+      selection: null,
+      errorMessage: null
+    };
+  }
+
+  const replaySessions = await loadReplaySessions();
+
+  return {
+    result,
+    replaySessions,
+    selection: selectReplaySessionAfterImportConfirm(result, replaySessions),
+    errorMessage: null
+  };
+}
+
+export async function cancelReplayImportDashboardAction({
+  importId,
+  currentImportId,
+  csrfToken,
+  cancelImport = cancelReplayImport
+}: CancelReplayImportDashboardActionOptions): Promise<CancelReplayImportDashboardActionResult> {
+  if (!csrfToken) {
+    return {
+      result: null,
+      shouldClearCurrentImport: false,
+      errorMessage: "Admin session expired. Log in again."
+    };
+  }
+
+  const result = await cancelImport(importId, csrfToken);
+  if (!result) {
+    return {
+      result: null,
+      shouldClearCurrentImport: false,
+      errorMessage: "Replay import cancel failed."
+    };
+  }
+
+  return {
+    result,
+    shouldClearCurrentImport: shouldClearReplayImportAfterCancel(result, currentImportId),
+    errorMessage: null
+  };
+}
+
+export async function logoutAdminDashboardAction({
+  csrfToken,
+  fetcher = fetch
+}: LogoutAdminDashboardActionOptions): Promise<LogoutAdminDashboardActionResult> {
+  await fetcher(ADMIN_LOGOUT_PATH, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      ...(csrfToken ? { [CSRF_HEADER_NAME]: csrfToken } : {})
+    }
+  }).catch(() => null);
+
+  return {
+    adminState: createLoggedOutAdminState(true),
+    currentReplayImport: null,
+    replayImportError: null,
+    isUploadingReplayImport: false,
+    isConfirmingReplayImport: false
+  };
+}
+
+export function LiveDashboard({ initialSnapshot, initialAdminSession, initialReplayImport = null }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
@@ -312,7 +454,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession }: LiveDash
   const [adminCsrfToken, setAdminCsrfToken] = useState<string | null>(initialAdminSession?.csrfToken ?? null);
   const [isAdminSubmitting, setIsAdminSubmitting] = useState(false);
   const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
-  const [currentReplayImport, setCurrentReplayImport] = useState<ReplayImportResult | null>(null);
+  const [currentReplayImport, setCurrentReplayImport] = useState<ReplayImportResult | null>(initialReplayImport);
   const [isUploadingReplayImport, setIsUploadingReplayImport] = useState(false);
   const [isConfirmingReplayImport, setIsConfirmingReplayImport] = useState(false);
   const [replayImportError, setReplayImportError] = useState<string | null>(null);
@@ -685,20 +827,13 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession }: LiveDash
     setIsAdminSubmitting(true);
     setAdminErrorMessage(null);
 
-    await fetch(ADMIN_LOGOUT_PATH, {
-      method: "POST",
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        ...(adminCsrfToken ? { [CSRF_HEADER_NAME]: adminCsrfToken } : {})
-      }
-    }).catch(() => null);
+    const action = await logoutAdminDashboardAction({ csrfToken: adminCsrfToken });
 
-    applyDashboardAdminState(createLoggedOutAdminState(true));
-    setCurrentReplayImport(null);
-    setReplayImportError(null);
-    setIsUploadingReplayImport(false);
-    setIsConfirmingReplayImport(false);
+    applyDashboardAdminState(action.adminState);
+    setCurrentReplayImport(action.currentReplayImport);
+    setReplayImportError(action.replayImportError);
+    setIsUploadingReplayImport(action.isUploadingReplayImport);
+    setIsConfirmingReplayImport(action.isConfirmingReplayImport);
     setIsAdminSubmitting(false);
   };
 
@@ -727,61 +862,58 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession }: LiveDash
   };
 
   const confirmReplayImportReview = async (importId: string) => {
-    if (!adminCsrfToken) {
-      setReplayImportError("Admin session expired. Log in again.");
-      return;
-    }
-
     setIsConfirmingReplayImport(true);
     setReplayImportError(null);
+    setIsLoadingReplaySessions(true);
 
-    const result = await confirmReplayImport(importId, adminCsrfToken);
-    if (!result) {
-      setReplayImportError("Replay import confirm failed.");
+    const action = await confirmReplayImportDashboardAction({
+      importId,
+      csrfToken: adminCsrfToken
+    });
+
+    if (!action.result) {
+      setReplayImportError(action.errorMessage);
       setIsConfirmingReplayImport(false);
+      setIsLoadingReplaySessions(false);
       return;
     }
 
-    setCurrentReplayImport(result);
+    setCurrentReplayImport(action.result);
 
-    if (result.status === "completed" && result.session_id) {
-      setIsLoadingReplaySessions(true);
-      const sessions = await loadClientReplaySessions();
-      setReplaySessions(sessions);
-      const selection = selectReplaySessionAfterImportConfirm(result, sessions);
-      if (selection) {
-        setSelectedReplaySessionId(selection.selectedReplaySessionId);
-        setSelectedReplayIndex(selection.selectedReplayIndex);
+    if (action.result.status === "completed" && action.result.session_id) {
+      setReplaySessions(action.replaySessions);
+      if (action.selection) {
+        setSelectedReplaySessionId(action.selection.selectedReplaySessionId);
+        setSelectedReplayIndex(action.selection.selectedReplayIndex);
       }
-      setIsLoadingReplaySessions(false);
     }
 
+    setIsLoadingReplaySessions(false);
     setIsConfirmingReplayImport(false);
   };
 
   const cancelReplayImportReview = async (importId: string) => {
-    if (!adminCsrfToken) {
-      setReplayImportError("Admin session expired. Log in again.");
-      return;
-    }
-
     setIsConfirmingReplayImport(true);
     setReplayImportError(null);
 
-    const result = await cancelReplayImport(importId, adminCsrfToken);
+    const action = await cancelReplayImportDashboardAction({
+      importId,
+      currentImportId: currentReplayImport?.import_id ?? null,
+      csrfToken: adminCsrfToken
+    });
     setIsConfirmingReplayImport(false);
 
-    if (!result) {
-      setReplayImportError("Replay import cancel failed.");
+    if (!action.result) {
+      setReplayImportError(action.errorMessage);
       return;
     }
 
-    if (shouldClearReplayImportAfterCancel(result, currentReplayImport?.import_id ?? null)) {
+    if (action.shouldClearCurrentImport) {
       setCurrentReplayImport(null);
       return;
     }
 
-    setCurrentReplayImport(result);
+    setCurrentReplayImport(action.result);
   };
 
   const saveCurrentView = async (event: React.FormEvent<HTMLFormElement>) => {

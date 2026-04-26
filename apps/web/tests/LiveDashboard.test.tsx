@@ -10,6 +10,36 @@ vi.mock("../components/DashboardChart", () => ({
   DashboardChart: ({ title }: { title: string }) => <section>{title}</section>
 }));
 
+function replayImportResult(overrides: Partial<ReplayImportResult> = {}): ReplayImportResult {
+  return {
+    import_id: "import-ready",
+    status: "awaiting_confirmation",
+    summary: {},
+    warnings: [],
+    errors: [],
+    session_id: null,
+    replay_url: null,
+    ...overrides
+  };
+}
+
+function replaySession(overrides: {
+  session_id: string;
+  expiry?: string;
+  start_time?: string;
+  end_time?: string;
+  snapshot_count?: number;
+}) {
+  return {
+    session_id: overrides.session_id,
+    symbol: "SPX",
+    expiry: overrides.expiry ?? "2026-04-24",
+    start_time: overrides.start_time ?? "2026-04-24T14:30:00Z",
+    end_time: overrides.end_time ?? "2026-04-24T14:40:00Z",
+    snapshot_count: overrides.snapshot_count ?? 3
+  };
+}
+
 describe("LiveDashboard scenario panel", () => {
   it("shows admin login while keeping import controls hidden for public users", () => {
     const snapshot = {
@@ -367,51 +397,187 @@ describe("LiveDashboard scenario panel", () => {
   });
 
   it("selects the completed imported replay session after refresh", () => {
-    const importResult = {
-      import_id: "import-ready",
+    const importResult = replayImportResult({
       status: "completed",
-      summary: {},
-      warnings: [],
-      errors: [],
       session_id: "import-session-ready",
       replay_url: "/replay?session_id=import-session-ready"
-    } satisfies ReplayImportResult;
+    });
 
     expect(LiveDashboardModule.selectReplaySessionAfterImportConfirm(importResult, [
-      {
+      replaySession({
         session_id: "seed-spx-2026-04-23",
-        symbol: "SPX",
         expiry: "2026-04-23",
         start_time: "2026-04-23T14:30:00Z",
         end_time: "2026-04-23T14:35:00Z",
         snapshot_count: 2
-      },
-      {
+      }),
+      replaySession({
         session_id: "import-session-ready",
-        symbol: "SPX",
-        expiry: "2026-04-24",
-        start_time: "2026-04-24T14:30:00Z",
-        end_time: "2026-04-24T14:40:00Z",
         snapshot_count: 3
-      }
+      })
     ])).toEqual({
       selectedReplaySessionId: "import-session-ready",
       selectedReplayIndex: 2
     });
   });
 
+  it("confirms import through the dashboard action, refreshes sessions, and selects the completed import", async () => {
+    const completedImport = replayImportResult({
+      status: "completed",
+      session_id: "import-session-ready",
+      replay_url: "/replay?session_id=import-session-ready"
+    });
+    const refreshedSessions = [
+      replaySession({ session_id: "seed-spx-2026-04-23", snapshot_count: 2 }),
+      replaySession({ session_id: "import-session-ready", snapshot_count: 3 })
+    ];
+    const confirmImport = vi.fn(async () => completedImport);
+    const loadReplaySessions = vi.fn(async () => refreshedSessions);
+
+    const result = await LiveDashboardModule.confirmReplayImportDashboardAction({
+      importId: "import-ready",
+      csrfToken: "csrf-token",
+      confirmImport,
+      loadReplaySessions
+    });
+
+    expect(confirmImport).toHaveBeenCalledWith("import-ready", "csrf-token");
+    expect(loadReplaySessions).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      result: completedImport,
+      replaySessions: refreshedSessions,
+      selection: {
+        selectedReplaySessionId: "import-session-ready",
+        selectedReplayIndex: 2
+      },
+      errorMessage: null
+    });
+  });
+
   it("clears unpublished import review after cancel", () => {
-    const cancelledImport = {
-      import_id: "import-ready",
+    const cancelledImport = replayImportResult({
       status: "cancelled",
-      summary: {},
-      warnings: [],
-      errors: [],
-      session_id: null,
-      replay_url: null
-    } satisfies ReplayImportResult;
+      session_id: null
+    });
 
     expect(LiveDashboardModule.shouldClearReplayImportAfterCancel(cancelledImport, "import-ready")).toBe(true);
     expect(LiveDashboardModule.shouldClearReplayImportAfterCancel(cancelledImport, "other-import")).toBe(false);
+  });
+
+  it("cancels import through the dashboard action and marks the review for clearing", async () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+    const pendingImport = replayImportResult({ status: "awaiting_confirmation" });
+    const cancelledImport = replayImportResult({
+      status: "cancelled",
+      session_id: null
+    });
+    const cancelImport = vi.fn(async () => cancelledImport);
+
+    const beforeMarkup = renderToStaticMarkup(
+      <LiveDashboardModule.LiveDashboard
+        initialSnapshot={snapshot}
+        initialAdminSession={{
+          authenticated: true,
+          csrfToken: "csrf-token",
+          isAvailable: true
+        }}
+        initialReplayImport={pendingImport}
+      />
+    );
+    const result = await LiveDashboardModule.cancelReplayImportDashboardAction({
+      importId: "import-ready",
+      currentImportId: "import-ready",
+      csrfToken: "csrf-token",
+      cancelImport
+    });
+    const afterMarkup = renderToStaticMarkup(
+      <LiveDashboardModule.LiveDashboard
+        initialSnapshot={snapshot}
+        initialAdminSession={{
+          authenticated: true,
+          csrfToken: "csrf-token",
+          isAvailable: true
+        }}
+        initialReplayImport={result.shouldClearCurrentImport ? null : result.result}
+      />
+    );
+
+    expect(cancelImport).toHaveBeenCalledWith("import-ready", "csrf-token");
+    expect(result).toEqual({
+      result: cancelledImport,
+      shouldClearCurrentImport: true,
+      errorMessage: null
+    });
+    expect(beforeMarkup).toContain("import-ready");
+    expect(beforeMarkup).toContain("Confirm import");
+    expect(afterMarkup).toContain("Replay import");
+    expect(afterMarkup).not.toContain("import-ready");
+    expect(afterMarkup).not.toContain("Confirm import");
+  });
+
+  it("logs out through the dashboard action and returns state that hides import controls", async () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ authenticated: false })));
+
+    const beforeMarkup = renderToStaticMarkup(
+      <LiveDashboardModule.LiveDashboard
+        initialSnapshot={snapshot}
+        initialAdminSession={{
+          authenticated: true,
+          csrfToken: "csrf-token",
+          isAvailable: true
+        }}
+        initialReplayImport={replayImportResult({ status: "awaiting_confirmation" })}
+      />
+    );
+    const result = await LiveDashboardModule.logoutAdminDashboardAction({
+      csrfToken: "csrf-token",
+      fetcher
+    });
+    const afterMarkup = renderToStaticMarkup(
+      <LiveDashboardModule.LiveDashboard
+        initialSnapshot={snapshot}
+        initialAdminSession={{
+          authenticated: result.adminState.isAdminAuthenticated,
+          csrfToken: result.adminState.adminCsrfToken,
+          isAvailable: result.adminState.isAdminAvailable
+        }}
+        initialReplayImport={result.currentReplayImport}
+      />
+    );
+
+    expect(fetcher).toHaveBeenCalledWith("/api/admin/logout", {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-GammaScope-CSRF": "csrf-token"
+      }
+    });
+    expect(result).toEqual({
+      adminState: {
+        isAdminAuthenticated: false,
+        isAdminAvailable: true,
+        adminCsrfToken: null,
+        adminErrorMessage: null
+      },
+      currentReplayImport: null,
+      replayImportError: null,
+      isUploadingReplayImport: false,
+      isConfirmingReplayImport: false
+    });
+    expect(beforeMarkup).toContain("Replay import");
+    expect(beforeMarkup).toContain("import-ready");
+    expect(afterMarkup).not.toContain("Replay import");
+    expect(afterMarkup).not.toContain("import-ready");
+    expect(LiveDashboardModule.shouldShowReplayImportControls(result.adminState.isAdminAuthenticated)).toBe(false);
   });
 });
