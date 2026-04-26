@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from gammascope_api.replay.parquet_reader import QuoteRecord, SnapshotRecord
 
 
 TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
+THIS_FILE = Path(__file__)
 
 
 @pytest.fixture()
@@ -57,6 +59,15 @@ def test_ensure_schema_creates_import_tables_and_extends_replay_sessions(
 
     assert tables == {"replay_imports", "replay_import_snapshots", "replay_import_quotes"}
     assert columns == {"timestamp_source", "quote_count", "visibility", "import_id"}
+
+
+def test_repository_tests_do_not_drop_shared_tables() -> None:
+    source = THIS_FILE.read_text()
+    destructive_statement = "DROP" + " TABLE"
+    shared_table = "analytics" + "_snapshots"
+
+    assert destructive_statement not in source
+    assert shared_table not in source
 
 
 def test_create_import_returns_uploaded_status_and_duplicate_queries_find_existing_import(
@@ -163,6 +174,39 @@ def test_publish_import_rolls_back_all_session_rows_when_quote_insert_fails(
     assert repo.get_import(record.import_id).status == "publishing"
 
 
+def test_publish_import_streams_one_shot_quote_iterable_without_len(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    record = _create_import(repo, import_ids)
+    session_id = f"pytest-streaming-import-session-{uuid4()}"
+    session_ids.append(session_id)
+    quotes = _OneShotQuoteIterable(
+        [
+            _quote(session_id, "src-1", 0, "SPX-C-5200"),
+            _quote(session_id, "src-2", 1, "SPX-C-5210"),
+        ]
+    )
+    repo.mark_validating(record.import_id)
+    repo.mark_awaiting_confirmation(record.import_id, session_id=session_id)
+    repo.mark_publishing(record.import_id)
+
+    repo.publish_import(
+        import_id=record.import_id,
+        session_id=session_id,
+        symbol="SPX",
+        expiry="2026-04-24",
+        start_time="2026-04-24T15:30:00Z",
+        end_time="2026-04-24T15:40:00Z",
+        snapshots=_snapshots(session_id),
+        quotes=quotes,
+    )
+
+    session = next(item for item in repo.list_completed_sessions() if item["session_id"] == session_id)
+    assert session["quote_count"] == 2
+    assert quotes.iterations == 1
+
+
 def test_publish_import_stores_normalized_source_records_and_query_methods(
     import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
 ) -> None:
@@ -220,17 +264,52 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
     assert [snapshot.header.source_snapshot_id for snapshot in streamed] == ["src-2"]
 
 
-def test_cleanup_created_records_does_not_require_analytics_snapshots_table(
+def test_stream_snapshots_fetches_quotes_for_all_selected_snapshots_without_per_snapshot_lookup(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    record = _create_import(repo, import_ids)
+    session_id = f"pytest-stream-import-session-{uuid4()}"
+    session_ids.append(session_id)
+    repo.mark_validating(record.import_id)
+    repo.mark_awaiting_confirmation(record.import_id, session_id=session_id)
+    repo.mark_publishing(record.import_id)
+    repo.publish_import(
+        import_id=record.import_id,
+        session_id=session_id,
+        symbol="SPX",
+        expiry="2026-04-24",
+        start_time="2026-04-24T15:30:00Z",
+        end_time="2026-04-24T15:40:00Z",
+        snapshots=_snapshots(session_id),
+        quotes=[
+            _quote(session_id, "src-1", 0, "SPX-C-5200"),
+            _quote(session_id, "src-2", 1, "SPX-C-5210"),
+        ],
+    )
+
+    def fail_per_snapshot_lookup(*_args: object) -> list[QuoteRecord]:
+        raise AssertionError("stream_snapshots must not query quotes per snapshot")
+
+    monkeypatch.setattr(repo, "_quotes_for_snapshot", fail_per_snapshot_lookup)
+
+    streamed = repo.stream_snapshots(session_id, at=None, source_snapshot_id=None)
+
+    assert [snapshot.header.source_snapshot_id for snapshot in streamed] == ["src-1", "src-2"]
+    assert [[quote.contract_id for quote in snapshot.quotes] for snapshot in streamed] == [
+        ["SPX-C-5200"],
+        ["SPX-C-5210"],
+    ]
+
+
+def test_cleanup_created_records_does_not_require_shared_snapshot_table(
     import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
 ) -> None:
     repo, import_ids, _session_ids = import_repository
     record = _create_import(repo, import_ids)
     session_id = f"pytest-cleanup-import-session-{uuid4()}"
     _publish_import(repo, record.import_id, session_id)
-
-    with _connect() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("DROP TABLE IF EXISTS analytics_snapshots")
 
     _cleanup_created_records(session_ids=[session_id], import_ids=[record.import_id])
 
@@ -378,6 +457,21 @@ def _quote(
         ln_kf=0.001,
         distance_from_atm=0.0,
     )
+
+
+class _OneShotQuoteIterable:
+    def __init__(self, quotes: list[QuoteRecord]) -> None:
+        self._quotes = quotes
+        self.iterations = 0
+
+    def __iter__(self):
+        self.iterations += 1
+        if self.iterations > 1:
+            raise AssertionError("quotes iterable was consumed more than once")
+        return iter(self._quotes)
+
+    def __len__(self) -> int:
+        raise AssertionError("quotes iterable length should not be requested")
 
 
 def _connect():

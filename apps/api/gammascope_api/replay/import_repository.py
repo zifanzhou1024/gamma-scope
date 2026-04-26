@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from gammascope_api.replay.parquet_reader import QuoteRecord, SnapshotRecord
 
+QUOTE_INSERT_BATCH_SIZE = 5_000
+
 
 @dataclass(frozen=True)
 class ImportRecord:
@@ -277,6 +279,25 @@ class PostgresReplayImportRepository:
                     ON replay_import_quotes (session_id, source_snapshot_id, source_order, contract_id)
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS replay_imports_checksum_idx
+                    ON replay_imports (snapshots_sha256, quotes_sha256, created_at DESC, import_id DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS replay_imports_identity_idx
+                    ON replay_imports (
+                        snapshots_filename,
+                        quotes_filename,
+                        snapshots_size,
+                        quotes_size,
+                        created_at DESC,
+                        import_id DESC
+                    )
+                    """
+                )
 
     def create_import(
         self,
@@ -464,7 +485,6 @@ class PostgresReplayImportRepository:
     ) -> None:
         self.ensure_schema()
         snapshot_rows = list(snapshots)
-        quote_rows = list(quotes)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 import_record = self._locked_import(cursor, import_id)
@@ -497,7 +517,7 @@ class PostgresReplayImportRepository:
                         _parse_datetime(start_time),
                         _parse_datetime(end_time),
                         len(snapshot_rows),
-                        len(quote_rows),
+                        0,
                         import_id,
                     ),
                 )
@@ -539,44 +559,26 @@ class PostgresReplayImportRepository:
                             snapshot.row_count if snapshot.row_count is not None else 0,
                         ),
                     )
-                for quote in quote_rows:
-                    cursor.execute(
-                        """
-                        INSERT INTO replay_import_quotes (
-                            session_id,
-                            source_snapshot_id,
-                            source_order,
-                            contract_id,
-                            strike,
-                            "right",
-                            bid,
-                            ask,
-                            mid,
-                            ibkr_iv,
-                            open_interest,
-                            quote_valid,
-                            ln_kf,
-                            distance_from_atm
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            session_id,
-                            quote.source_snapshot_id,
-                            quote.source_order,
-                            quote.contract_id,
-                            quote.strike,
-                            quote.right,
-                            quote.bid,
-                            quote.ask,
-                            quote.mid,
-                            quote.ibkr_iv,
-                            quote.open_interest,
-                            quote.quote_valid,
-                            quote.ln_kf,
-                            quote.distance_from_atm,
-                        ),
-                    )
+                quote_count = 0
+                quote_batch: list[tuple[Any, ...]] = []
+                for quote in quotes:
+                    quote_batch.append(_quote_insert_params(session_id, quote))
+                    if len(quote_batch) >= QUOTE_INSERT_BATCH_SIZE:
+                        cursor.executemany(_INSERT_QUOTE_SQL, quote_batch)
+                        quote_count += len(quote_batch)
+                        quote_batch = []
+                if quote_batch:
+                    cursor.executemany(_INSERT_QUOTE_SQL, quote_batch)
+                    quote_count += len(quote_batch)
+                cursor.execute(
+                    """
+                    UPDATE replay_sessions
+                    SET quote_count = %s,
+                        updated_at = NOW()
+                    WHERE session_id = %s
+                    """,
+                    (quote_count, session_id),
+                )
                 cursor.execute(
                     """
                     UPDATE replay_imports
@@ -749,10 +751,15 @@ class PostgresReplayImportRepository:
                         (session_id, target_time),
                     )
                 snapshot_records = cursor.fetchall()
+                quote_groups = self._quotes_for_snapshots(
+                    cursor,
+                    session_id,
+                    [str(snapshot_record[1]) for snapshot_record in snapshot_records],
+                )
                 snapshots = [
                     ImportedSnapshotData(
                         header=_snapshot_header(snapshot_record),
-                        quotes=self._quotes_for_snapshot(cursor, session_id, str(snapshot_record[1])),
+                        quotes=quote_groups.get(str(snapshot_record[1]), []),
                     )
                     for snapshot_record in snapshot_records
                 ]
@@ -773,7 +780,7 @@ class PostgresReplayImportRepository:
                     FROM replay_imports
                     WHERE snapshots_sha256 = %s
                       AND quotes_sha256 = %s
-                    ORDER BY created_at DESC
+                    ORDER BY created_at DESC, import_id DESC
                     LIMIT 1
                     """,
                     (snapshots_sha256, quotes_sha256),
@@ -800,7 +807,7 @@ class PostgresReplayImportRepository:
                       AND quotes_filename = %s
                       AND snapshots_size = %s
                       AND quotes_size = %s
-                    ORDER BY created_at DESC
+                    ORDER BY created_at DESC, import_id DESC
                     LIMIT 1
                     """,
                     (snapshots_filename, quotes_filename, snapshots_size, quotes_size),
@@ -874,6 +881,84 @@ class PostgresReplayImportRepository:
             (session_id, source_snapshot_id),
         )
         return [_quote_record(record) for record in cursor.fetchall()]
+
+    def _quotes_for_snapshots(
+        self,
+        cursor: Any,
+        session_id: str,
+        source_snapshot_ids: Sequence[str],
+    ) -> dict[str, list[QuoteRecord]]:
+        if not source_snapshot_ids:
+            return {}
+        cursor.execute(
+            """
+            SELECT
+                session_id,
+                source_snapshot_id,
+                source_order,
+                contract_id,
+                strike,
+                "right",
+                bid,
+                ask,
+                mid,
+                ibkr_iv,
+                open_interest,
+                quote_valid,
+                ln_kf,
+                distance_from_atm
+            FROM replay_import_quotes
+            WHERE session_id = %s
+              AND source_snapshot_id = ANY(%s::text[])
+            ORDER BY source_order ASC, contract_id ASC
+            """,
+            (session_id, list(source_snapshot_ids)),
+        )
+        quote_groups: dict[str, list[QuoteRecord]] = {source_snapshot_id: [] for source_snapshot_id in source_snapshot_ids}
+        for record in cursor.fetchall():
+            quote = _quote_record(record)
+            quote_groups.setdefault(quote.source_snapshot_id, []).append(quote)
+        return quote_groups
+
+
+_INSERT_QUOTE_SQL = """
+INSERT INTO replay_import_quotes (
+    session_id,
+    source_snapshot_id,
+    source_order,
+    contract_id,
+    strike,
+    "right",
+    bid,
+    ask,
+    mid,
+    ibkr_iv,
+    open_interest,
+    quote_valid,
+    ln_kf,
+    distance_from_atm
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+"""
+
+
+def _quote_insert_params(session_id: str, quote: QuoteRecord) -> tuple[Any, ...]:
+    return (
+        session_id,
+        quote.source_snapshot_id,
+        quote.source_order,
+        quote.contract_id,
+        quote.strike,
+        quote.right,
+        quote.bid,
+        quote.ask,
+        quote.mid,
+        quote.ibkr_iv,
+        quote.open_interest,
+        quote.quote_valid,
+        quote.ln_kf,
+        quote.distance_from_atm,
+    )
 
 
 def _jsonb(payload: Any) -> Any:
