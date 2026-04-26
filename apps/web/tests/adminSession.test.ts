@@ -7,6 +7,8 @@ const ADMIN_ENV = {
   GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: "test-session-secret-with-enough-entropy"
 } as const;
 
+const WEAK_SESSION_SECRET = "short-secret";
+
 function adminEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv {
   return {
     ...ADMIN_ENV,
@@ -15,6 +17,10 @@ function adminEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv
 }
 
 function setAdminEnv(overrides: Partial<NodeJS.ProcessEnv> = {}) {
+  vi.stubEnv("NODE_ENV", ADMIN_ENV.NODE_ENV);
+  vi.stubEnv("VERCEL", "");
+  vi.stubEnv("RENDER", "");
+  vi.stubEnv("FLY_APP_NAME", "");
   vi.stubEnv("GAMMASCOPE_WEB_ADMIN_USERNAME", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_USERNAME);
   vi.stubEnv("GAMMASCOPE_WEB_ADMIN_PASSWORD", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_PASSWORD);
   vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_SESSION_SECRET);
@@ -36,21 +42,142 @@ async function readJson(response: Response) {
   return response.json();
 }
 
+function tamperSessionValue(value: string): string {
+  const [payload, signature] = value.split(".");
+  const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  const tamperedPayload = Buffer.from(JSON.stringify({
+    ...session,
+    csrf_token: "tampered-token"
+  }), "utf8").toString("base64url");
+
+  return `${tamperedPayload}.${signature}`;
+}
+
 describe("admin session helpers", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
 
-  it("makes admin unavailable when username, password, or session secret is missing", async () => {
+  it("makes admin unavailable when username, password, session secret is missing, or session secret is weak", async () => {
     const { adminLoginAvailable, verifyAdminCredentials } = await import("../lib/adminSession");
 
     expect(adminLoginAvailable(adminEnv({ GAMMASCOPE_WEB_ADMIN_USERNAME: "" }))).toBe(false);
     expect(adminLoginAvailable(adminEnv({ GAMMASCOPE_WEB_ADMIN_PASSWORD: "" }))).toBe(false);
     expect(adminLoginAvailable(adminEnv({ GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: "" }))).toBe(false);
+    expect(adminLoginAvailable(adminEnv({ GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: `  ${WEAK_SESSION_SECRET}  ` }))).toBe(false);
     expect(verifyAdminCredentials("admin", "correct-horse-battery-staple", adminEnv({
-      GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: ""
+      GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: WEAK_SESSION_SECRET
     }))).toBe(false);
+  });
+
+  it("throws when creating and returns null when parsing sessions with a weak secret", async () => {
+    setAdminEnv();
+    const { createAdminSessionValue, parseAdminSessionValue } = await import("../lib/adminSession");
+    const sessionValue = createAdminSessionValue();
+
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", WEAK_SESSION_SECRET);
+
+    expect(() => createAdminSessionValue()).toThrow("Admin session secret is not configured");
+    expect(parseAdminSessionValue(sessionValue)).toBeNull();
+  });
+
+  it("rejects wrong username and wrong password credentials", async () => {
+    const { verifyAdminCredentials } = await import("../lib/adminSession");
+
+    expect(verifyAdminCredentials("not-admin", "correct-horse-battery-staple", adminEnv())).toBe(false);
+    expect(verifyAdminCredentials("admin", "not-the-password", adminEnv())).toBe(false);
+    expect(verifyAdminCredentials("not-admin", "not-the-password", adminEnv())).toBe(false);
+  });
+
+  it("rejects tampered and expired signed session values", async () => {
+    setAdminEnv();
+    const { createAdminSessionValue, parseAdminSessionValue } = await import("../lib/adminSession");
+    const now = Date.UTC(2026, 3, 26, 12, 0, 0);
+    const sessionValue = createAdminSessionValue(now);
+
+    expect(parseAdminSessionValue(tamperSessionValue(sessionValue), now)).toBeNull();
+    expect(parseAdminSessionValue(sessionValue, now + 8 * 60 * 60 * 1000 + 1000)).toBeNull();
+  });
+
+  it("parses admin sessions from requests and verifies auth and CSRF for guard consumers", async () => {
+    setAdminEnv();
+    const {
+      ADMIN_COOKIE_NAME,
+      CSRF_HEADER_NAME,
+      createAdminSessionValue,
+      parseAdminSessionFromRequest,
+      verifyAdminRequest
+    } = await import("../lib/adminSession");
+    const sessionValue = createAdminSessionValue();
+    const session = parseAdminSessionFromRequest(new Request("http://localhost/api/admin/session", {
+      headers: { Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}` }
+    }));
+
+    expect(session).not.toBeNull();
+    expect(verifyAdminRequest(new Request("http://localhost/api/admin/proxy", {
+      method: "GET",
+      headers: { Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}` }
+    }))).toEqual({
+      ok: true,
+      reason: null,
+      session
+    });
+    expect(verifyAdminRequest(new Request("http://localhost/api/admin/proxy", {
+      method: "POST",
+      headers: { Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}` }
+    }), { csrf: true })).toMatchObject({
+      ok: false,
+      reason: "invalid_csrf",
+      session
+    });
+    expect(verifyAdminRequest(new Request("http://localhost/api/admin/proxy", {
+      method: "POST",
+      headers: {
+        Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}`,
+        [CSRF_HEADER_NAME]: session!.csrf_token
+      }
+    }), { csrf: true })).toEqual({
+      ok: true,
+      reason: null,
+      session
+    });
+    expect(verifyAdminRequest(new Request("http://localhost/api/admin/proxy"))).toEqual({
+      ok: false,
+      reason: "unauthenticated",
+      session: null
+    });
+
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", WEAK_SESSION_SECRET);
+    expect(verifyAdminRequest(new Request("http://localhost/api/admin/proxy"))).toEqual({
+      ok: false,
+      reason: "unavailable",
+      session: null
+    });
+  });
+
+  it("tracks failed login attempts and resets lockout on success", async () => {
+    const {
+      adminLoginAttemptAllowed,
+      recordAdminLoginFailure,
+      recordAdminLoginSuccess,
+      resetAdminLoginAttempts
+    } = await import("../lib/adminSession");
+    const key = "admin|127.0.0.1";
+    const now = Date.UTC(2026, 3, 26, 12, 0, 0);
+
+    resetAdminLoginAttempts();
+
+    expect(adminLoginAttemptAllowed(key, now)).toBe(true);
+    recordAdminLoginFailure(key, now);
+    recordAdminLoginFailure(key, now + 1);
+    expect(adminLoginAttemptAllowed(key, now + 2)).toBe(true);
+    recordAdminLoginFailure(key, now + 2);
+    expect(adminLoginAttemptAllowed(key, now + 3)).toBe(false);
+    expect(adminLoginAttemptAllowed(key, now + 5 * 60 * 1000 + 3)).toBe(true);
+    recordAdminLoginFailure(key, now + 5 * 60 * 1000 + 4);
+    recordAdminLoginSuccess(key);
+    expect(adminLoginAttemptAllowed(key, now + 5 * 60 * 1000 + 5)).toBe(true);
   });
 
   it("rejects missing or mismatched CSRF headers for unsafe requests", async () => {
@@ -94,6 +221,32 @@ describe("admin session routes", () => {
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
     expect(setCookie).toContain("Path=/");
+    expect(setCookie).toContain("Max-Age=28800");
+  });
+
+  it("sets Secure on login cookies for HTTPS, production, and hosted environments", async () => {
+    const { POST } = await import("../app/api/admin/login/route");
+
+    setAdminEnv();
+    const httpsResponse = await POST(new Request("https://localhost/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+    expect(httpsResponse.headers.get("set-cookie")).toContain("Secure");
+
+    setAdminEnv({ NODE_ENV: "production" });
+    const productionResponse = await POST(new Request("http://localhost/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+    expect(productionResponse.headers.get("set-cookie")).toContain("Secure");
+
+    setAdminEnv({ VERCEL: "1" });
+    const hostedResponse = await POST(new Request("http://localhost/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+    expect(hostedResponse.headers.get("set-cookie")).toContain("Secure");
   });
 
   it("returns a generic 401 response for invalid credentials", async () => {
@@ -130,6 +283,56 @@ describe("admin session routes", () => {
       error: "Admin login unavailable"
     });
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("returns 503 and no auth cookie when the admin session secret is weak", async () => {
+    setAdminEnv({ GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: WEAK_SESSION_SECRET });
+    const { POST } = await import("../app/api/admin/login/route");
+
+    const response = await POST(new Request("http://localhost/api/admin/login", {
+      method: "POST",
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(readJson(response)).resolves.toEqual({
+      authenticated: false,
+      error: "Admin login unavailable"
+    });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("returns generic 401 responses after repeated failed login attempts", async () => {
+    setAdminEnv();
+    const { resetAdminLoginAttempts } = await import("../lib/adminSession");
+    const { POST } = await import("../app/api/admin/login/route");
+    resetAdminLoginAttempts();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await POST(new Request("http://localhost/api/admin/login", {
+        method: "POST",
+        headers: { "X-Forwarded-For": "198.51.100.10" },
+        body: JSON.stringify({ username: "admin", password: "not-the-password" })
+      }));
+      expect(response.status).toBe(401);
+      await expect(readJson(response)).resolves.toEqual({
+        authenticated: false,
+        error: "Invalid credentials"
+      });
+      expect(response.headers.get("set-cookie")).toBeNull();
+    }
+
+    const lockedResponse = await POST(new Request("http://localhost/api/admin/login", {
+      method: "POST",
+      headers: { "X-Forwarded-For": "198.51.100.10" },
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+    expect(lockedResponse.status).toBe(401);
+    await expect(readJson(lockedResponse)).resolves.toEqual({
+      authenticated: false,
+      error: "Invalid credentials"
+    });
+    expect(lockedResponse.headers.get("set-cookie")).toBeNull();
   });
 
   it("returns authenticated true and a CSRF token when the admin cookie is valid", async () => {
