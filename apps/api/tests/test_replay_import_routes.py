@@ -16,6 +16,7 @@ from gammascope_api.replay.dependencies import (
     set_replay_import_repository_override,
     set_replay_repository_override,
 )
+from gammascope_api.replay import baseline
 from gammascope_api.replay.import_repository import ImportedSnapshotData, ImportedSnapshotHeader
 from gammascope_api.replay.importer import ImportResult
 from gammascope_api.replay.parquet_reader import QuoteRecord
@@ -54,6 +55,90 @@ def public_replay_client() -> tuple[TestClient, "_FakeReplayImportRepository", "
     finally:
         reset_replay_import_repository_override()
         reset_replay_repository_override()
+
+
+def test_local_baseline_import_returns_none_when_files_are_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots_path = tmp_path / ".gammascope" / "replay-baselines" / "2026-04-22" / "snapshots.parquet"
+    quotes_path = snapshots_path.parent / "quotes.parquet"
+    importer = _FakeImporter()
+    monkeypatch.setattr(baseline, "replay_baseline_paths", lambda: (snapshots_path, quotes_path))
+
+    result = baseline.import_local_baseline_if_present(importer)
+
+    assert result is None
+    assert importer.create_calls == []
+    assert importer.confirm_calls == []
+
+
+def test_local_baseline_import_confirms_present_baseline_and_returns_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots_path = tmp_path / ".gammascope" / "replay-baselines" / "2026-04-22" / "snapshots.parquet"
+    quotes_path = snapshots_path.parent / "quotes.parquet"
+    snapshots_path.parent.mkdir(parents=True)
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    importer = _FakeImporter()
+    importer.create_result = _result(status="awaiting_confirmation", import_id="baseline-import")
+    importer.confirm_results["baseline-import"] = _result(
+        status="completed",
+        import_id="baseline-import",
+        replay_url="/replay?session_id=session-ready",
+    )
+    monkeypatch.setattr(baseline, "replay_baseline_paths", lambda: (snapshots_path, quotes_path))
+
+    result = baseline.import_local_baseline_if_present(importer)
+
+    assert result == importer.confirm_results["baseline-import"]
+    assert importer.create_calls == [
+        {
+            "snapshots_path": snapshots_path,
+            "quotes_path": quotes_path,
+        }
+    ]
+    assert importer.confirm_calls == ["baseline-import"]
+
+
+def test_local_baseline_import_returns_existing_completed_session_when_checksums_match(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots_path = tmp_path / ".gammascope" / "replay-baselines" / "2026-04-22" / "snapshots.parquet"
+    quotes_path = snapshots_path.parent / "quotes.parquet"
+    snapshots_path.parent.mkdir(parents=True)
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    importer = _FakeImporter()
+    first_completed = _result(
+        status="completed",
+        import_id="baseline-import-first",
+        session_id="existing-session",
+        replay_url="/replay?session_id=existing-session",
+    )
+    existing_completed = _result(
+        status="completed",
+        import_id="baseline-import-existing",
+        session_id="existing-session",
+        replay_url="/replay?session_id=existing-session",
+    )
+    importer.create_results = [
+        _result(status="awaiting_confirmation", import_id="baseline-import-first"),
+        existing_completed,
+    ]
+    importer.confirm_results["baseline-import-first"] = first_completed
+    monkeypatch.setattr(baseline, "replay_baseline_paths", lambda: (snapshots_path, quotes_path))
+
+    first = baseline.import_local_baseline_if_present(importer)
+    second = baseline.import_local_baseline_if_present(importer)
+
+    assert first == first_completed
+    assert second == existing_completed
+    assert len(importer.create_calls) == 2
+    assert importer.confirm_calls == ["baseline-import-first"]
 
 
 def test_upload_requires_admin_token(
@@ -646,10 +731,12 @@ def test_public_replay_websocket_sends_empty_snapshot_for_empty_import_selection
 class _FakeImporter:
     def __init__(self) -> None:
         self.create_result = _result(status="awaiting_confirmation")
+        self.create_results: list[ImportResult] = []
         self.imports: dict[str, ImportResult] = {}
         self.confirm_results: dict[str, ImportResult] = {}
         self.cancel_results: dict[str, ImportResult] = {}
         self.create_calls: list[dict[str, Path]] = []
+        self.confirm_calls: list[str] = []
 
     def create_import(self, *, snapshots_path: Path, quotes_path: Path) -> ImportResult:
         assert snapshots_path.exists()
@@ -660,8 +747,9 @@ class _FakeImporter:
                 "quotes_path": Path(quotes_path),
             }
         )
-        self.imports[self.create_result.import_id] = self.create_result
-        return self.create_result
+        result = self.create_results.pop(0) if self.create_results else self.create_result
+        self.imports[result.import_id] = result
+        return result
 
     def get_import(self, import_id: str) -> ImportResult:
         if import_id not in self.imports:
@@ -669,6 +757,7 @@ class _FakeImporter:
         return self.imports[import_id]
 
     def confirm_import(self, import_id: str) -> ImportResult:
+        self.confirm_calls.append(import_id)
         if import_id not in self.confirm_results:
             raise KeyError(import_id)
         return self.confirm_results[import_id]

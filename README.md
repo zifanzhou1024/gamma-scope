@@ -187,6 +187,17 @@ Use the captured `session_id` to replay the persisted IBKR snapshot:
 
 Then open `http://localhost:3000`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
 
+### Local Replay Baseline Import
+
+For a local-only replay baseline import, copy the parquet pair into the ignored `.gammascope/` directory and run the helper:
+
+    mkdir -p .gammascope/replay-baselines/2026-04-22
+    cp "/Users/sakura/Downloads/trade_date=2026-04-22 2/snapshots.parquet" .gammascope/replay-baselines/2026-04-22/snapshots.parquet
+    cp "/Users/sakura/Downloads/trade_date=2026-04-22 2/quotes.parquet" .gammascope/replay-baselines/2026-04-22/quotes.parquet
+    PYTHONPATH=apps/api .venv/bin/python -m gammascope_api.replay.baseline
+
+The `.gammascope/` directory is ignored by git and must stay local. Do not commit real replay baseline parquet files.
+
 For local maintenance testing, run a default-safe dry run of persisted replay and saved-view retention cleanup:
 
     curl -s -X POST "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=true" | python -m json.tool
