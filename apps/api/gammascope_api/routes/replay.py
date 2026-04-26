@@ -10,6 +10,7 @@ from gammascope_api.replay.imported_snapshot import build_imported_analytics_sna
 
 
 router = APIRouter()
+IMPORTED_REPLAY_UNAVAILABLE_DETAIL = "Imported replay persistence unavailable"
 
 REPLAY_TIMES = [
     "2026-04-23T15:30:00Z",
@@ -43,7 +44,7 @@ def list_replay_sessions() -> list[dict]:
 
 @router.get("/api/spx/0dte/replay/sessions/{session_id}/timestamps")
 def get_replay_session_timestamps(session_id: str) -> dict[str, Any]:
-    entries = _imported_replay_timestamps(session_id) if session_id in _completed_imported_session_ids() else []
+    entries = _imported_replay_timestamps(session_id) if _is_completed_imported_session(session_id) else []
     return {
         "session_id": session_id,
         "timestamp_source": "exact" if entries else "estimated",
@@ -94,22 +95,22 @@ def replay_stream_snapshots(
 def _completed_imported_replay_sessions() -> list[dict[str, Any]]:
     try:
         return get_replay_import_repository().list_completed_sessions()
-    except Exception:
-        return []
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
 
 
-def _completed_imported_session_ids() -> set[str]:
-    return {
-        session["session_id"]
-        for session in _completed_imported_replay_sessions()
-    }
+def _is_completed_imported_session(session_id: str) -> bool:
+    try:
+        return get_replay_import_repository().is_completed_public_session(session_id)
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
 
 
 def _imported_replay_timestamps(session_id: str) -> list[dict[str, Any]]:
     try:
         return get_replay_import_repository().timestamps(session_id)
-    except Exception:
-        return []
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
 
 
 def _imported_replay_snapshot(
@@ -117,53 +118,25 @@ def _imported_replay_snapshot(
     at: str | None,
     source_snapshot_id: str | None,
 ) -> dict[str, Any] | None:
-    if session_id not in _completed_imported_session_ids():
+    if not _is_completed_imported_session(session_id):
         return None
 
     if source_snapshot_id is not None:
         try:
             snapshot = get_replay_import_repository().snapshot_by_source_id(session_id, source_snapshot_id)
-        except Exception:
-            snapshot = None
+        except Exception as exc:
+            raise _imported_replay_unavailable() from exc
         if snapshot is None:
             return _empty_replay_snapshot()
         return build_imported_analytics_snapshot(snapshot)
 
-    snapshot = _nearest_imported_replay_snapshot(session_id, at)
+    try:
+        snapshot = get_replay_import_repository().nearest_snapshot(session_id, at)
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
     if snapshot is None:
         return _empty_replay_snapshot()
     return build_imported_analytics_snapshot(snapshot)
-
-
-def _nearest_imported_replay_snapshot(session_id: str, at: str | None):
-    repository = get_replay_import_repository()
-    if not at:
-        try:
-            return repository.nearest_snapshot(session_id, at)
-        except Exception:
-            return None
-
-    target_time = _parse_replay_time(at)
-    if target_time is None:
-        try:
-            return repository.nearest_snapshot(session_id, None)
-        except Exception:
-            return None
-
-    timestamps = _imported_replay_timestamps(session_id)
-    if not timestamps:
-        return None
-    nearest_timestamp = min(
-        timestamps,
-        key=lambda timestamp: (
-            abs((_parse_replay_time(timestamp["snapshot_time"]) - target_time).total_seconds()),
-            timestamp["index"],
-        ),
-    )
-    try:
-        return repository.snapshot_by_source_id(session_id, nearest_timestamp["source_snapshot_id"])
-    except Exception:
-        return None
 
 
 def _imported_replay_stream_snapshots(
@@ -171,14 +144,18 @@ def _imported_replay_stream_snapshots(
     at: str | None,
     source_snapshot_id: str | None,
 ) -> list[dict[str, Any]]:
-    if session_id not in _completed_imported_session_ids():
+    if not _is_completed_imported_session(session_id):
         return []
 
     try:
         snapshots = get_replay_import_repository().stream_snapshots(session_id, at, source_snapshot_id)
-    except Exception:
-        return []
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
     return [build_imported_analytics_snapshot(snapshot) for snapshot in snapshots]
+
+
+def _imported_replay_unavailable() -> HTTPException:
+    return HTTPException(status_code=503, detail=IMPORTED_REPLAY_UNAVAILABLE_DETAIL)
 
 
 def _persisted_replay_sessions() -> list[dict[str, Any]]:

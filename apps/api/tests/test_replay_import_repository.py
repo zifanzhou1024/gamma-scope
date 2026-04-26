@@ -244,6 +244,7 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
     timestamps = repo.timestamps(session_id)
     first_snapshot = repo.snapshot_by_source_id(session_id, "src-1")
     nearest = repo.nearest_snapshot(session_id, "2026-04-24T15:34:00Z")
+    tied_nearest = repo.nearest_snapshot(session_id, "2026-04-24T15:35:00Z")
     streamed = repo.stream_snapshots(session_id, at="2026-04-24T15:35:00Z", source_snapshot_id=None)
 
     assert completed.status == "completed"
@@ -265,6 +266,8 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
     assert [quote.contract_id for quote in first_snapshot.quotes] == ["SPX-C-5200", "SPX-P-5200"]
     assert nearest is not None
     assert nearest.header.source_snapshot_id == "src-1"
+    assert tied_nearest is not None
+    assert tied_nearest.header.source_snapshot_id == "src-1"
     assert [snapshot.header.source_snapshot_id for snapshot in streamed] == ["src-2"]
 
 
@@ -355,6 +358,34 @@ def test_list_completed_sessions_excludes_unfinished_and_private_sessions(
     assert public_session_id in session_ids
     assert private_session_id not in session_ids
     assert unfinished_session_id not in session_ids
+
+
+def test_is_completed_public_session_uses_import_status_and_visibility(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    public_import = _create_import(repo, import_ids)
+    private_import = _create_import(repo, import_ids)
+    unfinished_import = _create_import(repo, import_ids)
+    public_session_id = f"pytest-public-import-session-{uuid4()}"
+    private_session_id = f"pytest-private-import-session-{uuid4()}"
+    unfinished_session_id = f"pytest-unfinished-import-session-{uuid4()}"
+    session_ids.extend([public_session_id, private_session_id, unfinished_session_id])
+
+    _publish_import(repo, public_import.import_id, public_session_id)
+    _publish_import(repo, private_import.import_id, private_session_id)
+    repo.mark_validating(unfinished_import.import_id)
+    repo.mark_awaiting_confirmation(unfinished_import.import_id, session_id=unfinished_session_id)
+    repo.mark_publishing(unfinished_import.import_id)
+
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE replay_sessions SET visibility = 'private' WHERE session_id = %s", (private_session_id,))
+
+    assert repo.is_completed_public_session(public_session_id) is True
+    assert repo.is_completed_public_session(private_session_id) is False
+    assert repo.is_completed_public_session(unfinished_session_id) is False
+    assert repo.is_completed_public_session(f"pytest-missing-import-session-{uuid4()}") is False
 
 
 def test_importer_valid_tiny_upload_returns_awaiting_confirmation(

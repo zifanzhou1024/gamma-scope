@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request as StarletteRequest
+from starlette.websockets import WebSocketDisconnect
 
 from gammascope_api.main import app
 from gammascope_api.replay.dependencies import (
@@ -522,6 +523,76 @@ def test_public_replay_websocket_streams_imported_session_in_source_order(
     assert [payload["spot"] for payload in payloads] == [5200.25, 5210.25, 5220.25]
 
 
+def test_public_replay_sessions_surface_import_repository_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.list_completed_sessions_error = RuntimeError("database unavailable")
+
+    response = client.get("/api/spx/0dte/replay/sessions")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Imported replay persistence unavailable"
+
+
+def test_public_replay_timestamps_surface_import_repository_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.timestamps_error = RuntimeError("database unavailable")
+
+    response = client.get("/api/spx/0dte/replay/sessions/import-session-ready/timestamps")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Imported replay persistence unavailable"
+
+
+def test_public_replay_snapshot_surface_import_repository_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.snapshot_by_source_id_error = RuntimeError("database unavailable")
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "source_snapshot_id": "src-before"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Imported replay persistence unavailable"
+
+
+def test_public_replay_snapshot_uses_bounded_import_membership_lookup(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.list_completed_sessions_error = AssertionError("route should not list all imports for playback")
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "source_snapshot_id": "src-before"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "import-session-ready"
+
+
+def test_public_replay_websocket_closes_on_import_repository_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.stream_snapshots_error = RuntimeError("database unavailable")
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "import-session-ready", "interval_ms": "50"},
+    ) as websocket:
+        with pytest.raises(WebSocketDisconnect) as disconnect:
+            websocket.receive_json()
+
+    assert disconnect.value.code == 1011
+
+
 class _FakeImporter:
     def __init__(self) -> None:
         self.create_result = _result(status="awaiting_confirmation")
@@ -603,8 +674,14 @@ class _FakeReplayImportRepository:
             _imported_snapshot("src-duplicate-earlier", 1, "2026-04-24T15:40:00Z", 5210.25, "SPX-C-5210"),
             _imported_snapshot("src-duplicate-later", 2, "2026-04-24T15:40:00Z", 5220.25, "SPX-C-5220"),
         ]
+        self.list_completed_sessions_error: Exception | None = None
+        self.timestamps_error: Exception | None = None
+        self.snapshot_by_source_id_error: Exception | None = None
+        self.stream_snapshots_error: Exception | None = None
 
     def list_completed_sessions(self) -> list[dict[str, Any]]:
+        if self.list_completed_sessions_error is not None:
+            raise self.list_completed_sessions_error
         return [
             {
                 "session_id": "import-session-ready",
@@ -619,7 +696,12 @@ class _FakeReplayImportRepository:
             }
         ]
 
+    def is_completed_public_session(self, session_id: str) -> bool:
+        return session_id == "import-session-ready"
+
     def timestamps(self, session_id: str) -> list[dict[str, Any]]:
+        if self.timestamps_error is not None:
+            raise self.timestamps_error
         if session_id != "import-session-ready":
             return []
         return [
@@ -632,6 +714,8 @@ class _FakeReplayImportRepository:
         ]
 
     def snapshot_by_source_id(self, session_id: str, source_snapshot_id: str) -> ImportedSnapshotData | None:
+        if self.snapshot_by_source_id_error is not None:
+            raise self.snapshot_by_source_id_error
         if session_id != "import-session-ready":
             return None
         return next(
@@ -669,6 +753,8 @@ class _FakeReplayImportRepository:
         at: str | None,
         source_snapshot_id: str | None,
     ) -> list[ImportedSnapshotData]:
+        if self.stream_snapshots_error is not None:
+            raise self.stream_snapshots_error
         if session_id != "import-session-ready":
             return []
         if source_snapshot_id is not None:

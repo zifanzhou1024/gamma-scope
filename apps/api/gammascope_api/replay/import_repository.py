@@ -134,6 +134,9 @@ class ReplayImportRepository(Protocol):
     def list_completed_sessions(self) -> list[dict[str, Any]]:
         raise NotImplementedError
 
+    def is_completed_public_session(self, session_id: str) -> bool:
+        raise NotImplementedError
+
     def timestamps(self, session_id: str) -> list[dict[str, Any]]:
         raise NotImplementedError
 
@@ -633,6 +636,26 @@ class PostgresReplayImportRepository:
             for record in records
         ]
 
+    def is_completed_public_session(self, session_id: str) -> bool:
+        self.ensure_schema()
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM replay_sessions session
+                        JOIN replay_imports import ON import.import_id = session.import_id
+                        WHERE session.session_id = %s
+                          AND session.visibility = 'public'
+                          AND import.status = 'completed'
+                    )
+                    """,
+                    (session_id,),
+                )
+                record = cursor.fetchone()
+        return bool(record[0])
+
     def timestamps(self, session_id: str) -> list[dict[str, Any]]:
         self.ensure_schema()
         with self._connect() as connection:
@@ -697,7 +720,7 @@ class PostgresReplayImportRepository:
                         SELECT *
                         FROM replay_import_snapshots
                         WHERE session_id = %s
-                        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot_time - %s))), snapshot_time DESC, source_order DESC
+                        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot_time - %s))), source_order ASC
                         LIMIT 1
                         """,
                         (session_id, target_time),
