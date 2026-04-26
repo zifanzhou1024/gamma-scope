@@ -38,7 +38,7 @@ def tiny_snapshot_rows() -> list[dict[str, Any]]:
 
 
 def tiny_quote_rows(snapshot_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    snapshots = snapshot_rows or tiny_snapshot_rows()
+    snapshots = tiny_snapshot_rows() if snapshot_rows is None else snapshot_rows
     quotes: list[dict[str, Any]] = []
     for snapshot in snapshots:
         for strike in (5095.0, 5100.0):
@@ -60,10 +60,11 @@ def tiny_quote_rows(snapshot_rows: list[dict[str, Any]] | None = None) -> list[d
                         "distance_from_atm": 5.0,
                     }
                 )
-    quotes[-1]["bid"] = None
-    quotes[-1]["ask"] = None
-    quotes[-1]["mid"] = None
-    quotes[-1]["quote_valid"] = False
+    if quotes:
+        quotes[-1]["bid"] = None
+        quotes[-1]["ask"] = None
+        quotes[-1]["mid"] = None
+        quotes[-1]["quote_valid"] = False
     return quotes
 
 
@@ -75,8 +76,8 @@ def write_replay_parquet_pair(
     mutate_snapshots: Callable[[list[dict[str, Any]]], None] | None = None,
     mutate_quotes: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> tuple[Path, Path]:
-    snapshot_rows = snapshots or tiny_snapshot_rows()
-    quote_rows = quotes or tiny_quote_rows(snapshot_rows)
+    snapshot_rows = tiny_snapshot_rows() if snapshots is None else snapshots
+    quote_rows = tiny_quote_rows(snapshot_rows) if quotes is None else quotes
     if mutate_snapshots is not None:
         mutate_snapshots(snapshot_rows)
     if mutate_quotes is not None:

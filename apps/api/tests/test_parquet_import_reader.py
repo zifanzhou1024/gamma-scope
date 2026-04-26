@@ -34,6 +34,7 @@ def test_reads_tiny_replay_parquet_pair_and_normalizes_records(tmp_path: Path) -
         snapshots_path=snapshots_path,
         quotes_path=quotes_path,
         session_id="session-1",
+        load_quotes=True,
     )
 
     assert result.errors == []
@@ -110,6 +111,20 @@ def test_pricing_spot_falls_back_to_spot_when_not_positive_or_finite(tmp_path: P
     assert result.snapshots[1].pricing_spot is None
 
 
+def test_default_read_validates_without_materializing_quote_records(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.errors == []
+    assert result.summary["quote_count"] == 12
+    assert result.quotes == []
+
+
 def test_schema_validation_reports_missing_required_columns(tmp_path: Path) -> None:
     snapshots = tiny_snapshot_rows()
     quotes = tiny_quote_rows(snapshots)
@@ -147,6 +162,25 @@ def test_schema_validation_reports_invalid_row_values(tmp_path: Path) -> None:
     )
 
     assert any("quotes.parquet row 0 invalid option_type" in error for error in result.errors)
+
+
+def test_quote_validation_error_messages_are_capped_by_error_class(tmp_path: Path) -> None:
+    snapshots = tiny_snapshot_rows()
+    quotes = tiny_quote_rows(snapshots)
+    for row in quotes:
+        row["option_type"] = "X"
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, snapshots=snapshots, quotes=quotes)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    option_type_errors = [error for error in result.errors if "invalid option_type" in error]
+    assert option_type_errors == [
+        "quotes.parquet invalid option_type in 12 rows; example rows: 0, 1, 2, 3, 4"
+    ]
 
 
 def test_duplicate_market_times_are_preserved_with_warning(tmp_path: Path) -> None:
@@ -229,6 +263,33 @@ def test_source_row_count_is_not_used_as_quote_row_count(tmp_path: Path) -> None
     assert result.summary["source_row_count_profile"] == [999, 999, 999]
     assert result.summary["quote_count"] == 12
     assert result.summary["quote_rows_per_snapshot"] == 4
+
+
+def test_absent_source_row_count_stays_null_in_diagnostics(tmp_path: Path) -> None:
+    snapshots = tiny_snapshot_rows()
+    for row in snapshots:
+        row.pop("row_count")
+    quotes = tiny_quote_rows(snapshots)
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, snapshots=snapshots, quotes=quotes)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.errors == []
+    assert result.summary["source_row_count_profile"] == [None, None, None]
+    assert result.summary["quote_rows_per_snapshot"] == 4
+
+
+def test_fixture_helper_preserves_explicit_empty_rows(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, snapshots=[], quotes=[])
+
+    import pyarrow.parquet as pq
+
+    assert pq.read_table(snapshots_path).num_rows == 0
+    assert pq.read_table(quotes_path).num_rows == 0
 
 
 def test_streams_quote_records_from_parquet_batches(tmp_path: Path) -> None:

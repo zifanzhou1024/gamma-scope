@@ -43,6 +43,7 @@ SNAPSHOT_OPTIONAL_COLUMNS = {
 QUOTE_OPTIONAL_COLUMNS = {"oi", "ln_kf", "distance_from_atm"}
 QUOTE_SCAN_COLUMNS = QUOTE_REQUIRED_COLUMNS | QUOTE_OPTIONAL_COLUMNS
 DEFAULT_QUOTE_BATCH_SIZE = 50_000
+MAX_ERROR_EXAMPLE_ROWS = 5
 TIMESTAMP_TEXT_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.(?P<fraction>\d+))?(?:Z|[+-]\d{2}:\d{2})?$"
 )
@@ -63,7 +64,7 @@ class SnapshotRecord:
     selected_strike_count: int
     valid_mid_contract_count: int
     stale_contract_count: int
-    row_count: int
+    row_count: int | None
 
 
 @dataclass(frozen=True)
@@ -110,12 +111,48 @@ class _NonFiniteNumericError(ValueError):
     pass
 
 
+@dataclass
+class _LimitedError:
+    count: int
+    rows: list[int]
+    single_message: str
+    summary_template: str
+
+
+class _ValidationErrorLimiter:
+    def __init__(self, errors: list[str]) -> None:
+        self._errors = errors
+        self._limited_errors: dict[str, _LimitedError] = {}
+
+    def add(self, key: str, row_index: int, single_message: str, summary_template: str) -> None:
+        limited_error = self._limited_errors.get(key)
+        if limited_error is None:
+            self._limited_errors[key] = _LimitedError(
+                count=1,
+                rows=[row_index],
+                single_message=single_message,
+                summary_template=summary_template,
+            )
+            return
+        limited_error.count += 1
+        if len(limited_error.rows) < MAX_ERROR_EXAMPLE_ROWS:
+            limited_error.rows.append(row_index)
+
+    def flush(self) -> None:
+        for limited_error in self._limited_errors.values():
+            if limited_error.count == 1:
+                self._errors.append(limited_error.single_message)
+                continue
+            rows = ", ".join(str(row) for row in limited_error.rows)
+            self._errors.append(limited_error.summary_template.format(count=limited_error.count, rows=rows))
+
+
 def read_replay_parquet_pair(
     *,
     snapshots_path: Path,
     quotes_path: Path,
     session_id: str,
-    load_quotes: bool = True,
+    load_quotes: bool = False,
 ) -> ReplayParquetReadResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -296,6 +333,7 @@ def _scan_quotes(
         strike_values_by_snapshot={},
     )
     columns = [column for column in QUOTE_SCAN_COLUMNS if column in quote_columns]
+    quote_errors = _ValidationErrorLimiter(errors)
     try:
         for batch in quotes_file.iter_batches(batch_size=DEFAULT_QUOTE_BATCH_SIZE, columns=columns):
             rows = batch.to_pylist()
@@ -303,14 +341,18 @@ def _scan_quotes(
             for index, row in enumerate(rows):
                 row_index = row_offset + index
                 stats.quote_count += 1
-                _validate_quote_row(row, row_index, errors)
+                _validate_quote_row(row, row_index, quote_errors)
 
-                expiry = _parse_expiry_value(
-                    row.get("expiry"),
-                    table_name="quotes.parquet",
-                    row_index=row_index,
-                    errors=errors,
-                )
+                try:
+                    expiry = _date_string(row.get("expiry"))
+                except (TypeError, ValueError):
+                    quote_errors.add(
+                        "quotes.parquet:expiry:invalid",
+                        row_index,
+                        f"quotes.parquet row {row_index} invalid expiry value for expiry: {row.get('expiry')!r}",
+                        "quotes.parquet invalid expiry in {count} rows; example rows: {rows}",
+                    )
+                    expiry = None
                 if expiry is not None:
                     stats.quote_expiries.add(expiry)
 
@@ -333,6 +375,7 @@ def _scan_quotes(
                     stats.strike_values_by_snapshot.setdefault(snapshot_id, set()).add(strike)
     except Exception as exc:
         errors.append(f"Unable to scan quotes.parquet: {exc}")
+    quote_errors.flush()
     return stats
 
 
@@ -352,12 +395,17 @@ def _validate_snapshot_row(row: dict[str, Any], row_index: int, errors: list[str
         _validate_optional_int(row.get(column), "snapshots.parquet", column, row_index, errors)
 
 
-def _validate_quote_row(row: dict[str, Any], row_index: int, errors: list[str]) -> None:
+def _validate_quote_row(row: dict[str, Any], row_index: int, errors: _ValidationErrorLimiter) -> None:
     _validate_required_source_id(row.get("snapshot_id"), "quotes.parquet", row_index, errors)
     _validate_required_timestamp(row.get("market_time"), "quotes.parquet", "market_time", row_index, errors)
     option_type = str(row.get("option_type", "")).strip().lower()
     if option_type not in {"c", "call", "p", "put"}:
-        errors.append(f"quotes.parquet row {row_index} invalid option_type: {row.get('option_type')!r}")
+        errors.add(
+            "quotes.parquet:option_type:invalid",
+            row_index,
+            f"quotes.parquet row {row_index} invalid option_type: {row.get('option_type')!r}",
+            "quotes.parquet invalid option_type in {count} rows; example rows: {rows}",
+        )
     _validate_required_numeric(row.get("strike"), "quotes.parquet", "strike", row_index, errors)
     _validate_required_bool(row.get("quote_valid"), "quotes.parquet", "quote_valid", row_index, errors)
     for column in ("bid", "ask", "mid", "iv", "ln_kf", "distance_from_atm"):
@@ -438,12 +486,29 @@ def _optional_iso_time(value: Any) -> str | None:
         return None
 
 
-def _validate_required_source_id(value: Any, table_name: str, row_index: int, errors: list[str]) -> None:
+def _validate_required_source_id(
+    value: Any,
+    table_name: str,
+    row_index: int,
+    errors: list[str] | _ValidationErrorLimiter,
+) -> None:
     if value is None:
-        errors.append(f"{table_name} row {row_index} missing snapshot_id")
+        _add_validation_error(
+            errors,
+            f"{table_name}:snapshot_id:missing",
+            row_index,
+            f"{table_name} row {row_index} missing snapshot_id",
+            f"{table_name} missing snapshot_id in {{count}} rows; example rows: {{rows}}",
+        )
         return
     if _source_id_or_none(value) is None:
-        errors.append(f"{table_name} row {row_index} blank snapshot_id")
+        _add_validation_error(
+            errors,
+            f"{table_name}:snapshot_id:blank",
+            row_index,
+            f"{table_name} row {row_index} blank snapshot_id",
+            f"{table_name} blank snapshot_id in {{count}} rows; example rows: {{rows}}",
+        )
 
 
 def _source_id_or_none(value: Any) -> str | None:
@@ -460,49 +525,128 @@ def _validate_required_timestamp(
     table_name: str,
     column: str,
     row_index: int,
-    errors: list[str],
+    errors: list[str] | _ValidationErrorLimiter,
 ) -> None:
     if value is None:
-        errors.append(f"{table_name} row {row_index} missing required timestamp value for {column}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:missing_timestamp",
+            row_index,
+            f"{table_name} row {row_index} missing required timestamp value for {column}",
+            f"{table_name} missing {column} timestamp in {{count}} rows; example rows: {{rows}}",
+        )
         return
     try:
         _iso_time(value)
     except (TypeError, ValueError) as exc:
-        errors.append(f"{table_name} row {row_index} invalid timestamp value for {column}: {value!r} ({exc})")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:invalid_timestamp",
+            row_index,
+            f"{table_name} row {row_index} invalid timestamp value for {column}: {value!r} ({exc})",
+            f"{table_name} invalid {column} timestamp in {{count}} rows; example rows: {{rows}}",
+        )
 
 
-def _validate_required_bool(value: Any, table_name: str, column: str, row_index: int, errors: list[str]) -> None:
+def _validate_required_bool(
+    value: Any,
+    table_name: str,
+    column: str,
+    row_index: int,
+    errors: list[str] | _ValidationErrorLimiter,
+) -> None:
     try:
         _parse_bool(value)
     except (TypeError, ValueError):
-        errors.append(f"{table_name} row {row_index} invalid boolean value for {column}: {value!r}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:invalid_bool",
+            row_index,
+            f"{table_name} row {row_index} invalid boolean value for {column}: {value!r}",
+            f"{table_name} invalid {column} boolean in {{count}} rows; example rows: {{rows}}",
+        )
 
 
-def _validate_required_numeric(value: Any, table_name: str, column: str, row_index: int, errors: list[str]) -> None:
+def _validate_required_numeric(
+    value: Any,
+    table_name: str,
+    column: str,
+    row_index: int,
+    errors: list[str] | _ValidationErrorLimiter,
+) -> None:
     if value is None:
-        errors.append(f"{table_name} row {row_index} missing required numeric value for {column}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:missing_numeric",
+            row_index,
+            f"{table_name} row {row_index} missing required numeric value for {column}",
+            f"{table_name} missing {column} numeric value in {{count}} rows; example rows: {{rows}}",
+        )
         return
     _validate_optional_numeric(value, table_name, column, row_index, errors)
 
 
-def _validate_optional_numeric(value: Any, table_name: str, column: str, row_index: int, errors: list[str]) -> None:
+def _validate_optional_numeric(
+    value: Any,
+    table_name: str,
+    column: str,
+    row_index: int,
+    errors: list[str] | _ValidationErrorLimiter,
+) -> None:
     if value is None:
         return
     try:
         _parse_finite_float(value)
     except _NonFiniteNumericError:
-        errors.append(f"{table_name} row {row_index} non-finite numeric value for {column}: {value!r}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:non_finite_numeric",
+            row_index,
+            f"{table_name} row {row_index} non-finite numeric value for {column}: {value!r}",
+            f"{table_name} non-finite {column} numeric value in {{count}} rows; example rows: {{rows}}",
+        )
     except (TypeError, ValueError):
-        errors.append(f"{table_name} row {row_index} invalid numeric value for {column}: {value!r}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:invalid_numeric",
+            row_index,
+            f"{table_name} row {row_index} invalid numeric value for {column}: {value!r}",
+            f"{table_name} invalid {column} numeric value in {{count}} rows; example rows: {{rows}}",
+        )
 
 
-def _validate_optional_int(value: Any, table_name: str, column: str, row_index: int, errors: list[str]) -> None:
+def _validate_optional_int(
+    value: Any,
+    table_name: str,
+    column: str,
+    row_index: int,
+    errors: list[str] | _ValidationErrorLimiter,
+) -> None:
     if value is None:
         return
     try:
         _parse_int(value)
     except (TypeError, ValueError):
-        errors.append(f"{table_name} row {row_index} invalid integer value for {column}: {value!r}")
+        _add_validation_error(
+            errors,
+            f"{table_name}:{column}:invalid_integer",
+            row_index,
+            f"{table_name} row {row_index} invalid integer value for {column}: {value!r}",
+            f"{table_name} invalid {column} integer in {{count}} rows; example rows: {{rows}}",
+        )
+
+
+def _add_validation_error(
+    errors: list[str] | _ValidationErrorLimiter,
+    key: str,
+    row_index: int,
+    single_message: str,
+    summary_template: str,
+) -> None:
+    if isinstance(errors, _ValidationErrorLimiter):
+        errors.add(key, row_index, single_message, summary_template)
+    else:
+        errors.append(single_message)
 
 
 def _normalize_snapshot(
@@ -531,7 +675,7 @@ def _normalize_snapshot(
         selected_strike_count=_optional_int(row.get("selected_strike_count"), strike_count),
         valid_mid_contract_count=_optional_int(row.get("valid_mid_contract_count"), valid_quote_count),
         stale_contract_count=_optional_int(row.get("stale_contract_count"), stale_count),
-        row_count=_optional_int(row.get("row_count"), quote_count),
+        row_count=_optional_int_or_none(row.get("row_count")),
     )
 
 
