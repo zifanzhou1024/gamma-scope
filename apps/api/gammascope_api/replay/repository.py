@@ -210,6 +210,11 @@ class PostgresReplayRepository:
                     SELECT session_id, symbol, expiry, start_time, end_time, snapshot_count, source
                     FROM replay_sessions
                     WHERE source <> 'parquet_import'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM analytics_snapshots snapshot
+                          WHERE snapshot.session_id = replay_sessions.session_id
+                      )
                     ORDER BY end_time DESC, session_id
                     """
                 )

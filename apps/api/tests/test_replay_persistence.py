@@ -87,6 +87,33 @@ def test_repository_lists_sessions_and_selects_nearest_snapshot(
     assert nearest["spot"] == 5210.25
 
 
+def test_repository_does_not_list_sessions_without_snapshots(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    healthy_session_id = f"pytest-replay-healthy-{uuid4()}"
+    stale_session_id = f"pytest-replay-stale-{uuid4()}"
+    session_ids.extend([healthy_session_id, stale_session_id])
+
+    repo.insert_snapshot(_snapshot(healthy_session_id, "2026-04-24T15:30:00Z"), source="ibkr")
+    with _connect() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO replay_sessions (
+                    session_id, symbol, expiry, source, start_time, end_time, snapshot_count
+                )
+                VALUES (%s, 'SPX', '2026-04-24', 'ibkr', %s, %s, 2)
+                """,
+                (stale_session_id, "2026-04-24T15:40:00Z", "2026-04-24T15:50:00Z"),
+            )
+
+    session_ids_from_repo = {session["session_id"] for session in repo.list_sessions()}
+
+    assert healthy_session_id in session_ids_from_repo
+    assert stale_session_id not in session_ids_from_repo
+
+
 def test_repository_lists_replay_snapshots_in_chronological_order_from_requested_start(
     replay_repository: tuple[PostgresReplayRepository, list[str]],
 ) -> None:
