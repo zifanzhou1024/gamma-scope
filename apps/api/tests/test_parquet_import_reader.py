@@ -1,7 +1,11 @@
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from gammascope_api.replay.config import replay_archive_dir, replay_import_max_bytes
+from gammascope_api.replay.parquet_reader import iter_replay_quote_records, read_replay_parquet_pair
+
+from replay_parquet_fixtures import tiny_quote_rows, tiny_snapshot_rows, write_replay_parquet_pair
 
 
 def test_pyarrow_and_multipart_dependencies_are_declared() -> None:
@@ -21,3 +25,230 @@ def test_default_import_max_bytes_is_100_mb(monkeypatch) -> None:
     monkeypatch.delenv("GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES", raising=False)
 
     assert replay_import_max_bytes() == 100 * 1024 * 1024
+
+
+def test_reads_tiny_replay_parquet_pair_and_normalizes_records(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.errors == []
+    assert result.warnings == ["1 invalid quote rows found"]
+    assert len(result.snapshots) == 3
+    assert len(result.quotes) == 12
+    assert result.summary["snapshot_count"] == 3
+    assert result.summary["quote_count"] == 12
+    assert result.summary["valid_quote_count"] == 11
+    assert result.summary["invalid_quote_count"] == 1
+    assert result.summary["quote_rows_per_snapshot"] == 4
+    assert result.summary["source_row_count_profile"] == [999, 999, 999]
+    assert result.summary["snapshot_previews"] == [
+        {
+            "source_snapshot_id": "snap-1",
+            "source_order": 0,
+            "snapshot_time": "2026-04-24T14:30:00Z",
+            "row_count": 999,
+        },
+        {
+            "source_snapshot_id": "snap-2",
+            "source_order": 1,
+            "snapshot_time": "2026-04-24T14:31:00Z",
+            "row_count": 999,
+        },
+        {
+            "source_snapshot_id": "snap-3",
+            "source_order": 2,
+            "snapshot_time": "2026-04-24T14:32:00Z",
+            "row_count": 999,
+        },
+    ]
+
+    first_snapshot = result.snapshots[0]
+    assert first_snapshot.session_id == "session-1"
+    assert first_snapshot.source_snapshot_id == "snap-1"
+    assert first_snapshot.source_order == 0
+    assert first_snapshot.snapshot_time == "2026-04-24T14:30:00Z"
+    assert first_snapshot.expiry == "2026-04-24"
+    assert first_snapshot.spot == 5100.25
+    assert first_snapshot.pricing_spot == 5100.25
+    assert first_snapshot.forward == 5101.0
+    assert first_snapshot.row_count == 999
+    assert result.snapshot_id_map["snap-1"] == first_snapshot
+
+    first_quote = result.quotes[0]
+    assert first_quote.session_id == "session-1"
+    assert first_quote.source_snapshot_id == "snap-1"
+    assert first_quote.source_order == 0
+    assert first_quote.contract_id == "SPXW-2026-04-24-C-5095"
+    assert first_quote.right == "call"
+    assert first_quote.ibkr_iv == 0.18
+    assert first_quote.open_interest == 123
+    assert first_quote.quote_valid is True
+
+
+def test_pricing_spot_falls_back_to_spot_when_not_positive_or_finite(tmp_path: Path) -> None:
+    def mutate_snapshots(rows):
+        rows[0]["pricing_spot"] = 0.0
+        rows[1]["pricing_spot"] = None
+
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, mutate_snapshots=mutate_snapshots)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.errors == []
+    assert result.snapshots[0].spot == 5100.0
+    assert result.snapshots[0].pricing_spot is None
+    assert result.snapshots[1].spot == 5101.0
+    assert result.snapshots[1].pricing_spot is None
+
+
+def test_schema_validation_reports_missing_required_columns(tmp_path: Path) -> None:
+    snapshots = tiny_snapshot_rows()
+    quotes = tiny_quote_rows(snapshots)
+    for row in snapshots:
+        row.pop("forward_price")
+        row["trade_date"] = "2026-04-24"
+    for row in quotes:
+        row.pop("iv")
+        row["trade_date"] = "2026-04-24"
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, snapshots=snapshots, quotes=quotes)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.snapshots == []
+    assert result.quotes == []
+    assert "snapshots.parquet missing required columns: forward_price" in result.errors
+    assert "quotes.parquet missing required columns: iv" in result.errors
+    assert not any("trade_date" in error for error in result.errors)
+
+
+def test_schema_validation_reports_invalid_row_values(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(
+        tmp_path,
+        mutate_quotes=lambda rows: rows[0].update({"option_type": "X"}),
+    )
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert any("quotes.parquet row 0 invalid option_type" in error for error in result.errors)
+
+
+def test_duplicate_market_times_are_preserved_with_warning(tmp_path: Path) -> None:
+    def mutate_snapshots(rows):
+        rows[1]["market_time"] = rows[0]["market_time"]
+
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, mutate_snapshots=mutate_snapshots)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.errors == []
+    assert any("duplicate market_time values" in warning for warning in result.warnings)
+    assert [snapshot.source_order for snapshot in result.snapshots] == [0, 1, 2]
+    assert result.snapshots[0].snapshot_time == result.snapshots[1].snapshot_time
+
+
+def test_duplicate_snapshot_ids_fail(tmp_path: Path) -> None:
+    def mutate_snapshots(rows):
+        rows[1]["snapshot_id"] = rows[0]["snapshot_id"]
+
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path, mutate_snapshots=mutate_snapshots)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.snapshots == []
+    assert any("duplicate snapshot_id values in snapshots.parquet: snap-1" in error for error in result.errors)
+
+
+def test_quote_snapshot_id_without_matching_snapshot_fails(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(
+        tmp_path,
+        mutate_quotes=lambda rows: rows[0].update({"snapshot_id": "missing-snapshot"}),
+    )
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.quotes == []
+    assert any(
+        "quote snapshot_id values without snapshot rows: missing-snapshot" in error
+        for error in result.errors
+    )
+
+
+def test_expiry_mismatch_fails(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(
+        tmp_path,
+        mutate_quotes=lambda rows: rows[0].update({"expiry": datetime(2026, 4, 25, 20, 0, tzinfo=timezone.utc)}),
+    )
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert any("expiry mismatch between snapshots.parquet and quotes.parquet" in error for error in result.errors)
+
+
+def test_source_row_count_is_not_used_as_quote_row_count(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+    )
+
+    assert result.summary["source_row_count_profile"] == [999, 999, 999]
+    assert result.summary["quote_count"] == 12
+    assert result.summary["quote_rows_per_snapshot"] == 4
+
+
+def test_streams_quote_records_from_parquet_batches(tmp_path: Path) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+    result = read_replay_parquet_pair(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        session_id="session-1",
+        load_quotes=False,
+    )
+
+    quotes = list(
+        iter_replay_quote_records(
+            quotes_path=quotes_path,
+            snapshot_id_map=result.snapshot_id_map,
+            session_id="session-1",
+            expiry="2026-04-24",
+        )
+    )
+
+    assert result.quotes == []
+    assert len(quotes) == 12
+    assert quotes[-1].quote_valid is False
