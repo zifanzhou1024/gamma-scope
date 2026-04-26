@@ -1,7 +1,9 @@
+import json
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
+from gammascope_api.replay.archive import archive_replay_files, describe_source_file, sha256_file
 from gammascope_api.replay.config import replay_archive_dir, replay_import_max_bytes
 from gammascope_api.replay.parquet_reader import iter_replay_quote_records, read_replay_parquet_pair
 
@@ -25,6 +27,71 @@ def test_default_import_max_bytes_is_100_mb(monkeypatch) -> None:
     monkeypatch.delenv("GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES", raising=False)
 
     assert replay_import_max_bytes() == 100 * 1024 * 1024
+
+
+def test_sha256_file_returns_stable_hash(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.parquet"
+    source_path.write_bytes(b"stable parquet bytes")
+
+    assert sha256_file(source_path) == sha256_file(source_path)
+    assert sha256_file(source_path) == "c1cf4ba56a3c698d08df42b7d59dd1814cccb7a6657003b34bb8b1103b737d52"
+
+
+def test_describe_source_file_returns_name_size_and_sha256(tmp_path: Path) -> None:
+    source_path = tmp_path / "snapshots-upload.parquet"
+    source_path.write_bytes(b"snapshot bytes")
+
+    source_info = describe_source_file(source_path)
+
+    assert source_info.filename == "snapshots-upload.parquet"
+    assert source_info.size == len(b"snapshot bytes")
+    assert source_info.sha256 == sha256_file(source_path)
+
+
+def test_archive_replay_files_copies_inputs_and_writes_manifest(tmp_path: Path) -> None:
+    snapshots_path = tmp_path / "snapshots-upload.parquet"
+    quotes_path = tmp_path / "quotes-upload.parquet"
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    archive_dir = tmp_path / "archive"
+
+    archive = archive_replay_files(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        archive_dir=archive_dir,
+        import_id="import-123",
+    )
+
+    archived_snapshots = archive_dir / "import-123" / "snapshots.parquet"
+    archived_quotes = archive_dir / "import-123" / "quotes.parquet"
+    assert archive.import_id == "import-123"
+    assert archive.snapshots_path == archived_snapshots
+    assert archive.quotes_path == archived_quotes
+    assert archived_snapshots.read_bytes() == b"snapshot bytes"
+    assert archived_quotes.read_bytes() == b"quote bytes"
+    assert snapshots_path.read_bytes() == b"snapshot bytes"
+    assert quotes_path.read_bytes() == b"quote bytes"
+    assert archive.snapshots_size == len(b"snapshot bytes")
+    assert archive.quotes_size == len(b"quote bytes")
+    assert archive.snapshots_sha256 == sha256_file(snapshots_path)
+    assert archive.quotes_sha256 == sha256_file(quotes_path)
+
+    manifest = json.loads((archive_dir / "import-123" / "manifest.json").read_text())
+    assert manifest == {
+        "import_id": "import-123",
+        "snapshots": {
+            "source_filename": "snapshots-upload.parquet",
+            "size": len(b"snapshot bytes"),
+            "sha256": sha256_file(snapshots_path),
+            "archive_path": str(archived_snapshots),
+        },
+        "quotes": {
+            "source_filename": "quotes-upload.parquet",
+            "size": len(b"quote bytes"),
+            "sha256": sha256_file(quotes_path),
+            "archive_path": str(archived_quotes),
+        },
+    }
 
 
 def test_reads_tiny_replay_parquet_pair_and_normalizes_records(tmp_path: Path) -> None:
