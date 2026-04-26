@@ -10,14 +10,14 @@ function noStoreJson(payload: unknown, init?: ResponseInit) {
   return response;
 }
 
-function secureCookie(request?: Request): boolean {
+function secureCookie(request: Request): boolean {
   const hostedEnv = process.env.VERCEL || process.env.RENDER || process.env.FLY_APP_NAME;
-  return (request ? new URL(request.url).protocol === "https:" : false)
+  return new URL(request.url).protocol === "https:"
     || process.env.NODE_ENV === "production"
     || Boolean(hostedEnv);
 }
 
-function clearedSessionCookie(request?: Request): string {
+function clearedSessionCookie(request: Request): string {
   const attributes = [
     `${ADMIN_COOKIE_NAME}=`,
     "Max-Age=0",
@@ -33,7 +33,7 @@ function clearedSessionCookie(request?: Request): string {
   return attributes.join("; ");
 }
 
-export async function POST(request?: Request) {
+export async function POST(request: Request) {
   const response = noStoreJson({ authenticated: false });
   response.headers.set("Set-Cookie", clearedSessionCookie(request));
 

@@ -519,7 +519,7 @@ describe("admin session routes", () => {
     const { ADMIN_COOKIE_NAME } = await import("../lib/adminSession");
     const { POST } = await import("../app/api/admin/logout/route");
 
-    const response = await POST();
+    const response = await POST(new Request("http://localhost/api/admin/logout", { method: "POST" }));
 
     expect(response.status).toBe(200);
     await expect(readJson(response)).resolves.toEqual({ authenticated: false });

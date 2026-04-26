@@ -5,7 +5,7 @@ const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const REPLAY_SESSIONS_PATH = "/api/spx/0dte/replay/sessions";
 
 interface ReplayTimestampsRouteContext {
-  params: { sessionId: string } | Promise<{ sessionId: string }>;
+  params: Promise<{ sessionId: string }>;
 }
 
 function replayTimestampsUrl(apiBaseUrl: string, sessionId: string): string {

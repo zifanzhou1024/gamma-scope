@@ -207,7 +207,7 @@ describe("GET /api/spx/0dte/replay/sessions/[sessionId]/timestamps", () => {
     const { GET } = await import("../app/api/spx/0dte/replay/sessions/[sessionId]/timestamps/route");
     const response = await GET(
       new Request("http://localhost/api/spx/0dte/replay/sessions/import%20session%2F1/timestamps"),
-      { params: { sessionId: "import session/1" } }
+      { params: Promise.resolve({ sessionId: "import session/1" }) }
     );
 
     await expect(response.json()).resolves.toEqual(timestampResponse);
@@ -229,7 +229,7 @@ describe("GET /api/spx/0dte/replay/sessions/[sessionId]/timestamps", () => {
     const { GET } = await import("../app/api/spx/0dte/replay/sessions/[sessionId]/timestamps/route");
     const response = await GET(
       new Request("http://localhost/api/spx/0dte/replay/sessions/import-session/timestamps"),
-      { params: { sessionId: "import-session" } }
+      { params: Promise.resolve({ sessionId: "import-session" }) }
     );
 
     expect(response.status).toBe(502);
@@ -251,7 +251,7 @@ describe("GET /api/spx/0dte/replay/sessions/[sessionId]/timestamps", () => {
     const { GET } = await import("../app/api/spx/0dte/replay/sessions/[sessionId]/timestamps/route");
     const response = await GET(
       new Request("http://localhost/api/spx/0dte/replay/sessions/import-session/timestamps"),
-      { params: { sessionId: "import-session" } }
+      { params: Promise.resolve({ sessionId: "import-session" }) }
     );
 
     expect(response.status).toBe(502);
@@ -267,7 +267,7 @@ describe("GET /api/spx/0dte/replay/sessions/[sessionId]/timestamps", () => {
     const { GET } = await import("../app/api/spx/0dte/replay/sessions/[sessionId]/timestamps/route");
     const response = await GET(
       new Request("http://localhost/api/spx/0dte/replay/sessions/import-session/timestamps"),
-      { params: { sessionId: "import-session" } }
+      { params: Promise.resolve({ sessionId: "import-session" }) }
     );
 
     expect(response.status).toBe(502);
