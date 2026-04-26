@@ -5,10 +5,12 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request as StarletteRequest
 
 from gammascope_api.main import app
 from gammascope_api.replay.dependencies import get_replay_parquet_importer
 from gammascope_api.replay.importer import ImportResult
+from gammascope_api.routes import replay_imports
 
 from replay_parquet_fixtures import write_replay_parquet_pair
 
@@ -52,6 +54,23 @@ def test_upload_rejects_wrong_admin_token(
         headers={"X-GammaScope-Admin-Token": "wrong"},
         files=_upload_files(tmp_path),
     )
+
+    assert response.status_code == 403
+    assert importer_override.create_calls == []
+
+
+def test_upload_authenticates_before_parsing_multipart(
+    importer_override: "_FakeImporter",
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_if_form_is_parsed(self: StarletteRequest, *_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("multipart form parsed before admin authentication")
+
+    monkeypatch.setattr(StarletteRequest, "form", fail_if_form_is_parsed)
+    guarded_client = TestClient(app, raise_server_exceptions=False)
+
+    response = guarded_client.post("/api/replay/imports", files=_upload_files(tmp_path))
 
     assert response.status_code == 403
     assert importer_override.create_calls == []
@@ -168,6 +187,28 @@ def test_upload_rejects_oversize_file_before_import_record(
 
     assert response.status_code == 413
     assert importer_override.create_calls == []
+
+
+def test_upload_rejects_oversize_file_without_leaking_temp_directory(
+    client: TestClient,
+    importer_override: "_FakeImporter",
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    temp_root = tmp_path / "temp-root"
+    temp_root.mkdir()
+    monkeypatch.setenv("GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES", "8")
+    monkeypatch.setattr(replay_imports.tempfile, "tempdir", str(temp_root))
+
+    response = client.post(
+        "/api/replay/imports",
+        headers=_admin_headers(),
+        files=_upload_files(tmp_path),
+    )
+
+    assert response.status_code == 413
+    assert importer_override.create_calls == []
+    assert list(temp_root.glob("gammascope-replay-import-*")) == []
 
 
 def test_successful_upload_returns_import_result_shape(

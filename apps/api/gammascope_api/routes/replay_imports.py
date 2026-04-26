@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -28,18 +28,16 @@ router = APIRouter()
 @router.post("/api/replay/imports")
 async def create_replay_import(
     request: Request,
-    snapshots: Annotated[UploadFile, File()],
-    quotes: Annotated[UploadFile, File()],
     importer: Annotated[ReplayParquetImporter, Depends(get_replay_parquet_importer)],
     x_gammascope_admin_token: str | None = Header(default=None),
 ) -> dict[str, Any]:
     require_admin_token(x_gammascope_admin_token)
-    await _validate_file_fields(request)
+    max_bytes = replay_import_max_bytes()
+    snapshots, quotes = await _validate_file_fields(request, max_bytes=max_bytes)
     _validate_filenames(snapshots=snapshots, quotes=quotes)
 
     saved_paths: list[Path] = []
     try:
-        max_bytes = replay_import_max_bytes()
         snapshots_path, snapshots_sha256, _snapshots_size = await _save_upload_to_temp(
             snapshots,
             max_bytes=max_bytes,
@@ -118,8 +116,12 @@ async def replay_import_validation_exception_handler(
 
 async def _save_upload_to_temp(upload: UploadFile, *, max_bytes: int) -> tuple[Path, str, int]:
     path = temporary_upload_path(upload.filename)
-    size = await copy_upload_with_limit(upload, path=path, max_bytes=max_bytes)
-    return path, sha256_file(path), size
+    try:
+        size = await copy_upload_with_limit(upload, path=path, max_bytes=max_bytes)
+        return path, sha256_file(path), size
+    except Exception:
+        shutil.rmtree(path.parent, ignore_errors=True)
+        raise
 
 
 def temporary_upload_path(filename: str | None) -> Path:
@@ -145,9 +147,14 @@ async def copy_upload_with_limit(upload: UploadFile, *, path: Path, max_bytes: i
     return size
 
 
-async def _validate_file_fields(request: Request) -> None:
-    form = await request.form()
+async def _validate_file_fields(request: Request, *, max_bytes: int) -> tuple[UploadFile, UploadFile]:
+    form = await request.form(
+        max_files=len(REQUIRED_FILENAMES),
+        max_fields=0,
+        max_part_size=max_bytes,
+    )
     fields = list(form.multi_items())
+    uploads: dict[str, UploadFile] = {}
     seen_file_fields: set[str] = set()
     if len(fields) != len(REQUIRED_FILENAMES):
         raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
@@ -159,8 +166,10 @@ async def _validate_file_fields(request: Request) -> None:
         ):
             raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
         seen_file_fields.add(key)
+        uploads[key] = value
     if seen_file_fields != set(REQUIRED_FILENAMES):
         raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
+    return uploads["snapshots"], uploads["quotes"]
 
 
 def _validate_filenames(*, snapshots: UploadFile, quotes: UploadFile) -> None:
