@@ -197,6 +197,10 @@ For a local-only replay baseline import, copy the parquet pair into the ignored 
     cp "$BASELINE_SOURCE_DIR/quotes.parquet" .gammascope/replay-baselines/2026-04-22/quotes.parquet
     PYTHONPATH=apps/api .venv/bin/python -m gammascope_api.replay.baseline
 
+To validate the local files without publishing them, run the optional smoke test:
+
+    PYTHONPATH=apps/api .venv/bin/pytest apps/api/tests/test_replay_import_real_files.py -q
+
 The `.gammascope/` directory is ignored by git and must stay local. Do not commit real replay baseline parquet files.
 
 For local maintenance testing, run a default-safe dry run of persisted replay and saved-view retention cleanup:
