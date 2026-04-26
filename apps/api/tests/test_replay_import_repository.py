@@ -371,7 +371,7 @@ def test_importer_valid_tiny_upload_returns_awaiting_confirmation(
     assert result.status == "awaiting_confirmation"
     assert result.import_id.startswith("import-")
     assert result.session_id is not None
-    assert result.session_id.startswith("replay-spx-0dte-2026-04-24-20260424-143000-")
+    assert result.session_id.startswith("replay-spx-0dte-2026-04-24-2026-04-24-20260424-143000-")
     assert result.replay_url is None
     assert result.errors == []
     assert result.warnings == ["1 invalid quote rows found"]
@@ -387,6 +387,24 @@ def test_importer_valid_tiny_upload_returns_awaiting_confirmation(
     assert record.session_id == result.session_id
     assert Path(record.snapshots_archive_path).exists()
     assert Path(record.quotes_archive_path).exists()
+
+
+def test_importer_stable_session_id_includes_expiry_in_readable_identity(tmp_path: Path) -> None:
+    importer = ReplayParquetImporter(repository=None, archive_dir=tmp_path)  # type: ignore[arg-type]
+
+    session_id = importer._stable_session_id(
+        {
+            "symbol": "SPX",
+            "scope": "0DTE",
+            "trade_date": "2026-04-24",
+            "expiry": "2026-05-01",
+            "start_time": "2026-04-24T14:30:00Z",
+            "snapshots_sha256": "snap-sha",
+            "quotes_sha256": "quote-sha",
+        }
+    )
+
+    assert session_id.startswith("replay-spx-0dte-2026-04-24-2026-05-01-20260424-143000-")
 
 
 def test_importer_corrupt_parquet_fails_after_creating_import_record(

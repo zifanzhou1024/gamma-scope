@@ -255,7 +255,7 @@ class ReplayParquetImporter:
         ).hexdigest()[:10]
         return (
             f"replay-{summary['symbol'].lower()}-{summary['scope'].lower()}-"
-            f"{summary['trade_date']}-{start_timestamp}-{checksum_prefix}"
+            f"{summary['trade_date']}-{summary['expiry']}-{start_timestamp}-{checksum_prefix}"
         )
 
     def _result_from_record(self, import_record: ImportRecord) -> ImportResult:
