@@ -223,6 +223,29 @@ describe("LiveDashboard scenario panel", () => {
     });
   });
 
+  it("creates exact single-frame load requests with the selected source snapshot id", () => {
+    expect(LiveDashboardModule.createReplayLoadRequest("import-session", {
+      index: 1,
+      snapshot_time: "2026-04-24T15:30:00.000Z",
+      source_snapshot_id: "snapshot-a"
+    })).toEqual({
+      session_id: "import-session",
+      at: "2026-04-24T15:30:00.000Z",
+      source_snapshot_id: "snapshot-a"
+    });
+  });
+
+  it("creates replay stream requests from exact selections without narrowing to one source snapshot", () => {
+    expect(LiveDashboardModule.createReplayStreamRequest("import-session", {
+      index: 1,
+      snapshot_time: "2026-04-24T15:30:00.000Z",
+      source_snapshot_id: "snapshot-a"
+    })).toEqual({
+      sessionId: "import-session",
+      at: "2026-04-24T15:30:00.000Z"
+    });
+  });
+
   it("loads exact timestamp entries only for exact replay sessions", () => {
     expect(LiveDashboardModule.shouldLoadExactReplayTimestamps(replaySession({
       session_id: "import-session",
@@ -269,6 +292,28 @@ describe("LiveDashboard scenario panel", () => {
         source_snapshot_id: "snapshot-b"
       }
     ]);
+  });
+
+  it("does not fall back to estimated timeline entries for exact sessions without exact timestamps", () => {
+    expect(LiveDashboardModule.createDashboardReplayTimelineEntries(replaySession({
+      session_id: "import-session",
+      timestamp_source: "exact",
+      start_time: "2026-04-24T14:30:00Z",
+      end_time: "2026-04-24T14:40:00Z",
+      snapshot_count: 3
+    }), null)).toEqual([]);
+
+    expect(LiveDashboardModule.createDashboardReplayTimelineEntries(replaySession({
+      session_id: "import-session",
+      timestamp_source: "exact",
+      start_time: "2026-04-24T14:30:00Z",
+      end_time: "2026-04-24T14:40:00Z",
+      snapshot_count: 3
+    }), {
+      session_id: "import-session",
+      timestamp_source: "exact",
+      timestamps: []
+    })).toEqual([]);
   });
 
   it("uses estimated fallback entries when exact timestamps are unavailable", () => {

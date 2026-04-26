@@ -41,6 +41,7 @@ export function ReplayPanel({
   onReturnToLive
 }: ReplayPanelProps) {
   const statusMessage = errorMessage ?? (!isLoadingSessions && !hasSessions ? "No replay sessions available." : null);
+  const hasTimelineEntries = timelineEntries.length > 0;
   const maxSnapshotIndex = Math.max(timelineEntries.length - 1, 0);
   const isScrubberDisabled = isLoadingSessions || isLoadingReplay || isReplayStreamActive || timelineEntries.length <= 1;
   const selectedPosition = timelineEntries.length > 0 ? selectedSnapshotIndex + 1 : 0;
@@ -121,12 +122,16 @@ export function ReplayPanel({
           <button
             type="button"
             onClick={onPlayReplayStream}
-            disabled={isLoadingReplay || isLoadingSessions || !hasSessions}
+            disabled={isLoadingReplay || isLoadingSessions || !hasSessions || !hasTimelineEntries}
           >
             Play replay
           </button>
         )}
-        <button type="button" onClick={onLoadReplay} disabled={isLoadingReplay || isLoadingSessions || !hasSessions}>
+        <button
+          type="button"
+          onClick={onLoadReplay}
+          disabled={isLoadingReplay || isLoadingSessions || !hasSessions || !hasTimelineEntries}
+        >
           {isLoadingReplay ? "Loading replay" : "Load replay"}
         </button>
         {isReplayModeActive ? (

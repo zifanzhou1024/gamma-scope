@@ -166,4 +166,40 @@ describe("ReplayPanel", () => {
     expect(markup).toContain("2 / 2");
     expect(markup).toContain("value=\"1\"");
   });
+
+  it("disables replay actions when a session has no available timeline entries", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="import-session"
+        sessions={[{
+          session_id: "import-session",
+          symbol: "SPX",
+          expiry: "2026-04-27",
+          start_time: "2026-04-27T14:30:00Z",
+          end_time: "2026-04-27T14:30:00Z",
+          snapshot_count: 2,
+          timestamp_source: "exact"
+        }]}
+        hasSessions
+        timelineEntries={[]}
+        selectedSnapshotIndex={0}
+        selectedTimelineEntry={null}
+        isReplayModeActive={false}
+        isReplayStreamActive={false}
+        isLoadingSessions={false}
+        isLoadingReplay={false}
+        errorMessage="Exact replay timestamps unavailable."
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("Exact replay timestamps unavailable.");
+    expect(markup).toContain('<button type="button" disabled="">Play replay</button>');
+    expect(markup).toContain('<button type="button" disabled="">Load replay</button>');
+  });
 });
