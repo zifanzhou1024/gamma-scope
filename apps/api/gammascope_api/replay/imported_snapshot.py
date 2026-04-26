@@ -7,8 +7,6 @@ from gammascope_api.analytics.black_scholes import calculate_row_analytics, mid_
 from gammascope_api.replay.import_repository import ImportedSnapshotData, ImportedSnapshotHeader
 from gammascope_api.replay.parquet_reader import QuoteRecord
 
-MIN_TAU_YEARS = 1 / (365 * 24 * 60 * 60)
-
 
 def build_imported_analytics_snapshot(snapshot: ImportedSnapshotData) -> dict[str, Any]:
     tau = time_to_expiry_years(snapshot.header.t_minutes)
@@ -52,18 +50,34 @@ def build_imported_analytics_row(header: ImportedSnapshotHeader, quote: QuoteRec
         tau=tau,
     )
     mid, _ = mid_price(quote.bid, quote.ask)
-    result = calculate_row_analytics(
-        right=quote.right,
-        spot=spot,
-        strike=quote.strike,
-        tau=tau,
-        rate=header.risk_free_rate,
-        dividend_yield=dividend_yield,
-        bid=quote.bid,
-        ask=quote.ask,
-        ibkr_iv=quote.ibkr_iv,
-        ibkr_gamma=None,
-    )
+    if quote.quote_valid:
+        result = calculate_row_analytics(
+            right=quote.right,
+            spot=spot,
+            strike=quote.strike,
+            tau=tau,
+            rate=header.risk_free_rate,
+            dividend_yield=dividend_yield,
+            bid=quote.bid,
+            ask=quote.ask,
+            ibkr_iv=quote.ibkr_iv,
+            ibkr_gamma=None,
+        )
+        custom_iv = result.custom_iv
+        custom_gamma = result.custom_gamma
+        custom_vanna = result.custom_vanna
+        iv_diff = result.iv_diff
+        gamma_diff = result.gamma_diff
+        calc_status = result.calc_status
+        comparison_status = result.comparison_status
+    else:
+        custom_iv = None
+        custom_gamma = None
+        custom_vanna = None
+        iv_diff = None
+        gamma_diff = None
+        calc_status = "invalid_quote"
+        comparison_status = "ok" if quote.ibkr_iv is not None else "missing"
 
     return {
         "contract_id": quote.contract_id,
@@ -73,16 +87,16 @@ def build_imported_analytics_row(header: ImportedSnapshotHeader, quote: QuoteRec
         "ask": quote.ask,
         "mid": mid,
         "open_interest": quote.open_interest,
-        "custom_iv": result.custom_iv,
-        "custom_gamma": result.custom_gamma,
-        "custom_vanna": result.custom_vanna,
+        "custom_iv": custom_iv,
+        "custom_gamma": custom_gamma,
+        "custom_vanna": custom_vanna,
         "ibkr_iv": quote.ibkr_iv,
         "ibkr_gamma": None,
         "ibkr_vanna": None,
-        "iv_diff": result.iv_diff,
-        "gamma_diff": result.gamma_diff,
-        "calc_status": result.calc_status,
-        "comparison_status": result.comparison_status,
+        "iv_diff": iv_diff,
+        "gamma_diff": gamma_diff,
+        "calc_status": calc_status,
+        "comparison_status": comparison_status,
     }
 
 

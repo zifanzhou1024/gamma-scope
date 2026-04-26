@@ -125,6 +125,33 @@ def test_build_imported_analytics_snapshot_marks_missing_quotes_visible() -> Non
     assert payload["rows"][0]["comparison_status"] == "missing"
 
 
+def test_build_imported_analytics_snapshot_marks_source_invalid_quotes_visible() -> None:
+    payload = build_imported_analytics_snapshot(
+        _snapshot(
+            quotes=[
+                _quote(contract_id="SPX-20240216-C-102", right="call", strike=102.0, bid=0.30, ask=0.44),
+                _quote(
+                    contract_id="SPX-20240216-P-101",
+                    right="put",
+                    strike=101.0,
+                    bid=0.28,
+                    ask=0.40,
+                    quote_valid=False,
+                ),
+            ]
+        )
+    )
+
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["coverage_status"] == "partial"
+    invalid_row = payload["rows"][1]
+    assert invalid_row["mid"] == 0.34
+    assert invalid_row["calc_status"] == "invalid_quote"
+    assert invalid_row["custom_iv"] is None
+    assert invalid_row["custom_gamma"] is None
+    assert invalid_row["custom_vanna"] is None
+
+
 def _snapshot(
     *,
     quotes: list[QuoteRecord],
