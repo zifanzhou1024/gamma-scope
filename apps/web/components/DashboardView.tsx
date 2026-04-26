@@ -1,0 +1,386 @@
+"use client";
+
+import React, { useState } from "react";
+import type { CSSProperties } from "react";
+import { DashboardChart } from "./DashboardChart";
+import type { AnalyticsSnapshot } from "../lib/contracts";
+import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
+import {
+  type ChainSide,
+  type LiveTransportStatus,
+  deriveOperationalNotices,
+  filterChainRowsBySide,
+  formatGammaDiff,
+  formatInteger,
+  formatIvDiffBasisPoints,
+  formatNumber,
+  formatPercent,
+  formatPrice,
+  formatSnapshotTime,
+  formatStatusLabel,
+  formatStrikeRange,
+  getRowOperationalStatusDisplays,
+  getTransportStatusDisplay,
+  getComparisonStatusDisplay,
+  groupRowsByStrike,
+  nearestStrike,
+  sortRowsByStrike,
+  summarizeSnapshot
+} from "../lib/dashboardMetrics";
+
+interface DashboardViewProps {
+  snapshot: AnalyticsSnapshot;
+  collectorHealth?: CollectorHealth | null;
+  transportStatus?: LiveTransportStatus | null;
+  initialChainSide?: ChainSide;
+  replayPanel?: React.ReactNode;
+  savedViewsPanel?: React.ReactNode;
+  scenarioPanel?: React.ReactNode;
+}
+
+const chainFilterOptions: Array<{ side: ChainSide; label: string }> = [
+  { side: "all", label: "All" },
+  { side: "calls", label: "Calls" },
+  { side: "puts", label: "Puts" }
+];
+
+export function DashboardView({
+  snapshot,
+  collectorHealth,
+  transportStatus,
+  initialChainSide = "all",
+  replayPanel,
+  savedViewsPanel,
+  scenarioPanel
+}: DashboardViewProps) {
+  const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
+  const summary = summarizeSnapshot(snapshot);
+  const rows = sortRowsByStrike(snapshot.rows);
+  const chainRows = groupRowsByStrike(rows);
+  const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
+  const showCalls = chainSide === "all" || chainSide === "calls";
+  const showPuts = chainSide === "all" || chainSide === "puts";
+  const atmStrike = nearestStrike(snapshot);
+  const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
+  const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
+  const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
+  const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
+
+  return (
+    <main className="dashboardShell">
+      <header className="topBar">
+        <div className="brandLockup">
+          <div className="scopeMark" aria-hidden="true" />
+          <div>
+            <h1>GammaScope</h1>
+            <p>SPX 0DTE analytics</p>
+          </div>
+        </div>
+        <div className="statusRail" aria-label="Session status">
+          <span>{formatStatusLabel(snapshot.mode)}</span>
+          <span>{formatStatusLabel(snapshot.source_status)}</span>
+          <span>{snapshot.freshness_ms} ms</span>
+          {transportDisplay ? (
+            <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
+              Transport {transportDisplay.label}
+            </span>
+          ) : null}
+          {collectorHealth ? (
+            <>
+              <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
+                Collector {formatStatusLabel(collectorHealth.status)}
+              </span>
+              <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
+              <span className="collectorMessage" title={collectorHealth.message}>
+                {collectorHealth.message}
+              </span>
+            </>
+          ) : null}
+        </div>
+      </header>
+
+      <section className="sessionBand" aria-label="Current replay session">
+        <div>
+          <span className="eyebrow">Session</span>
+          <strong>{snapshot.session_id}</strong>
+        </div>
+        <div>
+          <span className="eyebrow">Snapshot</span>
+          <strong>{formatSnapshotTime(snapshot.snapshot_time)}</strong>
+        </div>
+        <div>
+          <span className="eyebrow">Coverage</span>
+          <strong>{formatStatusLabel(snapshot.coverage_status)}</strong>
+        </div>
+        <div>
+          <span className="eyebrow">Expiry</span>
+          <strong>{snapshot.expiry}</strong>
+        </div>
+      </section>
+
+      {operationalNotices.length > 0 ? (
+        <section className="operationalNotices" aria-label="Operational notices">
+          {operationalNotices.map((notice) => (
+            <div key={notice.key} className={`operationalNotice operationalNotice-${notice.tone}`}>
+              <strong>{notice.label}</strong>
+              <span>{notice.message}</span>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {replayPanel || savedViewsPanel || scenarioPanel ? (
+        <section className="dashboardControls" aria-label="Dashboard controls">
+          {replayPanel}
+          {savedViewsPanel}
+          {scenarioPanel}
+        </section>
+      ) : null}
+
+      <section className="kpiGrid" aria-label="Selected metrics">
+        <Metric label="SPX spot" value={formatPrice(snapshot.spot)} />
+        <Metric label="Forward" value={formatPrice(snapshot.forward)} />
+        <Metric label="Strike range" value={formatStrikeRange(summary.strikeRange)} />
+        <Metric label="Average IV" value={formatPercent(summary.averageIv)} />
+        <Metric label="Abs gamma" value={formatNumber(summary.totalAbsGamma, 4)} />
+        <Metric label="Abs vanna" value={formatNumber(summary.totalAbsVanna, 4)} />
+      </section>
+
+      <section className="chartGrid" aria-label="Analytics charts">
+        <DashboardChart rows={rows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />
+        <DashboardChart rows={rows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
+        <DashboardChart rows={rows} title="Vanna by strike" metricKey="custom_vanna" tone="teal" valueKind="decimal" />
+      </section>
+
+      <section className="chainSection" aria-label="Option chain">
+        <div className="chainToolbar">
+          <div className="chainTitle">
+            <h2>Option chain</h2>
+            <p>Gamma heat and OI are mirrored around the strike spine.</p>
+          </div>
+          <div className="chainFilters" aria-label="Chain filters">
+            {chainFilterOptions.map((option) => (
+              <button
+                key={option.side}
+                type="button"
+                className={`filterChip${chainSide === option.side ? " filter-active" : ""}`}
+                aria-pressed={chainSide === option.side}
+                onClick={() => setChainSide(option.side)}
+              >
+                <span aria-hidden="true" />
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="chainLegend" aria-label="Chain legend">
+            <span><i className="atmDot" />ATM</span>
+            <span><i className="gammaDot" />Gamma heat</span>
+            <strong>{chainRows.length} strikes</strong>
+          </div>
+        </div>
+        <div className="chainTableWrap">
+          <table className={`chainTable chainTable-${chainSide}`}>
+            <thead>
+              <tr>
+                {showCalls ? (
+                  <>
+                    <th className="callCol compactOptional">Call bid</th>
+                    <th className="callCol compactOptional">Call ask</th>
+                    <th className="callCol">Call mid</th>
+                    <th className="callCol smallOptional">Call IV</th>
+                    <th className="callCol">Call Γ</th>
+                    <th className="callCol">Call OI</th>
+                  </>
+                ) : null}
+                <th className="strikeCol">Strike</th>
+                {showPuts ? (
+                  <>
+                    <th className="putCol compactOptional">Put bid</th>
+                    <th className="putCol compactOptional">Put ask</th>
+                    <th className="putCol">Put mid</th>
+                    <th className="putCol smallOptional">Put IV</th>
+                    <th className="putCol">Put Γ</th>
+                    <th className="putCol">Put OI</th>
+                  </>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleChainRows.map((row) => (
+                <tr key={row.strike} className={row.strike === atmStrike ? "atmRow" : undefined}>
+                  {showCalls ? (
+                    <>
+                      <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
+                      <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
+                      <td>{formatPrice(row.call?.mid)}</td>
+                      <IvCell row={row.call} />
+                      <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
+                      <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
+                    </>
+                  ) : null}
+                  <td className="strikeCol">
+                    <strong>{formatPrice(row.strike)}</strong>
+                    <span>{formatStrikeDistance(row.strike, snapshot.spot, atmStrike)}</span>
+                  </td>
+                  {showPuts ? (
+                    <>
+                      <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
+                      <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
+                      <td>{formatPrice(row.put?.mid)}</td>
+                      <IvCell row={row.put} />
+                      <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
+                      <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
+                    </>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {
+  if (accountMode === "unknown") {
+    return "Unknown";
+  }
+
+  return formatStatusLabel(accountMode);
+}
+
+function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {
+  return (
+    <td className="smallOptional comparisonCell">
+      <span className="cellMain">{formatPercent(row?.custom_iv)}</span>
+      <OperationalLine row={row} />
+      <ComparisonLine
+        row={row}
+        hasComparisonValue={row?.ibkr_iv != null || row?.iv_diff != null}
+        ibkrValue={formatPercent(row?.ibkr_iv)}
+        diffValue={formatIvDiffBasisPoints(row?.iv_diff)}
+      />
+    </td>
+  );
+}
+
+function OperationalLine({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {
+  const statuses = getRowOperationalStatusDisplays(row);
+
+  if (statuses.length === 0) {
+    return null;
+  }
+
+  return (
+    <span className="operationalLine">
+      {statuses.map((status) => (
+        <span key={status.label} className={`operationalPill operationalPill-${status.tone}`}>
+          {status.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function RiskCell({
+  row,
+  maxGamma,
+  side
+}: {
+  row: AnalyticsSnapshot["rows"][number] | null | undefined;
+  maxGamma: number;
+  side: "call" | "put";
+}) {
+  const gamma = row?.custom_gamma ?? null;
+  const intensity = gamma == null || maxGamma === 0 ? 0 : Math.min(1, Math.abs(gamma) / maxGamma);
+  const style = {
+    "--heat": intensity.toFixed(3),
+    "--heat-opacity": (0.14 + intensity * 0.55).toFixed(3)
+  } as CSSProperties;
+
+  return (
+    <td className={`riskCell comparisonCell ${side}Risk`} style={style}>
+      <span className="heatFill" aria-hidden="true" />
+      <span className="cellMain">{formatNumber(gamma, 5)}</span>
+      <ComparisonLine
+        row={row}
+        hasComparisonValue={row?.ibkr_gamma != null || row?.gamma_diff != null}
+        ibkrValue={formatNumber(row?.ibkr_gamma, 5)}
+        diffValue={formatGammaDiff(row?.gamma_diff)}
+      />
+    </td>
+  );
+}
+
+function ComparisonLine({
+  row,
+  hasComparisonValue,
+  ibkrValue,
+  diffValue
+}: {
+  row: AnalyticsSnapshot["rows"][number] | null | undefined;
+  hasComparisonValue: boolean;
+  ibkrValue: string;
+  diffValue: string;
+}) {
+  if (row == null) {
+    return null;
+  }
+
+  const status = getComparisonStatusDisplay(row.comparison_status);
+
+  if (status.tone !== "ok" || !hasComparisonValue) {
+    return (
+      <span className="comparisonLine">
+        <span className={`comparisonPill comparison-${status.tone}`}>{status.label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="comparisonLine">
+      {ibkrValue !== "—" ? <span className="comparisonIbkr">IBKR {ibkrValue}</span> : null}
+      {diffValue !== "—" ? <span className="comparisonPill comparison-ok">{diffValue}</span> : null}
+    </span>
+  );
+}
+
+function InterestCell({
+  value,
+  maxOpenInterest,
+  side
+}: {
+  value: number | null | undefined;
+  maxOpenInterest: number;
+  side: "call" | "put";
+}) {
+  const intensity = value == null || maxOpenInterest === 0 ? 0 : Math.min(1, value / maxOpenInterest);
+  const style = {
+    "--oi": intensity.toFixed(3)
+  } as CSSProperties;
+
+  return (
+    <td className={`oiCell ${side}Interest`} style={style}>
+      <span className="oiBar" aria-hidden="true" />
+      <span>{formatInteger(value)}</span>
+    </td>
+  );
+}
+
+function formatStrikeDistance(strike: number, spot: number, atmStrike: number | null): string {
+  if (strike === atmStrike) {
+    return "ATM";
+  }
+  const distance = strike - spot;
+  return `${distance > 0 ? "+" : ""}${Math.round(distance)} pts`;
+}

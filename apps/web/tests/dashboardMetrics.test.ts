@@ -1,0 +1,261 @@
+import { describe, expect, it } from "vitest";
+import {
+  filterChainRowsBySide,
+  formatBasisPointDiff,
+  formatGammaDiff,
+  formatIvDiffBasisPoints,
+  formatNumber,
+  formatPercent,
+  formatInteger,
+  formatSnapshotTime,
+  formatStatusLabel,
+  deriveOperationalNotices,
+  getRowOperationalStatusDisplays,
+  getRowOperationalStatusDisplay,
+  getTransportStatusDisplay,
+  getComparisonStatusDisplay,
+  groupRowsByStrike,
+  nearestStrike,
+  summarizeSnapshot
+} from "../lib/dashboardMetrics";
+import { buildPath, buildSeries } from "../lib/chartGeometry";
+import { seedSnapshot } from "../lib/seedSnapshot";
+
+describe("dashboard metrics", () => {
+  it("summarizes the seeded analytics snapshot", () => {
+    const summary = summarizeSnapshot(seedSnapshot);
+
+    expect(summary.rowCount).toBe(34);
+    expect(summary.strikeRange).toEqual([5120, 5280]);
+    expect(summary.averageIv).toBeCloseTo(0.1907);
+    expect(summary.totalAbsGamma).toBeCloseTo(0.20565);
+    expect(summary.totalAbsVanna).toBeCloseTo(0.181896);
+  });
+
+  it("formats dashboard values consistently", () => {
+    expect(formatPercent(0.184)).toBe("18.40%");
+    expect(formatPercent(null)).toBe("—");
+    expect(formatNumber(0.012345, 4)).toBe("0.0123");
+    expect(formatNumber(null, 4)).toBe("—");
+    expect(formatBasisPointDiff(-0.002)).toBe("-20.0 bp");
+    expect(formatBasisPointDiff(null)).toBe("—");
+    expect(formatInteger(2614)).toBe("2,614");
+    expect(formatInteger(null)).toBe("—");
+    expect(formatStatusLabel("partial")).toBe("Partial");
+  });
+
+  it("formats IBKR comparison deltas compactly", () => {
+    expect(formatIvDiffBasisPoints(-0.0015)).toBe("-15.0 bp");
+    expect(formatIvDiffBasisPoints(0.001)).toBe("+10.0 bp");
+    expect(formatIvDiffBasisPoints(null)).toBe("—");
+    expect(formatIvDiffBasisPoints(undefined)).toBe("—");
+
+    expect(formatGammaDiff(0.000302)).toBe("+0.00030");
+    expect(formatGammaDiff(-0.000242)).toBe("-0.00024");
+    expect(formatGammaDiff(-0)).toBe("0.00000");
+    expect(formatGammaDiff(null)).toBe("—");
+    expect(formatGammaDiff(undefined)).toBe("—");
+  });
+
+  it("maps IBKR comparison statuses to compact labels and tones", () => {
+    expect(getComparisonStatusDisplay("ok")).toEqual({ label: "OK", tone: "ok" });
+    expect(getComparisonStatusDisplay("outside_tolerance")).toEqual({
+      label: "Outside tolerance",
+      tone: "warning"
+    });
+    expect(getComparisonStatusDisplay("missing")).toEqual({ label: "Missing", tone: "muted" });
+    expect(getComparisonStatusDisplay(null)).toEqual({ label: "No IBKR", tone: "muted" });
+    expect(getComparisonStatusDisplay(undefined)).toEqual({ label: "No IBKR", tone: "muted" });
+  });
+
+  it("maps live transport statuses to compact labels and tones", () => {
+    expect(getTransportStatusDisplay("connecting")).toEqual({ label: "Connecting", tone: "muted" });
+    expect(getTransportStatusDisplay("streaming")).toEqual({ label: "Streaming", tone: "ok" });
+    expect(getTransportStatusDisplay("disconnected")).toEqual({ label: "Disconnected", tone: "error" });
+    expect(getTransportStatusDisplay("fallback_polling")).toEqual({ label: "Fallback polling", tone: "warning" });
+    expect(getTransportStatusDisplay("reconnecting")).toEqual({ label: "Reconnecting", tone: "muted" });
+  });
+
+  it("derives an explicit disconnected transport notice", () => {
+    expect(deriveOperationalNotices({ ...seedSnapshot, coverage_status: "full" }, null, "disconnected")).toEqual([
+      {
+        key: "transport-disconnected",
+        label: "Disconnected",
+        message: "WebSocket stream disconnected.",
+        tone: "error"
+      }
+    ]);
+  });
+
+  it("derives deterministic operational notices for degraded live data", () => {
+    const degradedSnapshot = {
+      ...seedSnapshot,
+      source_status: "stale",
+      coverage_status: "partial",
+      rows: seedSnapshot.rows.map((row, index) => {
+        if (index === 0) {
+          return { ...row, bid: 12.1, ask: 11.9, calc_status: "missing_quote" as const };
+        }
+        if (index === 1) {
+          return { ...row, calc_status: "solver_failed" as const };
+        }
+        return row;
+      })
+    } satisfies typeof seedSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "Market data delayed",
+      event_time: "2026-04-24T15:00:00Z",
+      received_time: "2026-04-24T15:00:01Z"
+    } as const;
+
+    expect(deriveOperationalNotices(degradedSnapshot, collectorHealth, "fallback_polling")).toEqual([
+      {
+        key: "transport-fallback_polling",
+        label: "Fallback polling",
+        message: "WebSocket unavailable; polling is keeping the dashboard updated.",
+        tone: "warning"
+      },
+      {
+        key: "coverage-partial",
+        label: "Partial chain",
+        message: "Option chain coverage is partial.",
+        tone: "warning"
+      },
+      {
+        key: "source-stale",
+        label: "Source stale",
+        message: "Snapshot source is stale.",
+        tone: "warning"
+      },
+      {
+        key: "collector-degraded",
+        label: "Collector degraded",
+        message: "Market data delayed",
+        tone: "warning"
+      },
+      {
+        key: "quotes-crossed",
+        label: "Crossed quotes",
+        message: "1 option has bid above ask.",
+        tone: "warning"
+      },
+      {
+        key: "calc-issues",
+        label: "Calculation issues",
+        message: "Missing quote: 1; Solver failed: 1.",
+        tone: "error"
+      }
+    ]);
+  });
+
+  it("maps row operational statuses including crossed quotes", () => {
+    expect(getRowOperationalStatusDisplay(seedSnapshot.rows[0]!)).toEqual(null);
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, bid: 12.1, ask: 11.9 })).toEqual({
+      label: "Crossed quote",
+      tone: "warning"
+    });
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, calc_status: "out_of_model_scope" })).toEqual({
+      label: "Out of model scope",
+      tone: "muted"
+    });
+    expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, calc_status: "solver_failed" })).toEqual({
+      label: "Solver failed",
+      tone: "error"
+    });
+  });
+
+  it("keeps crossed quote and calculation issue visible for the same row", () => {
+    expect(
+      getRowOperationalStatusDisplays({
+        ...seedSnapshot.rows[0]!,
+        bid: 12.1,
+        ask: 11.9,
+        calc_status: "stale_underlying"
+      })
+    ).toEqual([
+      { label: "Crossed quote", tone: "warning" },
+      { label: "Stale underlying", tone: "warning" }
+    ]);
+  });
+
+  it("formats snapshot time in the SPX market timezone", () => {
+    expect(formatSnapshotTime("2026-04-23T16:00:00Z")).toBe("12:00:00 PM EDT");
+  });
+
+  it("groups call and put contracts into strike-centered chain rows", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+
+    expect(groupedRows).toHaveLength(17);
+    expect(groupedRows[0]?.strike).toBe(5120);
+    expect(groupedRows[8]?.strike).toBe(5200);
+    expect(groupedRows[8]?.call?.right).toBe("call");
+    expect(groupedRows[8]?.put?.right).toBe("put");
+  });
+
+  it("keeps all chain rows unchanged for the all-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+
+    expect(filterChainRowsBySide(groupedRows, "all")).toEqual(groupedRows);
+  });
+
+  it("keeps every strike and hides put data for the calls-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+    const filteredRows = filterChainRowsBySide(groupedRows, "calls");
+
+    expect(filteredRows).toHaveLength(groupedRows.length);
+    expect(filteredRows.map((row) => row.strike)).toEqual(groupedRows.map((row) => row.strike));
+    expect(filteredRows.every((row) => row.call?.right === "call")).toBe(true);
+    expect(filteredRows.every((row) => row.put === null)).toBe(true);
+  });
+
+  it("keeps every strike and hides call data for the puts-side filter", () => {
+    const groupedRows = groupRowsByStrike(seedSnapshot.rows);
+    const filteredRows = filterChainRowsBySide(groupedRows, "puts");
+
+    expect(filteredRows).toHaveLength(groupedRows.length);
+    expect(filteredRows.map((row) => row.strike)).toEqual(groupedRows.map((row) => row.strike));
+    expect(filteredRows.every((row) => row.call === null)).toBe(true);
+    expect(filteredRows.every((row) => row.put?.right === "put")).toBe(true);
+  });
+
+  it("identifies the strike nearest to spot", () => {
+    expect(nearestStrike(seedSnapshot)).toBe(5200);
+  });
+});
+
+describe("chart geometry", () => {
+  it("builds strike-sorted series and filters null values", () => {
+    const rows = [
+      { strike: 5210, custom_iv: 0.2 },
+      { strike: 5200, custom_iv: 0.18 },
+      { strike: 5220, custom_iv: null }
+    ];
+
+    expect(buildSeries(rows, "custom_iv")).toEqual([
+      { x: 5200, y: 0.18 },
+      { x: 5210, y: 0.2 }
+    ]);
+  });
+
+  it("builds an SVG path for a multi-point series", () => {
+    const path = buildPath(
+      [
+        { x: 5200, y: 0.18 },
+        { x: 5210, y: 0.2 }
+      ],
+      { width: 320, height: 160, padding: 20 }
+    );
+
+    expect(path).toMatch(/^M /);
+    expect(path).toContain(" L ");
+  });
+
+  it("returns an empty path for fewer than two points", () => {
+    expect(buildPath([{ x: 5200, y: 0.18 }], { width: 320, height: 160, padding: 20 })).toBe("");
+  });
+});

@@ -1,12 +1,7 @@
-import { seedSnapshot } from "../lib/seedSnapshot";
+import { LiveDashboard } from "../components/LiveDashboard";
+import { loadDashboardSnapshot } from "../lib/snapshotSource";
 
-export default function Home() {
-  return (
-    <main>
-      <h1>GammaScope</h1>
-      <p>Mode: {seedSnapshot.mode}</p>
-      <p>Symbol: {seedSnapshot.symbol}</p>
-      <p>Rows: {seedSnapshot.rows.length}</p>
-    </main>
-  );
+export default async function Home() {
+  const snapshot = await loadDashboardSnapshot();
+  return <LiveDashboard initialSnapshot={snapshot} />;
 }

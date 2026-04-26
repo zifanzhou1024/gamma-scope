@@ -21,7 +21,8 @@ def test_seed_snapshot_loads_as_generated_model() -> None:
 
     assert snapshot.schema_version == "1.0.0"
     assert snapshot.symbol == "SPX"
-    assert len(snapshot.rows) == 2
+    assert len(snapshot.rows) == 34
+    assert snapshot.rows[0].open_interest is not None
 
 
 def test_seed_health_loads_as_generated_model() -> None:

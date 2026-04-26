@@ -81,6 +81,7 @@ class Row(BaseModel):
     bid: float | None
     ask: float | None
     mid: float | None
+    open_interest: conint(ge=0) | None
     custom_iv: confloat(ge=0.0) | None
     custom_gamma: float | None
     custom_vanna: float | None
