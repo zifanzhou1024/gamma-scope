@@ -83,11 +83,38 @@ export async function replayImportResponse(upstreamResponse: Response): Promise<
     return replayImportRequestFailed();
   }
 
-  if (!isReplayImportResult(upstreamPayload)) {
-    return replayImportRequestFailed();
+  if (isReplayImportResult(upstreamPayload)) {
+    return noStoreJson(upstreamPayload, { status: upstreamResponse.status });
   }
 
-  return noStoreJson(upstreamPayload, { status: upstreamResponse.status });
+  if (!upstreamResponse.ok) {
+    const errorPayload = replayImportErrorPayload(upstreamPayload);
+    return errorPayload
+      ? noStoreJson(errorPayload, { status: upstreamResponse.status })
+      : replayImportRequestFailed();
+  }
+
+  return replayImportRequestFailed();
+}
+
+function replayImportErrorPayload(payload: unknown): { error: string } | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (typeof payload.error === "string") {
+    return { error: payload.error };
+  }
+
+  if (typeof payload.detail === "string") {
+    return { error: payload.detail };
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function replayImportRequestFailed(): Response {

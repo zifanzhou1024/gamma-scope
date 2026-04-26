@@ -195,6 +195,40 @@ describe("replay import proxy routes", () => {
     expect(formDataSpy).not.toHaveBeenCalled();
   });
 
+  it("forwards streaming uploads without content length without parsing form data", async () => {
+    setAdminEnv({ GAMMASCOPE_API_BASE_URL: "http://fastapi.test" });
+    const upstream = importResult();
+    const fetcher = vi.fn(async () => jsonResponse(upstream));
+    vi.stubGlobal("fetch", fetcher);
+    const formDataSpy = vi.spyOn(Request.prototype, "formData");
+    const { POST } = await import("../app/api/replay/imports/route");
+    const request = new Request("http://localhost/api/replay/imports", {
+      method: "POST",
+      headers: {
+        ...await adminHeaders(),
+        "Content-Type": "multipart/form-data; boundary=boundary"
+      },
+      body: "--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"replay.csv\"\r\n\r\ncsv\r\n--boundary--"
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(upstream);
+    expect(formDataSpy).not.toHaveBeenCalled();
+    expect(fetcher).toHaveBeenCalledWith("http://fastapi.test/api/replay/imports", {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "multipart/form-data; boundary=boundary",
+        "X-GammaScope-Admin-Token": "upstream-admin-token"
+      },
+      body: request.body,
+      duplex: "half"
+    });
+  });
+
   it("uses the default API base URL when the environment value is empty", async () => {
     setAdminEnv({ GAMMASCOPE_API_BASE_URL: "   " });
     const fetcher = vi.fn(async () => jsonResponse(importResult()));
@@ -336,6 +370,39 @@ describe("replay import proxy routes", () => {
 
     expect(response.status).toBe(status);
     await expect(response.json()).resolves.toEqual(upstream);
+  });
+
+  it.each([
+    ["error", { error: "Replay import upload too large" }, { error: "Replay import upload too large" }, 413],
+    ["detail", { detail: "Import file is malformed" }, { error: "Import file is malformed" }, 400]
+  ])("preserves upstream non-OK %s JSON responses", async (_, upstreamPayload, expectedPayload, status) => {
+    setAdminEnv();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(upstreamPayload, false, status)));
+    const { POST } = await import("../app/api/replay/imports/route");
+
+    const response = await POST(new Request("http://localhost/api/replay/imports", {
+      method: "POST",
+      headers: await adminHeaders(),
+      body: new FormData()
+    }));
+
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual(expectedPayload);
+  });
+
+  it("still returns 502 for invalid successful upstream responses", async () => {
+    setAdminEnv();
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "not a result" }, true, 200)));
+    const { GET } = await import("../app/api/replay/imports/[importId]/route");
+
+    const response = await GET(new Request("http://localhost/api/replay/imports/import-test-1", {
+      headers: await adminHeaders(false)
+    }), {
+      params: Promise.resolve({ importId: "import-test-1" })
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ error: "Replay import request failed" });
   });
 
   it("returns 502 for invalid upstream responses", async () => {
