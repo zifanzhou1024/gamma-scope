@@ -59,6 +59,33 @@ def test_repository_updates_existing_view_id_without_duplication(
     assert matches[0]["name"] == "Updated name"
 
 
+def test_repository_cleanup_old_saved_views(
+    saved_view_repository: tuple[PostgresSavedViewRepository, list[str]],
+) -> None:
+    repo, view_ids = saved_view_repository
+    cleanup_prefix = f"pytest-cleanup-view-{uuid4()}"
+    old_id = f"{cleanup_prefix}-old"
+    new_id = f"{cleanup_prefix}-new"
+    unrelated_old_id = f"pytest-unrelated-view-old-{uuid4()}"
+    view_ids.extend([old_id, new_id, unrelated_old_id])
+
+    repo.save_view(_view(old_id, "Old view", "2026-01-01T16:00:00Z"))
+    repo.save_view(_view(new_id, "New view", "2026-04-24T16:00:00Z"))
+    repo.save_view(_view(unrelated_old_id, "Unrelated old view", "2026-01-01T16:30:00Z"))
+
+    dry_run = repo.cleanup_before("2026-04-01T00:00:00Z", dry_run=True, view_id_prefix=cleanup_prefix)
+    assert dry_run == 1
+    assert {view["view_id"] for view in repo.list_views()} >= {old_id, new_id, unrelated_old_id}
+
+    deleted = repo.cleanup_before("2026-04-01T00:00:00Z", dry_run=False, view_id_prefix=cleanup_prefix)
+
+    remaining_ids = {view["view_id"] for view in repo.list_views()}
+    assert deleted == 1
+    assert old_id not in remaining_ids
+    assert new_id in remaining_ids
+    assert unrelated_old_id in remaining_ids
+
+
 def _view(view_id: str, name: str, created_at: str, *, mode: str = "replay") -> dict[str, object]:
     return {
         "view_id": view_id,

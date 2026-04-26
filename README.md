@@ -55,6 +55,8 @@ Replay capture now persists replay-ready analytics snapshots to local Postgres w
 
     GAMMASCOPE_DATABASE_URL=postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope
     GAMMASCOPE_REPLAY_CAPTURE_INTERVAL_SECONDS=5
+    GAMMASCOPE_REPLAY_RETENTION_DAYS=20
+    GAMMASCOPE_SAVED_VIEW_RETENTION_DAYS=90
 
 If Postgres is unavailable, collector ingestion still works and replay falls back to the seeded demo session.
 
@@ -156,6 +158,19 @@ Use the captured `session_id` to replay the persisted IBKR snapshot:
     curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=<captured-session-id>" | python -m json.tool
 
 Then open `http://localhost:3000`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
+
+For local maintenance testing, run a default-safe dry run of persisted replay and saved-view retention cleanup:
+
+    curl -s -X POST "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=true" | python -m json.tool
+
+To execute destructive cleanup explicitly:
+
+    GAMMASCOPE_ADMIN_TOKEN=local-admin-token pnpm dev:api
+    curl -s -X POST \
+      -H "X-GammaScope-Admin-Token: local-admin-token" \
+      "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=false" | python -m json.tool
+
+If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, destructive cleanup is disabled and returns `403`. Cleanup only targets Postgres-persisted replay snapshots/sessions and saved views. The seeded replay fixture remains untouched.
 
 ## Analytics Conventions
 

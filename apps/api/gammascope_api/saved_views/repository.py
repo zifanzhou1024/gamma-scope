@@ -15,6 +15,15 @@ class SavedViewRepository(Protocol):
     def list_views(self) -> list[dict[str, Any]]:
         ...
 
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        view_id_prefix: str | None = None,
+    ) -> int:
+        ...
+
 
 class InMemorySavedViewRepository:
     def __init__(self) -> None:
@@ -40,6 +49,15 @@ class InMemorySavedViewRepository:
                 ),
             )
         ]
+
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        view_id_prefix: str | None = None,
+    ) -> int:
+        raise RuntimeError("Saved view persistence unavailable")
 
 
 class PostgresSavedViewRepository:
@@ -130,6 +148,41 @@ class PostgresSavedViewRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("DELETE FROM saved_views WHERE view_id = %s", (view_id,))
+
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        view_id_prefix: str | None = None,
+    ) -> int:
+        self.ensure_schema()
+        cutoff_time = _parse_datetime(cutoff) if isinstance(cutoff, str) else cutoff.astimezone(UTC)
+        view_id_pattern = f"{view_id_prefix}%" if view_id_prefix is not None else None
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::INTEGER
+                    FROM saved_views
+                    WHERE created_at < %s
+                      AND (%s::TEXT IS NULL OR view_id LIKE %s)
+                    """,
+                    (cutoff_time, view_id_prefix, view_id_pattern),
+                )
+                views_count = int(cursor.fetchone()[0])
+                if not dry_run:
+                    cursor.execute(
+                        """
+                        DELETE FROM saved_views
+                        WHERE created_at < %s
+                          AND (%s::TEXT IS NULL OR view_id LIKE %s)
+                        """,
+                        (cutoff_time, view_id_prefix, view_id_pattern),
+                    )
+
+        return views_count
 
     def _connect(self):
         import psycopg

@@ -272,6 +272,42 @@ def test_repository_nearest_snapshot_prefers_newest_payload_for_same_timestamp(
     assert nearest["spot"] == 5210.25
 
 
+def test_repository_cleanup_old_snapshots_refreshes_sessions(
+    replay_repository: tuple[PostgresReplayRepository, list[str]],
+) -> None:
+    repo, session_ids = replay_repository
+    cleanup_prefix = f"pytest-cleanup-{uuid4()}"
+    mixed_session_id = f"{cleanup_prefix}-mixed"
+    old_only_session_id = f"{cleanup_prefix}-old"
+    unrelated_old_session_id = f"pytest-unrelated-old-{uuid4()}"
+    session_ids.extend([mixed_session_id, old_only_session_id])
+
+    repo.insert_snapshot(_snapshot(mixed_session_id, "2026-03-01T15:30:00Z", spot=5100.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(mixed_session_id, "2026-04-24T15:40:00Z", spot=5200.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(old_only_session_id, "2026-03-01T15:35:00Z", spot=5110.25), source="ibkr")
+    repo.insert_snapshot(_snapshot(unrelated_old_session_id, "2026-03-01T15:45:00Z", spot=5120.25), source="ibkr")
+    session_ids.append(unrelated_old_session_id)
+
+    dry_run = repo.cleanup_before("2026-04-01T00:00:00Z", dry_run=True, session_id_prefix=cleanup_prefix)
+    assert dry_run == {"snapshots": 2, "sessions": 1}
+    assert {session["session_id"] for session in repo.list_sessions()} >= {
+        mixed_session_id,
+        old_only_session_id,
+        unrelated_old_session_id,
+    }
+
+    deleted = repo.cleanup_before("2026-04-01T00:00:00Z", dry_run=False, session_id_prefix=cleanup_prefix)
+
+    sessions = {session["session_id"]: session for session in repo.list_sessions()}
+    assert deleted == {"snapshots": 2, "sessions": 1}
+    assert old_only_session_id not in sessions
+    assert unrelated_old_session_id in sessions
+    assert sessions[mixed_session_id]["snapshot_count"] == 1
+    assert sessions[mixed_session_id]["start_time"] == "2026-04-24T15:40:00Z"
+    assert sessions[mixed_session_id]["end_time"] == "2026-04-24T15:40:00Z"
+    assert repo.nearest_snapshot(mixed_session_id)["spot"] == 5200.25
+
+
 def test_seeded_replay_still_works_when_repository_has_no_session(api_client: TestClient) -> None:
     response = api_client.get(
         "/api/spx/0dte/replay/snapshot",

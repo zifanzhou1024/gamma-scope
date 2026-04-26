@@ -27,6 +27,15 @@ class ReplayRepository(Protocol):
     def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
         ...
 
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        session_id_prefix: str | None = None,
+    ) -> dict[str, int]:
+        ...
+
 
 class NullReplayRepository:
     def ensure_schema(self) -> None:
@@ -54,6 +63,15 @@ class NullReplayRepository:
 
     def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
         return []
+
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        session_id_prefix: str | None = None,
+    ) -> dict[str, int]:
+        raise RuntimeError("Replay persistence unavailable")
 
 
 class PostgresReplayRepository:
@@ -279,6 +297,77 @@ class PostgresReplayRepository:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("DELETE FROM replay_sessions WHERE session_id = %s", (session_id,))
+
+    def cleanup_before(
+        self,
+        cutoff: str | datetime,
+        *,
+        dry_run: bool,
+        session_id_prefix: str | None = None,
+    ) -> dict[str, int]:
+        self.ensure_schema()
+        cutoff_time = _parse_datetime(cutoff) if isinstance(cutoff, str) else cutoff.astimezone(UTC)
+        session_id_pattern = f"{session_id_prefix}%" if session_id_prefix is not None else None
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::INTEGER
+                    FROM analytics_snapshots
+                    WHERE snapshot_time < %s
+                      AND (%s::TEXT IS NULL OR session_id LIKE %s)
+                    """,
+                    (cutoff_time, session_id_prefix, session_id_pattern),
+                )
+                snapshots_count = int(cursor.fetchone()[0])
+                cursor.execute(
+                    """
+                    SELECT COUNT(*)::INTEGER
+                    FROM replay_sessions session
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM analytics_snapshots snapshot
+                        WHERE snapshot.session_id = session.session_id
+                          AND snapshot.snapshot_time < %s
+                    )
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM analytics_snapshots snapshot
+                        WHERE snapshot.session_id = session.session_id
+                          AND snapshot.snapshot_time >= %s
+                    )
+                      AND (%s::TEXT IS NULL OR session.session_id LIKE %s)
+                    """,
+                    (cutoff_time, cutoff_time, session_id_prefix, session_id_pattern),
+                )
+                sessions_count = int(cursor.fetchone()[0])
+
+                if dry_run:
+                    return {"snapshots": snapshots_count, "sessions": sessions_count}
+
+                cursor.execute(
+                    """
+                    SELECT DISTINCT session_id
+                    FROM analytics_snapshots
+                    WHERE snapshot_time < %s
+                      AND (%s::TEXT IS NULL OR session_id LIKE %s)
+                    """,
+                    (cutoff_time, session_id_prefix, session_id_pattern),
+                )
+                affected_session_ids = [str(record[0]) for record in cursor.fetchall()]
+                cursor.execute(
+                    """
+                    DELETE FROM analytics_snapshots
+                    WHERE snapshot_time < %s
+                      AND (%s::TEXT IS NULL OR session_id LIKE %s)
+                    """,
+                    (cutoff_time, session_id_prefix, session_id_pattern),
+                )
+                for session_id in affected_session_ids:
+                    self._refresh_session(cursor, session_id)
+
+        return {"snapshots": snapshots_count, "sessions": sessions_count}
 
     def _connect(self):
         import psycopg
