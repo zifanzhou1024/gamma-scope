@@ -240,14 +240,27 @@ function pruneLoginAttempts(now: number): void {
   }
 }
 
-function enforceLoginAttemptLimit(): void {
+function activeLockout(attempt: LoginAttemptState, now: number): boolean {
+  return attempt.locked_until > now;
+}
+
+function enforceLoginAttemptLimit(now: number, newestKey: string): void {
   while (loginAttempts.size > MAX_LOGIN_ATTEMPT_ENTRIES) {
-    const oldestKey = loginAttempts.keys().next().value;
-    if (typeof oldestKey !== "string") {
-      return;
+    let evictionKey: string | null = null;
+
+    for (const [key, attempt] of loginAttempts) {
+      if (!activeLockout(attempt, now)) {
+        evictionKey = key;
+        break;
+      }
     }
 
-    loginAttempts.delete(oldestKey);
+    if (evictionKey) {
+      loginAttempts.delete(evictionKey);
+    } else {
+      loginAttempts.delete(newestKey);
+      break;
+    }
   }
 }
 
@@ -262,7 +275,7 @@ export function recordAdminLoginFailure(key: string, now: number = Date.now()): 
     locked_until: failures >= MAX_FAILED_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : attempt.locked_until,
     updated_at: now
   });
-  enforceLoginAttemptLimit();
+  enforceLoginAttemptLimit(now, attemptKey);
 }
 
 export function recordAdminLoginSuccess(key: string): void {

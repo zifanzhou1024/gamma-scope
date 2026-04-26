@@ -208,6 +208,34 @@ describe("admin session helpers", () => {
     expect(adminLoginAttemptAllowed(adminLoginAttemptKey("user-0"), 81)).toBe(true);
   });
 
+  it("does not evict an active admin lockout when the attempt map is full", async () => {
+    const {
+      adminLoginAttemptCount,
+      adminLoginAttemptKey,
+      adminLoginAttemptAllowed,
+      recordAdminLoginFailure,
+      resetAdminLoginAttempts
+    } = await import("../lib/adminSession");
+    const now = Date.UTC(2026, 3, 26, 12, 0, 0);
+    const adminKey = adminLoginAttemptKey("admin");
+
+    resetAdminLoginAttempts();
+
+    recordAdminLoginFailure(adminKey, now);
+    recordAdminLoginFailure(adminKey, now + 1);
+    recordAdminLoginFailure(adminKey, now + 2);
+
+    for (let index = 0; index < 80; index += 1) {
+      const key = adminLoginAttemptKey(`flood-${index}`);
+      recordAdminLoginFailure(key, now + 3 + index * 3);
+      recordAdminLoginFailure(key, now + 4 + index * 3);
+      recordAdminLoginFailure(key, now + 5 + index * 3);
+    }
+
+    expect(adminLoginAttemptCount()).toBeLessThanOrEqual(64);
+    expect(adminLoginAttemptAllowed(adminKey, now + 4 * 60 * 1000)).toBe(false);
+  });
+
   it("prunes expired login lockouts before storing new failures", async () => {
     const {
       adminLoginAttemptCount,
