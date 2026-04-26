@@ -135,6 +135,20 @@ class ReplayParquetImporter:
             self.repository.mark_completed(import_id, session_id=duplicate_session_id)
             return self._completed_result(self.repository.get_import(import_id))
 
+        completed_duplicate = self.repository.find_duplicate_checksum_import(
+            snapshots_sha256=import_record.snapshots_sha256,
+            quotes_sha256=import_record.quotes_sha256,
+        )
+        if (
+            completed_duplicate is not None
+            and completed_duplicate.import_id != import_id
+            and completed_duplicate.status == "completed"
+            and completed_duplicate.session_id is not None
+        ):
+            self.repository.mark_publishing(import_id)
+            self.repository.mark_completed(import_id, session_id=completed_duplicate.session_id)
+            return self._completed_result(self.repository.get_import(import_id))
+
         self.repository.mark_publishing(import_id)
         read_result = read_replay_parquet_pair(
             snapshots_path=Path(import_record.snapshots_archive_path),
@@ -282,7 +296,8 @@ class ReplayParquetImporter:
 
     def _invalid_transition_result(self, import_record: ImportRecord, *, action: str) -> ImportResult:
         result = self._result_from_record(import_record)
-        errors = result.errors or [f"Cannot {action} import from status {import_record.status}"]
+        transition_error = f"Cannot {action} import from status {import_record.status}"
+        errors = [transition_error, *[error for error in result.errors if error != transition_error]]
         return ImportResult(
             import_id=result.import_id,
             status=result.status,

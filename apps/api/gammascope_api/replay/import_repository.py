@@ -780,7 +780,7 @@ class PostgresReplayImportRepository:
                     FROM replay_imports
                     WHERE snapshots_sha256 = %s
                       AND quotes_sha256 = %s
-                    ORDER BY created_at DESC, import_id DESC
+                    ORDER BY (status = 'completed') DESC, created_at DESC, import_id DESC
                     LIMIT 1
                     """,
                     (snapshots_sha256, quotes_sha256),
