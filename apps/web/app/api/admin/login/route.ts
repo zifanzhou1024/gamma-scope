@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   ADMIN_COOKIE_NAME,
+  adminLoginAttemptKey,
   adminLoginAttemptAllowed,
   adminLoginAvailable,
   createAdminSessionValue,
@@ -39,10 +40,6 @@ function sessionCookie(value: string, request: Request): string {
   return attributes.join("; ");
 }
 
-function loginAttemptKey(username: string): string {
-  return username.trim().toLowerCase();
-}
-
 export async function POST(request: Request) {
   if (!adminLoginAvailable()) {
     return noStoreJson({
@@ -64,7 +61,7 @@ export async function POST(request: Request) {
     : {};
   const username = typeof credentials.username === "string" ? credentials.username : "";
   const password = typeof credentials.password === "string" ? credentials.password : "";
-  const attemptKey = loginAttemptKey(username);
+  const attemptKey = adminLoginAttemptKey(username);
 
   if (!adminLoginAttemptAllowed(attemptKey) || !verifyAdminCredentials(username, password)) {
     recordAdminLoginFailure(attemptKey);

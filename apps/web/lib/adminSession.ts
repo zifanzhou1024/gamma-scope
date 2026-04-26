@@ -7,6 +7,8 @@ const SESSION_LIFETIME_SECONDS = 8 * 60 * 60;
 const MIN_SESSION_SECRET_LENGTH = 32;
 const MAX_FAILED_LOGIN_ATTEMPTS = 3;
 const LOGIN_LOCKOUT_MS = 5 * 60 * 1000;
+const LOGIN_ATTEMPT_KEY_MAX_LENGTH = 80;
+const MAX_LOGIN_ATTEMPT_ENTRIES = 64;
 
 type AdminRequestFailureReason = "unavailable" | "unauthenticated" | "invalid_csrf";
 
@@ -25,6 +27,7 @@ export interface AdminRequestVerification {
 interface LoginAttemptState {
   failures: number;
   locked_until: number;
+  updated_at: number;
 }
 
 const loginAttempts = new Map<string, LoginAttemptState>();
@@ -213,24 +216,63 @@ export function verifyAdminRequest(
 }
 
 export function adminLoginAttemptAllowed(key: string, now: number = Date.now()): boolean {
-  const attempt = loginAttempts.get(key);
+  const attemptKey = adminLoginAttemptKey(key);
+  const attempt = loginAttempts.get(attemptKey);
 
   return !attempt || attempt.locked_until <= now;
 }
 
+export function adminLoginAttemptKey(username: string): string {
+  const normalized = username.trim().toLowerCase();
+
+  return (normalized || "<empty>").slice(0, LOGIN_ATTEMPT_KEY_MAX_LENGTH);
+}
+
+function pruneLoginAttempts(now: number): void {
+  for (const [key, attempt] of loginAttempts) {
+    const expiresAt = attempt.locked_until > 0
+      ? attempt.locked_until
+      : attempt.updated_at + LOGIN_LOCKOUT_MS;
+
+    if (expiresAt <= now) {
+      loginAttempts.delete(key);
+    }
+  }
+}
+
+function enforceLoginAttemptLimit(): void {
+  while (loginAttempts.size > MAX_LOGIN_ATTEMPT_ENTRIES) {
+    const oldestKey = loginAttempts.keys().next().value;
+    if (typeof oldestKey !== "string") {
+      return;
+    }
+
+    loginAttempts.delete(oldestKey);
+  }
+}
+
 export function recordAdminLoginFailure(key: string, now: number = Date.now()): void {
-  const attempt = loginAttempts.get(key) ?? { failures: 0, locked_until: 0 };
+  const attemptKey = adminLoginAttemptKey(key);
+  pruneLoginAttempts(now);
+
+  const attempt = loginAttempts.get(attemptKey) ?? { failures: 0, locked_until: 0, updated_at: now };
   const failures = attempt.failures + 1;
-  loginAttempts.set(key, {
+  loginAttempts.set(attemptKey, {
     failures,
-    locked_until: failures >= MAX_FAILED_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : attempt.locked_until
+    locked_until: failures >= MAX_FAILED_LOGIN_ATTEMPTS ? now + LOGIN_LOCKOUT_MS : attempt.locked_until,
+    updated_at: now
   });
+  enforceLoginAttemptLimit();
 }
 
 export function recordAdminLoginSuccess(key: string): void {
-  loginAttempts.delete(key);
+  loginAttempts.delete(adminLoginAttemptKey(key));
 }
 
 export function resetAdminLoginAttempts(): void {
   loginAttempts.clear();
+}
+
+export function adminLoginAttemptCount(): number {
+  return loginAttempts.size;
 }

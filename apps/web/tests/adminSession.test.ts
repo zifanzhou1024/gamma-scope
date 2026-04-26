@@ -158,12 +158,13 @@ describe("admin session helpers", () => {
 
   it("tracks failed login attempts and resets lockout on success", async () => {
     const {
+      adminLoginAttemptKey,
       adminLoginAttemptAllowed,
       recordAdminLoginFailure,
       recordAdminLoginSuccess,
       resetAdminLoginAttempts
     } = await import("../lib/adminSession");
-    const key = "admin|127.0.0.1";
+    const key = adminLoginAttemptKey("admin");
     const now = Date.UTC(2026, 3, 26, 12, 0, 0);
 
     resetAdminLoginAttempts();
@@ -178,6 +179,55 @@ describe("admin session helpers", () => {
     recordAdminLoginFailure(key, now + 5 * 60 * 1000 + 4);
     recordAdminLoginSuccess(key);
     expect(adminLoginAttemptAllowed(key, now + 5 * 60 * 1000 + 5)).toBe(true);
+  });
+
+  it("normalizes and caps login throttle keys derived from usernames", async () => {
+    const { adminLoginAttemptKey } = await import("../lib/adminSession");
+    const longUsername = `  ${"Admin".repeat(80)}  `;
+
+    expect(adminLoginAttemptKey("  Admin  ")).toBe("admin");
+    expect(adminLoginAttemptKey(longUsername).length).toBeLessThanOrEqual(80);
+  });
+
+  it("bounds stored login attempt entries with oldest-entry eviction", async () => {
+    const {
+      adminLoginAttemptCount,
+      adminLoginAttemptKey,
+      adminLoginAttemptAllowed,
+      recordAdminLoginFailure,
+      resetAdminLoginAttempts
+    } = await import("../lib/adminSession");
+
+    resetAdminLoginAttempts();
+
+    for (let index = 0; index < 80; index += 1) {
+      recordAdminLoginFailure(adminLoginAttemptKey(`user-${index}`), index);
+    }
+
+    expect(adminLoginAttemptCount()).toBeLessThanOrEqual(64);
+    expect(adminLoginAttemptAllowed(adminLoginAttemptKey("user-0"), 81)).toBe(true);
+  });
+
+  it("prunes expired login lockouts before storing new failures", async () => {
+    const {
+      adminLoginAttemptCount,
+      adminLoginAttemptKey,
+      recordAdminLoginFailure,
+      resetAdminLoginAttempts
+    } = await import("../lib/adminSession");
+    const now = Date.UTC(2026, 3, 26, 12, 0, 0);
+    const staleKey = adminLoginAttemptKey("admin");
+
+    resetAdminLoginAttempts();
+
+    recordAdminLoginFailure(staleKey, now);
+    recordAdminLoginFailure(staleKey, now + 1);
+    recordAdminLoginFailure(staleKey, now + 2);
+    expect(adminLoginAttemptCount()).toBe(1);
+
+    recordAdminLoginFailure(adminLoginAttemptKey("other-admin"), now + 5 * 60 * 1000 + 3);
+
+    expect(adminLoginAttemptCount()).toBe(1);
   });
 
   it("rejects missing or mismatched CSRF headers for unsafe requests", async () => {
