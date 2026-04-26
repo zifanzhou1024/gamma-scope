@@ -43,4 +43,6 @@ test("hosted replay env example documents API and web deployment variables", asy
   ]) {
     assert.match(envExample, new RegExp(`^${name}`, "m"));
   }
+
+  assert.match(envExample, /^NEXT_PUBLIC_GAMMASCOPE_WS_URL=wss:\/\/gammascope-api\.example\.com$/m);
 });

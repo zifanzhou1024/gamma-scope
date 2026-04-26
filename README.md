@@ -101,7 +101,7 @@ API smoke checks:
     curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
     curl -i http://127.0.0.1:8000/api/spx/0dte/collector/state
 
-For the web app, deploy `@gammascope/web` with `vercel.json`, set `GAMMASCOPE_API_BASE_URL` to the hosted API origin, and set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` to the hosted replay websocket origin. Browser smoke checks:
+For the web app, deploy `@gammascope/web` with `vercel.json`, set `GAMMASCOPE_API_BASE_URL` to the hosted API origin, and set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` to the hosted API websocket origin. Browser smoke checks:
 
     https://<web-host>/
     https://<api-host>/healthz
