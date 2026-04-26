@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -60,9 +61,29 @@ def test_ensure_schema_creates_import_tables_and_extends_replay_sessions(
                 """
             )
             columns = {record[0] for record in cursor.fetchall()}
+            cursor.execute(
+                """
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename = 'replay_import_snapshots'
+                  AND indexname = 'replay_import_snapshots_session_time_order_idx'
+                """
+            )
+            time_index = cursor.fetchone()
 
     assert tables == {"replay_imports", "replay_import_snapshots", "replay_import_quotes"}
     assert columns == {"timestamp_source", "quote_count", "visibility", "import_id"}
+    assert time_index is not None
+    assert "(session_id, snapshot_time, source_order)" in time_index[0]
+
+
+def test_nearest_snapshot_uses_bounded_time_candidate_queries() -> None:
+    source = inspect.getsource(PostgresReplayImportRepository.nearest_snapshot)
+
+    assert "ABS(EXTRACT" not in source
+    assert "snapshot_time <= %s" in source
+    assert "snapshot_time >= %s" in source
 
 
 def test_repository_tests_do_not_drop_shared_tables() -> None:

@@ -562,6 +562,36 @@ def test_public_replay_snapshot_surface_import_repository_failure(
     assert response.json()["detail"] == "Imported replay persistence unavailable"
 
 
+def test_public_replay_snapshot_surface_import_membership_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.is_completed_public_session_error = RuntimeError("database unavailable")
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "source_snapshot_id": "src-before"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Imported replay persistence unavailable"
+
+
+def test_public_replay_snapshot_surface_import_nearest_failure(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.nearest_snapshot_error = RuntimeError("database unavailable")
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "import-session-ready", "at": "2026-04-24T15:35:00Z"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Imported replay persistence unavailable"
+
+
 def test_public_replay_snapshot_uses_bounded_import_membership_lookup(
     public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
 ) -> None:
@@ -675,8 +705,10 @@ class _FakeReplayImportRepository:
             _imported_snapshot("src-duplicate-later", 2, "2026-04-24T15:40:00Z", 5220.25, "SPX-C-5220"),
         ]
         self.list_completed_sessions_error: Exception | None = None
+        self.is_completed_public_session_error: Exception | None = None
         self.timestamps_error: Exception | None = None
         self.snapshot_by_source_id_error: Exception | None = None
+        self.nearest_snapshot_error: Exception | None = None
         self.stream_snapshots_error: Exception | None = None
 
     def list_completed_sessions(self) -> list[dict[str, Any]]:
@@ -697,6 +729,8 @@ class _FakeReplayImportRepository:
         ]
 
     def is_completed_public_session(self, session_id: str) -> bool:
+        if self.is_completed_public_session_error is not None:
+            raise self.is_completed_public_session_error
         return session_id == "import-session-ready"
 
     def timestamps(self, session_id: str) -> list[dict[str, Any]]:
@@ -728,6 +762,8 @@ class _FakeReplayImportRepository:
         )
 
     def nearest_snapshot(self, session_id: str, at: str | None) -> ImportedSnapshotData | None:
+        if self.nearest_snapshot_error is not None:
+            raise self.nearest_snapshot_error
         if session_id != "import-session-ready":
             return None
         if at is None:

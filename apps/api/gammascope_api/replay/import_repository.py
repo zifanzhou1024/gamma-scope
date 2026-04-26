@@ -278,6 +278,12 @@ class PostgresReplayImportRepository:
                 )
                 cursor.execute(
                     """
+                    CREATE INDEX IF NOT EXISTS replay_import_snapshots_session_time_order_idx
+                    ON replay_import_snapshots (session_id, snapshot_time, source_order)
+                    """
+                )
+                cursor.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS replay_import_quotes_session_snapshot_order_idx
                     ON replay_import_quotes (session_id, source_snapshot_id, source_order, contract_id)
                     """
@@ -720,12 +726,29 @@ class PostgresReplayImportRepository:
                         SELECT *
                         FROM replay_import_snapshots
                         WHERE session_id = %s
-                        ORDER BY ABS(EXTRACT(EPOCH FROM (snapshot_time - %s))), source_order ASC
+                          AND snapshot_time <= %s
+                        ORDER BY snapshot_time DESC, source_order ASC
                         LIMIT 1
                         """,
                         (session_id, target_time),
                     )
-                snapshot_record = cursor.fetchone()
+                    before_record = cursor.fetchone()
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM replay_import_snapshots
+                        WHERE session_id = %s
+                          AND snapshot_time >= %s
+                        ORDER BY snapshot_time ASC, source_order ASC
+                        LIMIT 1
+                        """,
+                        (session_id, target_time),
+                    )
+                    after_record = cursor.fetchone()
+                    snapshot_record = _nearest_import_snapshot_record(
+                        [before_record, after_record],
+                        target_time,
+                    )
                 if snapshot_record is None:
                     return None
                 quotes = self._quotes_for_snapshot(cursor, session_id, str(snapshot_record[1]))
@@ -1032,6 +1055,22 @@ def _snapshot_header(record: tuple[Any, ...]) -> ImportedSnapshotHeader:
         valid_mid_contract_count=int(record[11]),
         stale_contract_count=int(record[12]),
         row_count=int(record[13]),
+    )
+
+
+def _nearest_import_snapshot_record(
+    records: Sequence[tuple[Any, ...] | None],
+    target_time: datetime,
+) -> tuple[Any, ...] | None:
+    candidates = [record for record in records if record is not None]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda record: (
+            abs((record[3].astimezone(UTC) - target_time).total_seconds()),
+            int(record[2]),
+        ),
     )
 
 
