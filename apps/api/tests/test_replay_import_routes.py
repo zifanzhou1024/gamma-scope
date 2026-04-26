@@ -81,6 +81,43 @@ def test_upload_requires_exactly_snapshots_and_quotes_file_fields(
     assert importer_override.create_calls == []
 
 
+def test_upload_rejects_duplicate_file_fields_before_import_record(
+    client: TestClient,
+    importer_override: "_FakeImporter",
+    tmp_path: Path,
+) -> None:
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+
+    response = client.post(
+        "/api/replay/imports",
+        headers=_admin_headers(),
+        files=[
+            ("snapshots", ("snapshots.parquet", snapshots_path.read_bytes(), "application/octet-stream")),
+            ("snapshots", ("snapshots.parquet", snapshots_path.read_bytes(), "application/octet-stream")),
+            ("quotes", ("quotes.parquet", quotes_path.read_bytes(), "application/octet-stream")),
+        ],
+    )
+
+    assert response.status_code == 400
+    assert importer_override.create_calls == []
+
+
+def test_upload_rejects_extra_text_fields_before_import_record(
+    client: TestClient,
+    importer_override: "_FakeImporter",
+    tmp_path: Path,
+) -> None:
+    response = client.post(
+        "/api/replay/imports",
+        headers=_admin_headers(),
+        files=_upload_files(tmp_path),
+        data={"notes": "do not accept sidecar fields"},
+    )
+
+    assert response.status_code == 400
+    assert importer_override.create_calls == []
+
+
 def test_upload_rejects_wrong_filenames_before_import_record(
     client: TestClient,
     importer_override: "_FakeImporter",

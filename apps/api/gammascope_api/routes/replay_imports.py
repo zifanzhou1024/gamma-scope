@@ -147,12 +147,19 @@ async def copy_upload_with_limit(upload: UploadFile, *, path: Path, max_bytes: i
 
 async def _validate_file_fields(request: Request) -> None:
     form = await request.form()
-    file_fields = {
-        key
-        for key, value in form.multi_items()
-        if isinstance(value, (UploadFile, StarletteUploadFile))
-    }
-    if file_fields != set(REQUIRED_FILENAMES):
+    fields = list(form.multi_items())
+    seen_file_fields: set[str] = set()
+    if len(fields) != len(REQUIRED_FILENAMES):
+        raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
+    for key, value in fields:
+        if (
+            key not in REQUIRED_FILENAMES
+            or key in seen_file_fields
+            or not isinstance(value, (UploadFile, StarletteUploadFile))
+        ):
+            raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
+        seen_file_fields.add(key)
+    if seen_file_fields != set(REQUIRED_FILENAMES):
         raise HTTPException(status_code=400, detail="Upload requires exactly snapshots and quotes file fields")
 
 
