@@ -354,6 +354,37 @@ describe("admin session routes", () => {
     expect(payload.csrf_token.length).toBeGreaterThan(20);
   });
 
+  it("returns authenticated false when admin config becomes unavailable after a cookie was issued", async () => {
+    setAdminEnv();
+    const { ADMIN_COOKIE_NAME, createAdminSessionValue } = await import("../lib/adminSession");
+    const { GET } = await import("../app/api/admin/session/route");
+    const sessionValue = createAdminSessionValue();
+
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_USERNAME", "");
+    const missingUsernameResponse = await GET(new Request("http://localhost/api/admin/session", {
+      headers: { Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}` }
+    }));
+
+    expect(missingUsernameResponse.status).toBe(200);
+    await expect(readJson(missingUsernameResponse)).resolves.toEqual({
+      authenticated: false,
+      csrf_token: null
+    });
+
+    setAdminEnv();
+    const secondSessionValue = createAdminSessionValue();
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_PASSWORD", "");
+    const missingPasswordResponse = await GET(new Request("http://localhost/api/admin/session", {
+      headers: { Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(secondSessionValue)}` }
+    }));
+
+    expect(missingPasswordResponse.status).toBe(200);
+    await expect(readJson(missingPasswordResponse)).resolves.toEqual({
+      authenticated: false,
+      csrf_token: null
+    });
+  });
+
   it("returns authenticated false and a null CSRF token when the admin cookie is absent or invalid", async () => {
     setAdminEnv();
     const { ADMIN_COOKIE_NAME } = await import("../lib/adminSession");

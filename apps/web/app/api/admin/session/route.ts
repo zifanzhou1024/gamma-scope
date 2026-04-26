@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseAdminSessionFromRequest } from "../../../../lib/adminSession";
+import { verifyAdminRequest } from "../../../../lib/adminSession";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,9 +11,9 @@ function noStoreJson(payload: unknown, init?: ResponseInit) {
 }
 
 export async function GET(request: Request) {
-  const session = parseAdminSessionFromRequest(request);
+  const verification = verifyAdminRequest(request);
 
-  if (!session) {
+  if (!verification.ok || !verification.session) {
     return noStoreJson({
       authenticated: false,
       csrf_token: null
@@ -22,6 +22,6 @@ export async function GET(request: Request) {
 
   return noStoreJson({
     authenticated: true,
-    csrf_token: session.csrf_token
+    csrf_token: verification.session.csrf_token
   });
 }
