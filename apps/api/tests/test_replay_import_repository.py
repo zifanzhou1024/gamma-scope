@@ -5,8 +5,11 @@ from uuid import uuid4
 
 import pytest
 
+from gammascope_api.replay.importer import ReplayParquetImporter
 from gammascope_api.replay.import_repository import PostgresReplayImportRepository
 from gammascope_api.replay.parquet_reader import QuoteRecord, SnapshotRecord
+
+from replay_parquet_fixtures import write_replay_parquet_pair
 
 
 TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
@@ -351,6 +354,142 @@ def test_list_completed_sessions_excludes_unfinished_and_private_sessions(
     assert public_session_id in session_ids
     assert private_session_id not in session_ids
     assert unfinished_session_id not in session_ids
+
+
+def test_importer_valid_tiny_upload_returns_awaiting_confirmation(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    repo, import_ids, _session_ids = import_repository
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+    importer = ReplayParquetImporter(repository=repo, archive_dir=tmp_path / "archive")
+
+    result = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(result.import_id)
+
+    record = repo.get_import(result.import_id)
+    assert result.status == "awaiting_confirmation"
+    assert result.import_id.startswith("import-")
+    assert result.session_id is not None
+    assert result.session_id.startswith("replay-spx-0dte-2026-04-24-20260424-143000-")
+    assert result.replay_url is None
+    assert result.errors == []
+    assert result.warnings == ["1 invalid quote rows found"]
+    assert result.summary["symbol"] == "SPX"
+    assert result.summary["scope"] == "0DTE"
+    assert result.summary["trade_date"] == "2026-04-24"
+    assert result.summary["expiry"] == "2026-04-24"
+    assert result.summary["start_time"] == "2026-04-24T14:30:00Z"
+    assert result.summary["end_time"] == "2026-04-24T14:32:00Z"
+    assert result.summary["snapshot_count"] == 3
+    assert result.summary["quote_count"] == 12
+    assert record.status == "awaiting_confirmation"
+    assert record.session_id == result.session_id
+    assert Path(record.snapshots_archive_path).exists()
+    assert Path(record.quotes_archive_path).exists()
+
+
+def test_importer_corrupt_parquet_fails_after_creating_import_record(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    repo, import_ids, _session_ids = import_repository
+    snapshots_path = tmp_path / "snapshots.parquet"
+    quotes_path = tmp_path / "quotes.parquet"
+    snapshots_path.write_bytes(b"not parquet")
+    quotes_path.write_bytes(b"also not parquet")
+    importer = ReplayParquetImporter(repository=repo, archive_dir=tmp_path / "archive")
+
+    result = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(result.import_id)
+
+    record = repo.get_import(result.import_id)
+    assert result.status == "failed"
+    assert result.session_id is None
+    assert result.summary["snapshots_sha256"]
+    assert result.summary["quotes_sha256"]
+    assert any("Unable to read snapshots.parquet" in error for error in result.errors)
+    assert any("Unable to read quotes.parquet" in error for error in result.errors)
+    assert record.status == "failed"
+    assert record.validation_errors == result.errors
+
+
+def test_importer_duplicate_checksum_confirm_returns_existing_completed_session(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+    importer = ReplayParquetImporter(repository=repo, archive_dir=tmp_path / "archive")
+    original = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(original.import_id)
+    assert original.session_id is not None
+    session_ids.append(original.session_id)
+    completed = importer.confirm_import(original.import_id)
+    duplicate = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(duplicate.import_id)
+
+    duplicate_completed = importer.confirm_import(duplicate.import_id)
+
+    assert completed.status == "completed"
+    assert duplicate_completed.status == "completed"
+    assert duplicate_completed.session_id == completed.session_id
+    assert duplicate_completed.replay_url == f"/replay?session_id={completed.session_id}"
+    assert repo.get_import(duplicate.import_id).session_id == completed.session_id
+    sessions = [session for session in repo.list_completed_sessions() if session["session_id"] == completed.session_id]
+    assert len(sessions) == 1
+
+
+def test_importer_cancel_unpublished_import_and_reports_invalid_transition_status(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    repo, import_ids, _session_ids = import_repository
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+    importer = ReplayParquetImporter(repository=repo, archive_dir=tmp_path / "archive")
+    created = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(created.import_id)
+
+    cancelled = importer.cancel_import(created.import_id)
+    confirm_after_cancel = importer.confirm_import(created.import_id)
+
+    assert cancelled.status == "cancelled"
+    assert cancelled.errors == []
+    assert repo.get_import(created.import_id).status == "cancelled"
+    assert confirm_after_cancel.status == "cancelled"
+    assert confirm_after_cancel.errors == ["Cannot confirm import from status cancelled"]
+
+
+def test_importer_confirm_writes_normalized_snapshots_and_quotes_once(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+    tmp_path: Path,
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    snapshots_path, quotes_path = write_replay_parquet_pair(tmp_path)
+    importer = ReplayParquetImporter(repository=repo, archive_dir=tmp_path / "archive")
+    created = importer.create_import(snapshots_path=snapshots_path, quotes_path=quotes_path)
+    import_ids.append(created.import_id)
+    assert created.session_id is not None
+    session_ids.append(created.session_id)
+
+    completed = importer.confirm_import(created.import_id)
+    completed_again = importer.confirm_import(created.import_id)
+    first_snapshot = repo.snapshot_by_source_id(completed.session_id, "snap-1")
+
+    assert completed.status == "completed"
+    assert completed.replay_url == f"/replay?session_id={completed.session_id}"
+    assert completed_again == completed
+    assert first_snapshot is not None
+    assert first_snapshot.header.snapshot_time == "2026-04-24T14:30:00Z"
+    assert [quote.contract_id for quote in first_snapshot.quotes] == [
+        "SPXW-2026-04-24-C-5095",
+        "SPXW-2026-04-24-C-5100",
+        "SPXW-2026-04-24-P-5095",
+        "SPXW-2026-04-24-P-5100",
+    ]
+    session = next(item for item in repo.list_completed_sessions() if item["session_id"] == completed.session_id)
+    assert session["snapshot_count"] == 3
+    assert session["quote_count"] == 12
 
 
 def _create_import(repo: PostgresReplayImportRepository, import_ids: list[str]):

@@ -7,6 +7,11 @@ import pytest
 
 from gammascope_api.replay.archive import archive_replay_files, describe_source_file, sha256_file
 from gammascope_api.replay.config import replay_archive_dir, replay_import_max_bytes
+from gammascope_api.replay.dependencies import (
+    get_replay_parquet_importer,
+    reset_replay_import_repository_override,
+    set_replay_import_repository_override,
+)
 from gammascope_api.replay.parquet_reader import iter_replay_quote_records, read_replay_parquet_pair
 
 from replay_parquet_fixtures import tiny_quote_rows, tiny_snapshot_rows, write_replay_parquet_pair
@@ -29,6 +34,26 @@ def test_default_import_max_bytes_is_100_mb(monkeypatch) -> None:
     monkeypatch.delenv("GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES", raising=False)
 
     assert replay_import_max_bytes() == 100 * 1024 * 1024
+
+
+def test_replay_parquet_importer_dependency_uses_repository_override_and_archive_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Repository:
+        pass
+
+    repository = _Repository()
+    archive_dir = tmp_path / "archive"
+    monkeypatch.setenv("GAMMASCOPE_REPLAY_ARCHIVE_DIR", str(archive_dir))
+    set_replay_import_repository_override(repository)  # type: ignore[arg-type]
+    try:
+        importer = get_replay_parquet_importer()
+    finally:
+        reset_replay_import_repository_override()
+
+    assert importer.repository is repository
+    assert importer.archive_dir == archive_dir
 
 
 def test_sha256_file_returns_stable_hash(tmp_path: Path) -> None:

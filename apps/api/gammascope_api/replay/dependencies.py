@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from gammascope_api.replay.config import replay_archive_dir
+from gammascope_api.replay.importer import ReplayParquetImporter
 from gammascope_api.replay.import_repository import PostgresReplayImportRepository, ReplayImportRepository
 from gammascope_api.replay.repository import PostgresReplayRepository, ReplayRepository
 
@@ -34,6 +36,13 @@ def get_replay_import_repository() -> ReplayImportRepository:
     if _import_repository_override is not None:
         return _import_repository_override
     return _default_replay_import_repository(database_url())
+
+
+def get_replay_parquet_importer() -> ReplayParquetImporter:
+    return ReplayParquetImporter(
+        repository=get_replay_import_repository(),
+        archive_dir=replay_archive_dir(),
+    )
 
 
 def set_replay_import_repository_override(repository: ReplayImportRepository) -> None:
