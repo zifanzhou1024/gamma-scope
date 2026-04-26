@@ -127,9 +127,10 @@ def test_local_baseline_import_returns_existing_completed_session_when_checksums
     )
     importer.create_results = [
         _result(status="awaiting_confirmation", import_id="baseline-import-first"),
-        existing_completed,
+        _result(status="awaiting_confirmation", import_id="baseline-import-duplicate"),
     ]
     importer.confirm_results["baseline-import-first"] = first_completed
+    importer.confirm_results["baseline-import-duplicate"] = existing_completed
     monkeypatch.setattr(baseline, "replay_baseline_paths", lambda: (snapshots_path, quotes_path))
 
     first = baseline.import_local_baseline_if_present(importer)
@@ -137,8 +138,40 @@ def test_local_baseline_import_returns_existing_completed_session_when_checksums
 
     assert first == first_completed
     assert second == existing_completed
+    assert first.session_id == "existing-session"
+    assert second.session_id == first.session_id
     assert len(importer.create_calls) == 2
-    assert importer.confirm_calls == ["baseline-import-first"]
+    assert importer.confirm_calls == ["baseline-import-first", "baseline-import-duplicate"]
+
+
+def test_local_baseline_import_uses_default_importer_when_none_is_supplied(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshots_path = tmp_path / ".gammascope" / "replay-baselines" / "2026-04-22" / "snapshots.parquet"
+    quotes_path = snapshots_path.parent / "quotes.parquet"
+    snapshots_path.parent.mkdir(parents=True)
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    importer = _FakeImporter()
+    importer.create_result = _result(status="awaiting_confirmation", import_id="baseline-import")
+    importer.confirm_results["baseline-import"] = _result(status="completed", import_id="baseline-import")
+    monkeypatch.setattr(baseline, "replay_baseline_paths", lambda: (snapshots_path, quotes_path))
+    monkeypatch.setattr(baseline, "get_replay_parquet_importer", lambda: importer)
+
+    result = baseline.import_local_baseline_if_present()
+
+    assert result == importer.confirm_results["baseline-import"]
+    assert len(importer.create_calls) == 1
+    assert importer.confirm_calls == ["baseline-import"]
+
+
+def test_readme_baseline_instructions_use_portable_source_directory() -> None:
+    readme = Path(__file__).resolve().parents[3] / "README.md"
+    content = readme.read_text()
+
+    assert "/Users/sakura/Downloads" not in content
+    assert 'BASELINE_SOURCE_DIR="$HOME/Downloads/trade_date=2026-04-22 2"' in content
 
 
 def test_upload_requires_admin_token(

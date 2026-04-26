@@ -192,8 +192,9 @@ Then open `http://localhost:3000`, use the replay controls, and pick the capture
 For a local-only replay baseline import, copy the parquet pair into the ignored `.gammascope/` directory and run the helper:
 
     mkdir -p .gammascope/replay-baselines/2026-04-22
-    cp "/Users/sakura/Downloads/trade_date=2026-04-22 2/snapshots.parquet" .gammascope/replay-baselines/2026-04-22/snapshots.parquet
-    cp "/Users/sakura/Downloads/trade_date=2026-04-22 2/quotes.parquet" .gammascope/replay-baselines/2026-04-22/quotes.parquet
+    BASELINE_SOURCE_DIR="$HOME/Downloads/trade_date=2026-04-22 2"
+    cp "$BASELINE_SOURCE_DIR/snapshots.parquet" .gammascope/replay-baselines/2026-04-22/snapshots.parquet
+    cp "$BASELINE_SOURCE_DIR/quotes.parquet" .gammascope/replay-baselines/2026-04-22/quotes.parquet
     PYTHONPATH=apps/api .venv/bin/python -m gammascope_api.replay.baseline
 
 The `.gammascope/` directory is ignored by git and must stay local. Do not commit real replay baseline parquet files.
