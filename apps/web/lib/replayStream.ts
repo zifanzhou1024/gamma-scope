@@ -16,6 +16,7 @@ type WebSocketConstructor = new (url: string) => WebSocketLike;
 interface ReplayWebSocketUrlOptions {
   sessionId: string;
   at?: string | null;
+  sourceSnapshotId?: string | null;
   intervalMs?: number;
   apiBaseUrl?: string;
 }
@@ -23,6 +24,7 @@ interface ReplayWebSocketUrlOptions {
 interface StartReplayStreamOptions {
   sessionId: string;
   at?: string | null;
+  sourceSnapshotId?: string | null;
   intervalMs?: number;
   onSnapshot: (snapshot: AnalyticsSnapshot) => void;
   onComplete?: () => void;
@@ -34,6 +36,7 @@ interface StartReplayStreamOptions {
 export function replayWebSocketUrl({
   sessionId,
   at,
+  sourceSnapshotId,
   intervalMs,
   apiBaseUrl = DEFAULT_API_BASE_URL
 }: ReplayWebSocketUrlOptions): string {
@@ -46,6 +49,10 @@ export function replayWebSocketUrl({
 
   if (at) {
     url.searchParams.set("at", at);
+  }
+
+  if (sourceSnapshotId) {
+    url.searchParams.set("source_snapshot_id", sourceSnapshotId);
   }
 
   if (intervalMs !== undefined) {
@@ -65,11 +72,12 @@ export function clientReplayWebSocketUrl(options: Omit<ReplayWebSocketUrlOptions
 export function startReplayStream({
   sessionId,
   at,
+  sourceSnapshotId,
   intervalMs,
   onSnapshot,
   onComplete,
   onUnavailable,
-  websocketUrl = clientReplayWebSocketUrl({ sessionId, at, intervalMs }),
+  websocketUrl = clientReplayWebSocketUrl({ sessionId, at, sourceSnapshotId, intervalMs }),
   WebSocketImpl
 }: StartReplayStreamOptions): () => void {
   const SocketConstructor = WebSocketImpl ?? (globalThis.WebSocket as unknown as WebSocketConstructor | undefined);

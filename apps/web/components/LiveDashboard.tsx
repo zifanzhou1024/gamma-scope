@@ -14,12 +14,20 @@ import { loadClientCollectorHealth } from "../lib/clientCollectorStatusSource";
 import type { LiveTransportStatus } from "../lib/dashboardMetrics";
 import type { ScenarioRequest } from "../lib/clientScenarioSource";
 import { requestClientScenarioSnapshot } from "../lib/clientScenarioSource";
-import type { ReplaySnapshotRequest, ReplaySession } from "../lib/clientReplaySource";
+import type {
+  ReplaySnapshotRequest,
+  ReplaySession,
+  ReplayTimestampResponse,
+  ReplayTimelineEntry
+} from "../lib/clientReplaySource";
 import {
   clampReplayIndex,
+  clampReplayTimelineIndex,
   loadClientReplaySessions,
   loadClientReplaySnapshot,
-  replayTimestampOptions
+  loadClientReplayTimestamps,
+  replayTimelineEntriesFromSession,
+  replayTimelineEntriesFromTimestamps
 } from "../lib/clientReplaySource";
 import type { ReplayImportResult } from "../lib/replayImportSource";
 import {
@@ -192,13 +200,48 @@ export function createScenarioRequest(
 
 export function createReplaySnapshotRequest(
   selectedSessionId: string | null,
-  selectedReplayTime?: string | null
+  selectedReplayTime?: string | null,
+  sourceSnapshotId?: string | null
 ): ReplaySnapshotRequest | null {
   if (!selectedSessionId) {
     return null;
   }
 
-  return selectedReplayTime ? { session_id: selectedSessionId, at: selectedReplayTime } : { session_id: selectedSessionId };
+  const request: ReplaySnapshotRequest = { session_id: selectedSessionId };
+
+  if (selectedReplayTime) {
+    request.at = selectedReplayTime;
+  }
+
+  if (sourceSnapshotId) {
+    request.source_snapshot_id = sourceSnapshotId;
+  }
+
+  return request;
+}
+
+export function shouldLoadExactReplayTimestamps(session: ReplaySession | null): boolean {
+  return session?.timestamp_source === "exact";
+}
+
+export function createDashboardReplayTimelineEntries(
+  session: ReplaySession | null,
+  timestampResponse: ReplayTimestampResponse | null
+): ReplayTimelineEntry[] {
+  if (!session) {
+    return [];
+  }
+
+  if (
+    shouldLoadExactReplayTimestamps(session) &&
+    timestampResponse?.session_id === session.session_id &&
+    timestampResponse.timestamp_source === "exact" &&
+    timestampResponse.timestamps.length > 0
+  ) {
+    return replayTimelineEntriesFromTimestamps(timestampResponse);
+  }
+
+  return replayTimelineEntriesFromSession(session);
 }
 
 export function createReplayStartState(): ReplayStartState {
@@ -445,6 +488,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
   const [replaySessions, setReplaySessions] = useState<ReplaySession[]>([]);
+  const [exactReplayTimestamps, setExactReplayTimestamps] = useState<ReplayTimestampResponse | null>(null);
   const [selectedReplaySessionId, setSelectedReplaySessionId] = useState<string | null>(null);
   const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
   const [isLoadingReplaySessions, setIsLoadingReplaySessions] = useState(true);
@@ -485,17 +529,19 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const replayStreamActiveRef = useRef(false);
   const adminSessionRequestIdRef = useRef(0);
   const replaySessionsRequestIdRef = useRef(0);
+  const replayTimestampsRequestIdRef = useRef(0);
 
   const selectedReplaySession = useMemo(
     () => replaySessions.find((session) => session.session_id === selectedReplaySessionId) ?? replaySessions[0] ?? null,
     [replaySessions, selectedReplaySessionId]
   );
-  const replaySnapshotTimes = useMemo(
-    () => (selectedReplaySession ? replayTimestampOptions(selectedReplaySession) : []),
-    [selectedReplaySession]
+  const replayTimelineEntries = useMemo(
+    () => createDashboardReplayTimelineEntries(selectedReplaySession, exactReplayTimestamps),
+    [selectedReplaySession, exactReplayTimestamps]
   );
-  const clampedReplayIndex = selectedReplaySession ? clampReplayIndex(selectedReplayIndex, selectedReplaySession) : 0;
-  const selectedReplayTime = replaySnapshotTimes[clampedReplayIndex] ?? null;
+  const clampedReplayIndex = clampReplayTimelineIndex(selectedReplayIndex, replayTimelineEntries);
+  const selectedReplayEntry = replayTimelineEntries[clampedReplayIndex] ?? null;
+  const selectedReplayTime = selectedReplayEntry?.snapshot_time ?? null;
 
   const applyDashboardAdminState = (adminState: DashboardAdminState) => {
     setIsAdminAuthenticated(adminState.isAdminAuthenticated);
@@ -512,6 +558,11 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const nextReplaySessionsRequestId = () => {
     replaySessionsRequestIdRef.current += 1;
     return replaySessionsRequestIdRef.current;
+  };
+
+  const nextReplayTimestampsRequestId = () => {
+    replayTimestampsRequestIdRef.current += 1;
+    return replayTimestampsRequestIdRef.current;
   };
 
   useEffect(() => {
@@ -575,6 +626,48 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
       isCanceled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let isCanceled = false;
+    const responseRequestId = nextReplayTimestampsRequestId();
+
+    if (!selectedReplaySession || !shouldLoadExactReplayTimestamps(selectedReplaySession)) {
+      setExactReplayTimestamps(null);
+      setSelectedReplayIndex((currentIndex) => clampReplayTimelineIndex(
+        currentIndex,
+        selectedReplaySession ? replayTimelineEntriesFromSession(selectedReplaySession) : []
+      ));
+
+      return () => {
+        isCanceled = true;
+      };
+    }
+
+    setExactReplayTimestamps(null);
+
+    loadClientReplayTimestamps(selectedReplaySession.session_id).then((timestampResponse) => {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: replayTimestampsRequestIdRef.current,
+        isCanceled
+      })) {
+        return;
+      }
+
+      const nextTimestampResponse = timestampResponse?.session_id === selectedReplaySession.session_id
+        && timestampResponse.timestamp_source === "exact"
+        ? timestampResponse
+        : null;
+      const nextTimelineEntries = createDashboardReplayTimelineEntries(selectedReplaySession, nextTimestampResponse);
+
+      setExactReplayTimestamps(nextTimestampResponse);
+      setSelectedReplayIndex((currentIndex) => clampReplayTimelineIndex(currentIndex, nextTimelineEntries));
+    });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, [selectedReplaySession]);
 
   useEffect(() => {
     scenarioModeRef.current = isScenarioModeActive;
@@ -642,7 +735,11 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   }, [isScenarioModeActive, isReplayModeActive, isReplayStreamActive]);
 
   const loadReplay = async () => {
-    const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId, selectedReplayTime);
+    const replayRequest = createReplaySnapshotRequest(
+      selectedReplaySessionId,
+      selectedReplayTime,
+      selectedReplayEntry?.source_snapshot_id
+    );
 
     if (!replayRequest) {
       setReplayError("No replay sessions available.");
@@ -695,7 +792,11 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   const playReplayStream = () => {
-    const replayRequest = createReplaySnapshotRequest(selectedReplaySessionId, selectedReplayTime);
+    const replayRequest = createReplaySnapshotRequest(
+      selectedReplaySessionId,
+      selectedReplayTime,
+      selectedReplayEntry?.source_snapshot_id
+    );
 
     if (!replayRequest) {
       setReplayError("No replay sessions available.");
@@ -722,6 +823,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     stopReplayStreamRef.current = startReplayStream({
       sessionId: replayRequest.session_id,
       at: replayRequest.at,
+      sourceSnapshotId: replayRequest.source_snapshot_id,
       intervalMs: 250,
       onSnapshot: (replaySnapshot) => {
         hasReplayStreamSnapshotRef.current = true;
@@ -1023,9 +1125,9 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
             selectedSessionId={selectedReplaySessionId}
             sessions={replaySessions}
             hasSessions={replaySessions.length > 0}
-            snapshotTimes={replaySnapshotTimes}
+            timelineEntries={replayTimelineEntries}
             selectedSnapshotIndex={clampedReplayIndex}
-            selectedSnapshotTime={selectedReplayTime}
+            selectedTimelineEntry={selectedReplayEntry}
             isReplayModeActive={isReplayModeActive}
             isReplayStreamActive={isReplayStreamActive}
             isLoadingSessions={isLoadingReplaySessions}
@@ -1037,7 +1139,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
               setSelectedReplayIndex(session ? clampReplayIndex(Number.POSITIVE_INFINITY, session) : 0);
             }}
             onSelectSnapshotIndex={(index) => {
-              setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
+              setSelectedReplayIndex(clampReplayTimelineIndex(index, replayTimelineEntries));
             }}
             onLoadReplay={loadReplay}
             onPlayReplayStream={playReplayStream}

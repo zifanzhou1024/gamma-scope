@@ -29,6 +29,7 @@ function replaySession(overrides: {
   start_time?: string;
   end_time?: string;
   snapshot_count?: number;
+  timestamp_source?: "exact" | "estimated";
 }) {
   return {
     session_id: overrides.session_id,
@@ -36,7 +37,8 @@ function replaySession(overrides: {
     expiry: overrides.expiry ?? "2026-04-24",
     start_time: overrides.start_time ?? "2026-04-24T14:30:00Z",
     end_time: overrides.end_time ?? "2026-04-24T14:40:00Z",
-    snapshot_count: overrides.snapshot_count ?? 3
+    snapshot_count: overrides.snapshot_count ?? 3,
+    timestamp_source: overrides.timestamp_source ?? "estimated" as const
   };
 }
 
@@ -207,6 +209,89 @@ describe("LiveDashboard scenario panel", () => {
       session_id: "seeded-replay-session",
       at: "2026-04-24T15:30:00.000Z"
     });
+  });
+
+  it("includes exact source snapshot ids in replay snapshot requests", () => {
+    expect(LiveDashboardModule.createReplaySnapshotRequest(
+      "import-session",
+      "2026-04-24T15:30:00.000Z",
+      "snapshot-a"
+    )).toEqual({
+      session_id: "import-session",
+      at: "2026-04-24T15:30:00.000Z",
+      source_snapshot_id: "snapshot-a"
+    });
+  });
+
+  it("loads exact timestamp entries only for exact replay sessions", () => {
+    expect(LiveDashboardModule.shouldLoadExactReplayTimestamps(replaySession({
+      session_id: "import-session",
+      timestamp_source: "exact"
+    }))).toBe(true);
+    expect(LiveDashboardModule.shouldLoadExactReplayTimestamps(replaySession({
+      session_id: "seed-session",
+      timestamp_source: "estimated"
+    }))).toBe(false);
+    expect(LiveDashboardModule.shouldLoadExactReplayTimestamps(null)).toBe(false);
+  });
+
+  it("uses exact imported entries for dashboard replay timelines", () => {
+    const session = replaySession({
+      session_id: "import-session",
+      timestamp_source: "exact",
+      snapshot_count: 2
+    });
+
+    expect(LiveDashboardModule.createDashboardReplayTimelineEntries(session, {
+      session_id: "import-session",
+      timestamp_source: "exact",
+      timestamps: [
+        {
+          index: 0,
+          snapshot_time: "2026-04-24T14:30:00Z",
+          source_snapshot_id: "snapshot-a"
+        },
+        {
+          index: 1,
+          snapshot_time: "2026-04-24T14:30:00Z",
+          source_snapshot_id: "snapshot-b"
+        }
+      ]
+    })).toEqual([
+      {
+        index: 0,
+        snapshot_time: "2026-04-24T14:30:00Z",
+        source_snapshot_id: "snapshot-a"
+      },
+      {
+        index: 1,
+        snapshot_time: "2026-04-24T14:30:00Z",
+        source_snapshot_id: "snapshot-b"
+      }
+    ]);
+  });
+
+  it("uses estimated fallback entries when exact timestamps are unavailable", () => {
+    expect(LiveDashboardModule.createDashboardReplayTimelineEntries(replaySession({
+      session_id: "seed-session",
+      timestamp_source: "estimated",
+      start_time: "2026-04-24T14:30:00Z",
+      end_time: "2026-04-24T14:40:00Z",
+      snapshot_count: 3
+    }), null)).toEqual([
+      {
+        index: 0,
+        snapshot_time: "2026-04-24T14:30:00.000Z"
+      },
+      {
+        index: 1,
+        snapshot_time: "2026-04-24T14:35:00.000Z"
+      },
+      {
+        index: 2,
+        snapshot_time: "2026-04-24T14:40:00.000Z"
+      }
+    ]);
   });
 
   it("clears scenario loading state when replay starts", () => {

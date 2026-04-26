@@ -17,7 +17,8 @@ describe("ReplayPanel", () => {
             expiry: "2026-04-27",
             start_time: "2026-04-27T14:30:00Z",
             end_time: "2026-04-27T14:35:00Z",
-            snapshot_count: 2
+            snapshot_count: 2,
+            timestamp_source: "exact"
           },
           {
             session_id: "seed-spx-2026-04-23",
@@ -25,13 +26,26 @@ describe("ReplayPanel", () => {
             expiry: "2026-04-23",
             start_time: "2026-04-23T15:30:00Z",
             end_time: "2026-04-23T16:00:00Z",
-            snapshot_count: 4
+            snapshot_count: 4,
+            timestamp_source: "estimated"
           }
         ]}
         hasSessions
-        snapshotTimes={["2026-04-27T14:30:00.000Z", "2026-04-27T14:35:00.000Z"]}
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-27T14:30:00.000Z"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-27T14:35:00.000Z"
+          }
+        ]}
         selectedSnapshotIndex={1}
-        selectedSnapshotTime="2026-04-27T14:35:00.000Z"
+        selectedTimelineEntry={{
+          index: 1,
+          snapshot_time: "2026-04-27T14:35:00.000Z"
+        }}
         isReplayModeActive={false}
         isReplayStreamActive={false}
         isLoadingSessions={false}
@@ -60,12 +74,25 @@ describe("ReplayPanel", () => {
         expiry: "2026-04-27",
         start_time: "2026-04-27T14:30:00Z",
         end_time: "2026-04-27T14:35:00Z",
-        snapshot_count: 2
+        snapshot_count: 2,
+        timestamp_source: "estimated" as const
       }],
       hasSessions: true,
-      snapshotTimes: ["2026-04-27T14:30:00.000Z", "2026-04-27T14:35:00.000Z"],
+      timelineEntries: [
+        {
+          index: 0,
+          snapshot_time: "2026-04-27T14:30:00.000Z"
+        },
+        {
+          index: 1,
+          snapshot_time: "2026-04-27T14:35:00.000Z"
+        }
+      ],
       selectedSnapshotIndex: 0,
-      selectedSnapshotTime: "2026-04-27T14:30:00.000Z",
+      selectedTimelineEntry: {
+        index: 0,
+        snapshot_time: "2026-04-27T14:30:00.000Z"
+      },
       isReplayModeActive: false,
       isLoadingSessions: false,
       isLoadingReplay: false,
@@ -87,5 +114,56 @@ describe("ReplayPanel", () => {
 
     expect(idleMarkup).toContain("Play replay");
     expect(playingMarkup).toContain("Stop replay");
+  });
+
+  it("keeps duplicate exact timestamps selectable by selected index", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="import-session"
+        sessions={[{
+          session_id: "import-session",
+          symbol: "SPX",
+          expiry: "2026-04-27",
+          start_time: "2026-04-27T14:30:00Z",
+          end_time: "2026-04-27T14:30:00Z",
+          snapshot_count: 2,
+          timestamp_source: "exact"
+        }]}
+        hasSessions
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-27T14:30:00Z",
+            source_snapshot_id: "snapshot-a"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-27T14:30:00Z",
+            source_snapshot_id: "snapshot-b"
+          }
+        ]}
+        selectedSnapshotIndex={1}
+        selectedTimelineEntry={{
+          index: 1,
+          snapshot_time: "2026-04-27T14:30:00Z",
+          source_snapshot_id: "snapshot-b"
+        }}
+        isReplayModeActive={false}
+        isReplayStreamActive={false}
+        isLoadingSessions={false}
+        isLoadingReplay={false}
+        errorMessage={null}
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("2026-04-27T14:30:00Z");
+    expect(markup).toContain("2 / 2");
+    expect(markup).toContain("value=\"1\"");
   });
 });

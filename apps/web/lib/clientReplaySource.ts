@@ -4,6 +4,8 @@ import { isAnalyticsSnapshot } from "./snapshotSource";
 const REPLAY_SESSIONS_PATH = "/api/spx/0dte/replay/sessions";
 const REPLAY_SNAPSHOT_PATH = "/api/spx/0dte/replay/snapshot";
 
+export type ReplayTimestampSource = "exact" | "estimated";
+
 export interface ReplaySession {
   session_id: string;
   symbol: string;
@@ -11,11 +13,31 @@ export interface ReplaySession {
   start_time: string;
   end_time: string;
   snapshot_count: number;
+  timestamp_source: ReplayTimestampSource;
+}
+
+export interface ReplayTimestampEntry {
+  index: number;
+  snapshot_time: string;
+  source_snapshot_id: string;
+}
+
+export interface ReplayTimestampResponse {
+  session_id: string;
+  timestamp_source: ReplayTimestampSource;
+  timestamps: ReplayTimestampEntry[];
+}
+
+export interface ReplayTimelineEntry {
+  index: number;
+  snapshot_time: string;
+  source_snapshot_id?: string;
 }
 
 export interface ReplaySnapshotRequest {
   session_id: string;
   at?: string;
+  source_snapshot_id?: string;
 }
 
 type ReplayFetcher = (input: string, init: RequestInit) => Promise<Response>;
@@ -26,6 +48,19 @@ type LoadClientReplayOptions = {
 
 export function isReplaySessionArray(payload: unknown): payload is ReplaySession[] {
   return Array.isArray(payload) && payload.every(isReplaySession);
+}
+
+export function isReplayTimestampResponse(payload: unknown): payload is ReplayTimestampResponse {
+  if (!isRecord(payload)) {
+    return false;
+  }
+
+  return (
+    typeof payload.session_id === "string" &&
+    isReplayTimestampSource(payload.timestamp_source) &&
+    Array.isArray(payload.timestamps) &&
+    payload.timestamps.every(isReplayTimestampEntry)
+  );
 }
 
 export async function loadClientReplaySessions(options: LoadClientReplayOptions = {}): Promise<ReplaySession[]> {
@@ -61,6 +96,10 @@ export async function loadClientReplaySnapshot(
     params.set("at", request.at);
   }
 
+  if (request.source_snapshot_id) {
+    params.set("source_snapshot_id", request.source_snapshot_id);
+  }
+
   try {
     const response = await fetcher(`${REPLAY_SNAPSHOT_PATH}?${params.toString()}`, {
       cache: "no-store",
@@ -75,6 +114,31 @@ export async function loadClientReplaySnapshot(
 
     const payload = await response.json();
     return isAnalyticsSnapshot(payload) ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadClientReplayTimestamps(
+  sessionId: string,
+  options: LoadClientReplayOptions = {}
+): Promise<ReplayTimestampResponse | null> {
+  const fetcher = options.fetcher ?? fetch;
+
+  try {
+    const response = await fetcher(`${replaySessionTimestampsPath(sessionId)}`, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
+    return isReplayTimestampResponse(payload) ? payload : null;
   } catch {
     return null;
   }
@@ -95,6 +159,35 @@ export function replayTimestampOptions(session: ReplaySession): string[] {
 
   const stepMs = (endTime - startTime) / (count - 1);
   return Array.from({ length: count }, (_, index) => new Date(startTime + stepMs * index).toISOString());
+}
+
+export function replayTimelineEntriesFromSession(session: ReplaySession): ReplayTimelineEntry[] {
+  return replayTimestampOptions(session).map((snapshot_time, index) => ({
+    index,
+    snapshot_time
+  }));
+}
+
+export function replayTimelineEntriesFromTimestamps(response: ReplayTimestampResponse): ReplayTimelineEntry[] {
+  return response.timestamps.map((entry) => ({
+    index: entry.index,
+    snapshot_time: entry.snapshot_time,
+    source_snapshot_id: entry.source_snapshot_id
+  }));
+}
+
+export function clampReplayTimelineIndex(index: number, entries: ReplayTimelineEntry[]): number {
+  if (entries.length === 0) {
+    return 0;
+  }
+
+  const maxIndex = entries.length - 1;
+
+  if (!Number.isFinite(index)) {
+    return maxIndex;
+  }
+
+  return Math.min(Math.max(Math.trunc(index), 0), maxIndex);
 }
 
 export function clampReplayIndex(index: number, session: ReplaySession): number {
@@ -123,8 +216,30 @@ function isReplaySession(payload: unknown): payload is ReplaySession {
     typeof payload.start_time === "string" &&
     typeof payload.end_time === "string" &&
     typeof payload.snapshot_count === "number" &&
-    Number.isFinite(payload.snapshot_count)
+    Number.isFinite(payload.snapshot_count) &&
+    isReplayTimestampSource(payload.timestamp_source)
   );
+}
+
+function isReplayTimestampEntry(payload: unknown): payload is ReplayTimestampEntry {
+  if (!isRecord(payload)) {
+    return false;
+  }
+
+  return (
+    typeof payload.index === "number" &&
+    Number.isInteger(payload.index) &&
+    typeof payload.snapshot_time === "string" &&
+    typeof payload.source_snapshot_id === "string"
+  );
+}
+
+function isReplayTimestampSource(value: unknown): value is ReplayTimestampSource {
+  return value === "exact" || value === "estimated";
+}
+
+function replaySessionTimestampsPath(sessionId: string): string {
+  return `${REPLAY_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/timestamps`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
