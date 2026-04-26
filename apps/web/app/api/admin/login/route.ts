@@ -39,16 +39,8 @@ function sessionCookie(value: string, request: Request): string {
   return attributes.join("; ");
 }
 
-function clientIp(request: Request): string {
-  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-
-  return forwardedFor
-    || request.headers.get("x-real-ip")
-    || "unknown";
-}
-
-function loginAttemptKey(username: string, request: Request): string {
-  return `${username}|${clientIp(request)}`;
+function loginAttemptKey(username: string): string {
+  return username.trim().toLowerCase();
 }
 
 export async function POST(request: Request) {
@@ -72,7 +64,7 @@ export async function POST(request: Request) {
     : {};
   const username = typeof credentials.username === "string" ? credentials.username : "";
   const password = typeof credentials.password === "string" ? credentials.password : "";
-  const attemptKey = loginAttemptKey(username, request);
+  const attemptKey = loginAttemptKey(username);
 
   if (!adminLoginAttemptAllowed(attemptKey) || !verifyAdminCredentials(username, password)) {
     recordAdminLoginFailure(attemptKey);

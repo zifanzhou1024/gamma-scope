@@ -335,6 +335,35 @@ describe("admin session routes", () => {
     expect(lockedResponse.headers.get("set-cookie")).toBeNull();
   });
 
+  it("keeps username locked when a client changes spoofable forwarded IP headers", async () => {
+    setAdminEnv();
+    const { resetAdminLoginAttempts } = await import("../lib/adminSession");
+    const { POST } = await import("../app/api/admin/login/route");
+    resetAdminLoginAttempts();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await POST(new Request("http://localhost/api/admin/login", {
+        method: "POST",
+        headers: { "X-Forwarded-For": "198.51.100.10" },
+        body: JSON.stringify({ username: "admin", password: "not-the-password" })
+      }));
+      expect(response.status).toBe(401);
+    }
+
+    const spoofedIpResponse = await POST(new Request("http://localhost/api/admin/login", {
+      method: "POST",
+      headers: { "X-Forwarded-For": "203.0.113.44" },
+      body: JSON.stringify({ username: "admin", password: "correct-horse-battery-staple" })
+    }));
+
+    expect(spoofedIpResponse.status).toBe(401);
+    await expect(readJson(spoofedIpResponse)).resolves.toEqual({
+      authenticated: false,
+      error: "Invalid credentials"
+    });
+    expect(spoofedIpResponse.headers.get("set-cookie")).toBeNull();
+  });
+
   it("returns authenticated true and a CSRF token when the admin cookie is valid", async () => {
     setAdminEnv();
     const { ADMIN_COOKIE_NAME, createAdminSessionValue } = await import("../lib/adminSession");
