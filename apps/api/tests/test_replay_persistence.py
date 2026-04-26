@@ -9,6 +9,12 @@ from fastapi.testclient import TestClient
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
+from gammascope_api.ingestion.latest_state_cache import (
+    InMemoryLatestStateCache,
+    latest_state_cache,
+    reset_latest_state_cache_override,
+    set_latest_state_cache_override,
+)
 from gammascope_api.main import app
 from gammascope_api.replay.capture import ReplayCaptureRecorder
 from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
@@ -37,11 +43,13 @@ def replay_repository() -> tuple[PostgresReplayRepository, list[str]]:
 def api_client(replay_repository: tuple[PostgresReplayRepository, list[str]]) -> TestClient:
     repo, _session_ids = replay_repository
     collector_state.clear()
+    set_latest_state_cache_override(InMemoryLatestStateCache())
     set_replay_repository_override(repo)
     try:
         yield TestClient(app)
     finally:
         collector_state.clear()
+        reset_latest_state_cache_override()
         reset_replay_repository_override()
 
 
@@ -152,6 +160,10 @@ def test_collector_ingestion_persists_replay_ready_snapshot_and_prefers_it_befor
     assert payload["session_id"] == session_id
     assert payload["snapshot_time"] == "2026-04-24T15:30:03Z"
     assert len(payload["rows"]) == 2
+
+
+def test_api_client_fixture_uses_in_memory_latest_state_cache(api_client: TestClient) -> None:
+    assert isinstance(latest_state_cache(), InMemoryLatestStateCache)
 
 
 def test_capture_throttle_inserts_new_snapshot_after_interval(

@@ -6,6 +6,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.ingestion.collector_state import collector_state
+from gammascope_api.ingestion.latest_state_cache import (
+    InMemoryLatestStateCache,
+    reset_latest_state_cache_override,
+    set_latest_state_cache_override,
+)
 from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
@@ -19,8 +24,13 @@ client = TestClient(app)
 
 def setup_function() -> None:
     collector_state.clear()
+    set_latest_state_cache_override(InMemoryLatestStateCache())
     set_replay_repository_override(NullReplayRepository())
     reset_replay_capture_circuit()
+
+
+def teardown_function() -> None:
+    reset_latest_state_cache_override()
 
 
 def test_websocket_path_streams_valid_snapshot_on_connect() -> None:
@@ -36,6 +46,21 @@ def test_websocket_first_message_prefers_live_collector_snapshot() -> None:
     session_id = "live-ws-test-session"
     for event in _live_events(session_id):
         assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    with client.websocket_connect("/ws/spx/0dte") as websocket:
+        payload = websocket.receive_json()
+
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["mode"] == "live"
+    assert payload["session_id"] == session_id
+    assert payload["spot"] == 5200.25
+
+
+def test_websocket_first_message_prefers_cached_collector_snapshot() -> None:
+    session_id = "cached-ws-test-session"
+    for event in _live_events(session_id):
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+    collector_state.clear()
 
     with client.websocket_connect("/ws/spx/0dte") as websocket:
         payload = websocket.receive_json()

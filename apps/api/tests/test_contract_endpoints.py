@@ -3,6 +3,11 @@ from fastapi.testclient import TestClient
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.collector_state import collector_state
+from gammascope_api.ingestion.latest_state_cache import (
+    InMemoryLatestStateCache,
+    reset_latest_state_cache_override,
+    set_latest_state_cache_override,
+)
 from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
@@ -19,12 +24,14 @@ client = TestClient(app)
 
 def setup_function() -> None:
     collector_state.clear()
+    set_latest_state_cache_override(InMemoryLatestStateCache())
     set_replay_repository_override(NullReplayRepository())
     set_saved_view_repository_override(InMemorySavedViewRepository())
     reset_replay_capture_circuit()
 
 
 def teardown_function() -> None:
+    reset_latest_state_cache_override()
     reset_saved_view_repository_override()
 
 
@@ -243,6 +250,119 @@ def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
     assert all(row["custom_iv"] is not None for row in payload["rows"])
     assert all(row["custom_gamma"] is not None for row in payload["rows"])
     assert all(row["custom_vanna"] is not None for row in payload["rows"])
+
+
+def test_latest_readers_prefer_cached_collector_state_after_process_memory_clear() -> None:
+    session_id = "cached-live-session"
+    events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event(session_id, "2026-04-24T15:30:00Z", 5300.25),
+        _contract_event(session_id, "SPX-2026-04-24-C-5300", "call", "2026-04-24T15:30:00Z"),
+        _option_event(session_id, "SPX-2026-04-24-C-5300", "2026-04-24T15:30:02Z"),
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+    collector_state.clear()
+
+    state_response = client.get("/api/spx/0dte/collector/state")
+    status_response = client.get("/api/spx/0dte/status")
+    snapshot_response = client.get("/api/spx/0dte/snapshot/latest")
+    scenario_response = client.post(
+        "/api/spx/0dte/scenario",
+        json={
+            "session_id": session_id,
+            "snapshot_time": "2026-04-24T15:30:02Z",
+            "spot_shift_points": 5,
+            "vol_shift_points": 0,
+            "time_shift_minutes": 0,
+        },
+    )
+
+    assert state_response.status_code == 200
+    assert state_response.json()["contracts_count"] == 1
+    assert state_response.json()["last_event_time"] == "2026-04-24T15:30:02Z"
+    assert status_response.status_code == 200
+    assert status_response.json()["message"] == "Mock live cycle"
+    assert snapshot_response.status_code == 200
+    snapshot_payload = snapshot_response.json()
+    AnalyticsSnapshot.model_validate(snapshot_payload)
+    assert snapshot_payload["mode"] == "live"
+    assert snapshot_payload["session_id"] == session_id
+    assert snapshot_payload["spot"] == 5300.25
+    assert scenario_response.status_code == 200
+    scenario_payload = scenario_response.json()
+    assert scenario_payload["mode"] == "scenario"
+    assert scenario_payload["session_id"] == session_id
+    assert scenario_payload["spot"] == 5305.25
+
+
+def test_collector_ingest_continues_when_latest_state_cache_write_fails() -> None:
+    set_latest_state_cache_override(FailingLatestStateCache())
+    session_id = "cache-failure-live-session"
+
+    responses = [
+        client.post("/api/spx/0dte/collector/events", json=event)
+        for event in [
+            _health_event("2026-04-24T15:30:00Z"),
+            _underlying_event(session_id, "2026-04-24T15:30:00Z", 5200.25),
+            _contract_event(session_id, "SPX-2026-04-24-C-5200", "call", "2026-04-24T15:30:00Z"),
+            _option_event(session_id, "SPX-2026-04-24-C-5200", "2026-04-24T15:30:02Z"),
+        ]
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(response.json()["accepted"] is True for response in responses)
+    assert client.get("/api/spx/0dte/status").json()["message"] == "Mock live cycle"
+    snapshot_payload = client.get("/api/spx/0dte/snapshot/latest").json()
+    assert snapshot_payload["mode"] == "live"
+    assert snapshot_payload["session_id"] == session_id
+
+
+def test_latest_readers_use_memory_when_cache_is_stale_and_cache_writes_fail() -> None:
+    session_id = "fresh-memory-session"
+    set_latest_state_cache_override(
+        StaleReadFailingWriteLatestStateCache(
+            {
+                "health_events": {
+                    "local-dev": {
+                        **_health_event("2026-04-24T15:29:00Z"),
+                        "message": "Stale cached health",
+                    }
+                },
+                "contracts": {},
+                "underlying_ticks": {},
+                "option_ticks": {},
+                "last_event_time": "2026-04-24T15:29:00Z",
+            }
+        )
+    )
+    fresh_health = {**_health_event("2026-04-24T15:30:00Z"), "message": "Fresh in-memory health"}
+    events = [
+        fresh_health,
+        _underlying_event(session_id, "2026-04-24T15:30:01Z", 5310.25),
+        _contract_event(session_id, "SPX-2026-04-24-C-5310", "call", "2026-04-24T15:30:01Z"),
+        _option_event(session_id, "SPX-2026-04-24-C-5310", "2026-04-24T15:30:02Z"),
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    state_response = client.get("/api/spx/0dte/collector/state")
+    status_response = client.get("/api/spx/0dte/status")
+    snapshot_response = client.get("/api/spx/0dte/snapshot/latest")
+
+    assert state_response.status_code == 200
+    assert state_response.json()["contracts_count"] == 1
+    assert state_response.json()["last_event_time"] == "2026-04-24T15:30:02Z"
+    assert status_response.status_code == 200
+    assert status_response.json()["message"] == "Fresh in-memory health"
+    assert snapshot_response.status_code == 200
+    snapshot_payload = snapshot_response.json()
+    AnalyticsSnapshot.model_validate(snapshot_payload)
+    assert snapshot_payload["mode"] == "live"
+    assert snapshot_payload["session_id"] == session_id
+    assert snapshot_payload["spot"] == 5310.25
 
 
 def test_latest_snapshot_does_not_mix_rows_from_previous_session() -> None:
@@ -677,6 +797,31 @@ class FailingReplayRepository:
     def nearest_snapshot(self, session_id: str, at: str | None = None):
         self.calls += 1
         raise RuntimeError("database unavailable")
+
+
+class FailingLatestStateCache:
+    def get(self):
+        raise RuntimeError("redis unavailable")
+
+    def set(self, state):
+        raise RuntimeError("redis unavailable")
+
+    def clear(self) -> None:
+        raise RuntimeError("redis unavailable")
+
+
+class StaleReadFailingWriteLatestStateCache:
+    def __init__(self, state):
+        self.state = state
+
+    def get(self):
+        return self.state
+
+    def set(self, state):
+        raise RuntimeError("redis unavailable")
+
+    def clear(self) -> None:
+        self.state = None
 
 
 class FailingSavedViewRepository:

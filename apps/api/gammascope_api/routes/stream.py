@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from gammascope_api.fixtures import load_json_fixture
-from gammascope_api.ingestion.collector_state import collector_state
+from gammascope_api.ingestion.latest_state_cache import cached_or_memory_collector_state
 from gammascope_api.ingestion.live_snapshot import build_live_snapshot
 from gammascope_api.routes.replay import replay_stream_snapshots, seed_replay_snapshots
 
@@ -53,7 +53,7 @@ async def stream_spx_0dte_replay(
 
 
 def _current_snapshot() -> dict[str, Any]:
-    live_snapshot = build_live_snapshot(collector_state)
+    live_snapshot = build_live_snapshot(cached_or_memory_collector_state())
     if live_snapshot is not None:
         return live_snapshot
     return load_json_fixture("analytics-snapshot.seed.json")

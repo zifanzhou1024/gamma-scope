@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from gammascope_api.contracts.generated.collector_events import (
@@ -67,6 +68,25 @@ class CollectorState:
 
     def last_event_time(self) -> str | None:
         return self._last_event_time
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "health_events": deepcopy(self._health_events),
+            "contracts": deepcopy(self._contracts),
+            "underlying_ticks": deepcopy(self._underlying_ticks),
+            "option_ticks": deepcopy(self._option_ticks),
+            "last_event_time": self._last_event_time,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict[str, Any]) -> CollectorState:
+        state = cls()
+        state._health_events = deepcopy(snapshot.get("health_events", {}))
+        state._contracts = deepcopy(snapshot.get("contracts", {}))
+        state._underlying_ticks = deepcopy(snapshot.get("underlying_ticks", {}))
+        state._option_ticks = deepcopy(snapshot.get("option_ticks", {}))
+        state._last_event_time = snapshot.get("last_event_time")
+        return state
 
 
 collector_state = CollectorState()
