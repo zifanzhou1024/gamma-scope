@@ -25,6 +25,18 @@ class ReplayArchive:
     quotes_sha256: str
 
 
+def _validate_import_id(import_id: str) -> None:
+    import_path = Path(import_id)
+    if (
+        not import_id
+        or import_id in {".", ".."}
+        or import_path.is_absolute()
+        or import_path.name != import_id
+        or "\\" in import_id
+    ):
+        raise ValueError("Replay import_id must be a safe single path segment")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -53,11 +65,14 @@ def archive_replay_files(
     archive_dir: Path,
     import_id: str,
 ) -> ReplayArchive:
+    _validate_import_id(import_id)
     snapshots_source = describe_source_file(snapshots_path)
     quotes_source = describe_source_file(quotes_path)
 
     import_dir = Path(archive_dir) / import_id
-    import_dir.mkdir(parents=True, exist_ok=True)
+    if import_dir.exists():
+        raise FileExistsError(f"Replay archive already exists for import {import_id}: {import_dir}")
+    import_dir.mkdir(parents=True)
     archived_snapshots_path = import_dir / "snapshots.parquet"
     archived_quotes_path = import_dir / "quotes.parquet"
 

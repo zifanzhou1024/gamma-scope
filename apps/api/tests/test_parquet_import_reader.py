@@ -3,6 +3,8 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from gammascope_api.replay.archive import archive_replay_files, describe_source_file, sha256_file
 from gammascope_api.replay.config import replay_archive_dir, replay_import_max_bytes
 from gammascope_api.replay.parquet_reader import iter_replay_quote_records, read_replay_parquet_pair
@@ -92,6 +94,50 @@ def test_archive_replay_files_copies_inputs_and_writes_manifest(tmp_path: Path) 
             "archive_path": str(archived_quotes),
         },
     }
+
+
+@pytest.mark.parametrize("import_id", ["../escaped", "/absolute/import", "nested/import", ""])
+def test_archive_replay_files_rejects_unsafe_import_id(tmp_path: Path, import_id: str) -> None:
+    snapshots_path = tmp_path / "snapshots-upload.parquet"
+    quotes_path = tmp_path / "quotes-upload.parquet"
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    archive_dir = tmp_path / "archive"
+
+    with pytest.raises(ValueError, match="safe single path segment"):
+        archive_replay_files(
+            snapshots_path=snapshots_path,
+            quotes_path=quotes_path,
+            archive_dir=archive_dir,
+            import_id=import_id,
+        )
+
+
+def test_archive_replay_files_rejects_existing_import_archive(tmp_path: Path) -> None:
+    snapshots_path = tmp_path / "snapshots-upload.parquet"
+    quotes_path = tmp_path / "quotes-upload.parquet"
+    snapshots_path.write_bytes(b"snapshot bytes")
+    quotes_path.write_bytes(b"quote bytes")
+    archive_dir = tmp_path / "archive"
+    archive_replay_files(
+        snapshots_path=snapshots_path,
+        quotes_path=quotes_path,
+        archive_dir=archive_dir,
+        import_id="import-123",
+    )
+
+    snapshots_path.write_bytes(b"replacement snapshot bytes")
+    quotes_path.write_bytes(b"replacement quote bytes")
+    with pytest.raises(FileExistsError, match="Replay archive already exists"):
+        archive_replay_files(
+            snapshots_path=snapshots_path,
+            quotes_path=quotes_path,
+            archive_dir=archive_dir,
+            import_id="import-123",
+        )
+
+    assert (archive_dir / "import-123" / "snapshots.parquet").read_bytes() == b"snapshot bytes"
+    assert (archive_dir / "import-123" / "quotes.parquet").read_bytes() == b"quote bytes"
 
 
 def test_reads_tiny_replay_parquet_pair_and_normalizes_records(tmp_path: Path) -> None:
