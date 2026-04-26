@@ -21,19 +21,39 @@ import {
   loadClientReplaySnapshot,
   replayTimestampOptions
 } from "../lib/clientReplaySource";
+import type { ReplayImportResult } from "../lib/replayImportSource";
+import {
+  cancelReplayImport,
+  confirmReplayImport,
+  uploadReplayImport
+} from "../lib/replayImportSource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
 import { startReplayStream } from "../lib/replayStream";
 import { startLiveSnapshotUpdates } from "../lib/snapshotUpdates";
 import type { LiveSnapshotUpdateSource } from "../lib/snapshotUpdates";
+import { AdminLoginPanel } from "./AdminLoginPanel";
 import { DashboardView } from "./DashboardView";
+import { ReplayImportPanel } from "./ReplayImportPanel";
 import { ReplayPanel } from "./ReplayPanel";
 import { SavedViewsPanel } from "./SavedViewsPanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 
 export { createSavedViewDraft } from "../lib/clientSavedViewsSource";
 
+const ADMIN_SESSION_PATH = "/api/admin/session";
+const ADMIN_LOGIN_PATH = "/api/admin/login";
+const ADMIN_LOGOUT_PATH = "/api/admin/logout";
+const CSRF_HEADER_NAME = "X-GammaScope-CSRF";
+
 interface LiveDashboardProps {
   initialSnapshot: AnalyticsSnapshot;
+  initialAdminSession?: InitialAdminSession;
+}
+
+interface InitialAdminSession {
+  authenticated: boolean;
+  csrfToken: string | null;
+  isAvailable?: boolean;
 }
 
 interface ScenarioControlValues {
@@ -91,6 +111,18 @@ interface ReplayStreamUnavailableState {
   isReplayStreamActive: boolean;
   isReplayModeActive: boolean;
   replayError: string;
+}
+
+interface DashboardAdminState {
+  isAdminAuthenticated: boolean;
+  isAdminAvailable: boolean;
+  adminCsrfToken: string | null;
+  adminErrorMessage: string | null;
+}
+
+interface ConfirmedImportReplaySelection {
+  selectedReplaySessionId: string;
+  selectedReplayIndex: number;
 }
 
 export function createScenarioRequest(
@@ -197,7 +229,62 @@ export function canApplyReplaySnapshot({
   return !replayRequestsCanceled && responseRequestId === latestRequestId;
 }
 
-export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
+export function createDashboardAdminStateFromSessionPayload(
+  payload: unknown,
+  isAdminAvailable = true
+): DashboardAdminState {
+  if (!isRecord(payload) || payload.authenticated !== true || typeof payload.csrf_token !== "string") {
+    return createLoggedOutAdminState(isAdminAvailable);
+  }
+
+  return {
+    isAdminAuthenticated: true,
+    isAdminAvailable,
+    adminCsrfToken: payload.csrf_token,
+    adminErrorMessage: null
+  };
+}
+
+export function createLoggedOutAdminState(isAdminAvailable = true): DashboardAdminState {
+  return {
+    isAdminAuthenticated: false,
+    isAdminAvailable,
+    adminCsrfToken: null,
+    adminErrorMessage: null
+  };
+}
+
+export function shouldShowReplayImportControls(isAdminAuthenticated: boolean): boolean {
+  return isAdminAuthenticated;
+}
+
+export function selectReplaySessionAfterImportConfirm(
+  importResult: ReplayImportResult,
+  sessions: ReplaySession[]
+): ConfirmedImportReplaySelection | null {
+  if (importResult.status !== "completed" || !importResult.session_id) {
+    return null;
+  }
+
+  const importedSession = sessions.find((session) => session.session_id === importResult.session_id) ?? null;
+  if (!importedSession) {
+    return null;
+  }
+
+  return {
+    selectedReplaySessionId: importedSession.session_id,
+    selectedReplayIndex: clampReplayIndex(Number.POSITIVE_INFINITY, importedSession)
+  };
+}
+
+export function shouldClearReplayImportAfterCancel(
+  importResult: ReplayImportResult,
+  currentImportId: string | null
+): boolean {
+  return importResult.status === "cancelled" && importResult.import_id === currentImportId;
+}
+
+export function LiveDashboard({ initialSnapshot, initialAdminSession }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
@@ -220,6 +307,15 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   const [isLoadingSavedViews, setIsLoadingSavedViews] = useState(true);
   const [isSavingView, setIsSavingView] = useState(false);
   const [savedViewError, setSavedViewError] = useState<string | null>(null);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(initialAdminSession?.authenticated ?? false);
+  const [isAdminAvailable, setIsAdminAvailable] = useState(initialAdminSession?.isAvailable ?? true);
+  const [adminCsrfToken, setAdminCsrfToken] = useState<string | null>(initialAdminSession?.csrfToken ?? null);
+  const [isAdminSubmitting, setIsAdminSubmitting] = useState(false);
+  const [adminErrorMessage, setAdminErrorMessage] = useState<string | null>(null);
+  const [currentReplayImport, setCurrentReplayImport] = useState<ReplayImportResult | null>(null);
+  const [isUploadingReplayImport, setIsUploadingReplayImport] = useState(false);
+  const [isConfirmingReplayImport, setIsConfirmingReplayImport] = useState(false);
+  const [replayImportError, setReplayImportError] = useState<string | null>(null);
   const scenarioModeRef = useRef(false);
   const replayModeRef = useRef(false);
   const latestLiveRequestIdRef = useRef(0);
@@ -242,6 +338,29 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
   );
   const clampedReplayIndex = selectedReplaySession ? clampReplayIndex(selectedReplayIndex, selectedReplaySession) : 0;
   const selectedReplayTime = replaySnapshotTimes[clampedReplayIndex] ?? null;
+
+  const applyDashboardAdminState = (adminState: DashboardAdminState) => {
+    setIsAdminAuthenticated(adminState.isAdminAuthenticated);
+    setIsAdminAvailable(adminState.isAdminAvailable);
+    setAdminCsrfToken(adminState.adminCsrfToken);
+    setAdminErrorMessage(adminState.adminErrorMessage);
+  };
+
+  useEffect(() => {
+    let isCanceled = false;
+
+    loadDashboardAdminSession(isAdminAvailable).then((adminState) => {
+      if (isCanceled) {
+        return;
+      }
+
+      applyDashboardAdminState(adminState);
+    });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let isCanceled = false;
@@ -530,6 +649,141 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
     });
   };
 
+  const loginAdmin = async (username: string, password: string) => {
+    setIsAdminSubmitting(true);
+    setAdminErrorMessage(null);
+
+    const response = await postAdminLogin(username, password);
+    if (response.status === 503 && isAdminUnavailablePayload(response.payload)) {
+      setIsAdminAuthenticated(false);
+      setIsAdminAvailable(false);
+      setAdminCsrfToken(null);
+      setAdminErrorMessage(response.payload.error);
+      setIsAdminSubmitting(false);
+      return;
+    }
+
+    if (!response.ok || !isRecord(response.payload) || response.payload.authenticated !== true) {
+      setIsAdminAuthenticated(false);
+      setAdminCsrfToken(null);
+      setAdminErrorMessage(errorMessageFromPayload(response.payload) ?? "Admin login failed.");
+      setIsAdminSubmitting(false);
+      return;
+    }
+
+    if (typeof response.payload.csrf_token === "string") {
+      applyDashboardAdminState(createDashboardAdminStateFromSessionPayload(response.payload, true));
+    } else {
+      applyDashboardAdminState(await loadDashboardAdminSession(true));
+    }
+
+    setIsAdminAvailable(true);
+    setIsAdminSubmitting(false);
+  };
+
+  const logoutAdmin = async () => {
+    setIsAdminSubmitting(true);
+    setAdminErrorMessage(null);
+
+    await fetch(ADMIN_LOGOUT_PATH, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        ...(adminCsrfToken ? { [CSRF_HEADER_NAME]: adminCsrfToken } : {})
+      }
+    }).catch(() => null);
+
+    applyDashboardAdminState(createLoggedOutAdminState(true));
+    setCurrentReplayImport(null);
+    setReplayImportError(null);
+    setIsUploadingReplayImport(false);
+    setIsConfirmingReplayImport(false);
+    setIsAdminSubmitting(false);
+  };
+
+  const uploadReplayFiles = async (snapshots: File, quotes: File) => {
+    if (!adminCsrfToken) {
+      setReplayImportError("Admin session expired. Log in again.");
+      return;
+    }
+
+    setIsUploadingReplayImport(true);
+    setReplayImportError(null);
+
+    const files = new FormData();
+    files.append("snapshots", snapshots);
+    files.append("quotes", quotes);
+    const result = await uploadReplayImport(files, adminCsrfToken);
+
+    setIsUploadingReplayImport(false);
+
+    if (!result) {
+      setReplayImportError("Replay import upload failed.");
+      return;
+    }
+
+    setCurrentReplayImport(result);
+  };
+
+  const confirmReplayImportReview = async (importId: string) => {
+    if (!adminCsrfToken) {
+      setReplayImportError("Admin session expired. Log in again.");
+      return;
+    }
+
+    setIsConfirmingReplayImport(true);
+    setReplayImportError(null);
+
+    const result = await confirmReplayImport(importId, adminCsrfToken);
+    if (!result) {
+      setReplayImportError("Replay import confirm failed.");
+      setIsConfirmingReplayImport(false);
+      return;
+    }
+
+    setCurrentReplayImport(result);
+
+    if (result.status === "completed" && result.session_id) {
+      setIsLoadingReplaySessions(true);
+      const sessions = await loadClientReplaySessions();
+      setReplaySessions(sessions);
+      const selection = selectReplaySessionAfterImportConfirm(result, sessions);
+      if (selection) {
+        setSelectedReplaySessionId(selection.selectedReplaySessionId);
+        setSelectedReplayIndex(selection.selectedReplayIndex);
+      }
+      setIsLoadingReplaySessions(false);
+    }
+
+    setIsConfirmingReplayImport(false);
+  };
+
+  const cancelReplayImportReview = async (importId: string) => {
+    if (!adminCsrfToken) {
+      setReplayImportError("Admin session expired. Log in again.");
+      return;
+    }
+
+    setIsConfirmingReplayImport(true);
+    setReplayImportError(null);
+
+    const result = await cancelReplayImport(importId, adminCsrfToken);
+    setIsConfirmingReplayImport(false);
+
+    if (!result) {
+      setReplayImportError("Replay import cancel failed.");
+      return;
+    }
+
+    if (shouldClearReplayImportAfterCancel(result, currentReplayImport?.import_id ?? null)) {
+      setCurrentReplayImport(null);
+      return;
+    }
+
+    setCurrentReplayImport(result);
+  };
+
   const saveCurrentView = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedName = savedViewName.trim();
@@ -567,31 +821,52 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
       replayPanel={
-        <ReplayPanel
-          selectedSessionId={selectedReplaySessionId}
-          sessions={replaySessions}
-          hasSessions={replaySessions.length > 0}
-          snapshotTimes={replaySnapshotTimes}
-          selectedSnapshotIndex={clampedReplayIndex}
-          selectedSnapshotTime={selectedReplayTime}
-          isReplayModeActive={isReplayModeActive}
-          isReplayStreamActive={isReplayStreamActive}
-          isLoadingSessions={isLoadingReplaySessions}
-          isLoadingReplay={isLoadingReplay}
-          errorMessage={replayError}
-          onSelectSessionId={(sessionId) => {
-            const session = replaySessions.find((candidate) => candidate.session_id === sessionId) ?? null;
-            setSelectedReplaySessionId(sessionId || null);
-            setSelectedReplayIndex(session ? clampReplayIndex(Number.POSITIVE_INFINITY, session) : 0);
-          }}
-          onSelectSnapshotIndex={(index) => {
-            setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
-          }}
-          onLoadReplay={loadReplay}
-          onPlayReplayStream={playReplayStream}
-          onStopReplayStream={stopReplayStream}
-          onReturnToLive={returnToLive}
-        />
+        <div className="replayControlStack">
+          <ReplayPanel
+            selectedSessionId={selectedReplaySessionId}
+            sessions={replaySessions}
+            hasSessions={replaySessions.length > 0}
+            snapshotTimes={replaySnapshotTimes}
+            selectedSnapshotIndex={clampedReplayIndex}
+            selectedSnapshotTime={selectedReplayTime}
+            isReplayModeActive={isReplayModeActive}
+            isReplayStreamActive={isReplayStreamActive}
+            isLoadingSessions={isLoadingReplaySessions}
+            isLoadingReplay={isLoadingReplay}
+            errorMessage={replayError}
+            onSelectSessionId={(sessionId) => {
+              const session = replaySessions.find((candidate) => candidate.session_id === sessionId) ?? null;
+              setSelectedReplaySessionId(sessionId || null);
+              setSelectedReplayIndex(session ? clampReplayIndex(Number.POSITIVE_INFINITY, session) : 0);
+            }}
+            onSelectSnapshotIndex={(index) => {
+              setSelectedReplayIndex(selectedReplaySession ? clampReplayIndex(index, selectedReplaySession) : 0);
+            }}
+            onLoadReplay={loadReplay}
+            onPlayReplayStream={playReplayStream}
+            onStopReplayStream={stopReplayStream}
+            onReturnToLive={returnToLive}
+          />
+          <AdminLoginPanel
+            isAuthenticated={isAdminAuthenticated}
+            isAvailable={isAdminAvailable}
+            isSubmitting={isAdminSubmitting}
+            errorMessage={adminErrorMessage}
+            onLogin={loginAdmin}
+            onLogout={logoutAdmin}
+          />
+          <ReplayImportPanel
+            isAdminAuthenticated={shouldShowReplayImportControls(isAdminAuthenticated)}
+            csrfToken={adminCsrfToken}
+            currentImport={currentReplayImport}
+            isUploading={isUploadingReplayImport}
+            isConfirming={isConfirmingReplayImport}
+            errorMessage={replayImportError}
+            onUpload={uploadReplayFiles}
+            onConfirm={confirmReplayImportReview}
+            onCancel={cancelReplayImportReview}
+          />
+        </div>
       }
       savedViewsPanel={
         <SavedViewsPanel
@@ -621,4 +896,75 @@ export function LiveDashboard({ initialSnapshot }: LiveDashboardProps) {
       }
     />
   );
+}
+
+async function loadDashboardAdminSession(isAdminAvailable = true): Promise<DashboardAdminState> {
+  try {
+    const response = await fetch(ADMIN_SESSION_PATH, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      return createLoggedOutAdminState(isAdminAvailable);
+    }
+
+    return createDashboardAdminStateFromSessionPayload(await response.json(), isAdminAvailable);
+  } catch {
+    return createLoggedOutAdminState(isAdminAvailable);
+  }
+}
+
+async function postAdminLogin(username: string, password: string): Promise<{
+  ok: boolean;
+  status: number;
+  payload: unknown;
+}> {
+  try {
+    const response = await fetch(ADMIN_LOGIN_PATH, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ username, password })
+    });
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      payload: await readJsonPayload(response)
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      payload: null
+    };
+  }
+}
+
+async function readJsonPayload(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function isAdminUnavailablePayload(payload: unknown): payload is { authenticated: false; error: string } {
+  return isRecord(payload)
+    && payload.authenticated === false
+    && payload.error === "Admin login unavailable";
+}
+
+function errorMessageFromPayload(payload: unknown): string | null {
+  return isRecord(payload) && typeof payload.error === "string" ? payload.error : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

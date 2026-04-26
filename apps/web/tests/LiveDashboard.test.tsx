@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { seedSnapshot } from "../lib/seedSnapshot";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+import type { ReplayImportResult } from "../lib/replayImportSource";
 import * as LiveDashboardModule from "../components/LiveDashboard";
 
 vi.mock("../components/DashboardChart", () => ({
@@ -10,6 +11,48 @@ vi.mock("../components/DashboardChart", () => ({
 }));
 
 describe("LiveDashboard scenario panel", () => {
+  it("shows admin login while keeping import controls hidden for public users", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
+
+    expect(markup).toContain("Admin");
+    expect(markup).toContain("Username");
+    expect(markup).toContain("Password");
+    expect(markup).toContain("Log in");
+    expect(markup).not.toContain("Replay import");
+    expect(markup).not.toContain("Upload import");
+  });
+
+  it("shows import controls near replay controls for an authenticated admin session", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(
+      <LiveDashboardModule.LiveDashboard
+        initialSnapshot={snapshot}
+        initialAdminSession={{
+          authenticated: true,
+          csrfToken: "csrf-token",
+          isAvailable: true
+        }}
+      />
+    );
+
+    expect(markup).toContain("Replay");
+    expect(markup).toContain("Replay import");
+    expect(markup).toContain("snapshots.parquet");
+    expect(markup).toContain("quotes.parquet");
+    expect(markup.indexOf("Replay")).toBeLessThan(markup.indexOf("Replay import"));
+  });
+
   it("renders compact scenario controls with the live dashboard", () => {
     const snapshot = {
       ...seedSnapshot,
@@ -290,5 +333,85 @@ describe("LiveDashboard scenario panel", () => {
       latestRequestId: 4,
       replayRequestsCanceled: true
     })).toBe(false);
+  });
+
+  it("derives authenticated and logged-out admin dashboard states", () => {
+    expect(LiveDashboardModule.createDashboardAdminStateFromSessionPayload({
+      authenticated: true,
+      csrf_token: "csrf-token"
+    }, true)).toEqual({
+      isAdminAuthenticated: true,
+      isAdminAvailable: true,
+      adminCsrfToken: "csrf-token",
+      adminErrorMessage: null
+    });
+
+    expect(LiveDashboardModule.createDashboardAdminStateFromSessionPayload({
+      authenticated: false,
+      csrf_token: null
+    }, true)).toEqual({
+      isAdminAuthenticated: false,
+      isAdminAvailable: true,
+      adminCsrfToken: null,
+      adminErrorMessage: null
+    });
+
+    const loggedOutState = LiveDashboardModule.createLoggedOutAdminState();
+    expect(loggedOutState).toEqual({
+      isAdminAuthenticated: false,
+      isAdminAvailable: true,
+      adminCsrfToken: null,
+      adminErrorMessage: null
+    });
+    expect(LiveDashboardModule.shouldShowReplayImportControls(loggedOutState.isAdminAuthenticated)).toBe(false);
+  });
+
+  it("selects the completed imported replay session after refresh", () => {
+    const importResult = {
+      import_id: "import-ready",
+      status: "completed",
+      summary: {},
+      warnings: [],
+      errors: [],
+      session_id: "import-session-ready",
+      replay_url: "/replay?session_id=import-session-ready"
+    } satisfies ReplayImportResult;
+
+    expect(LiveDashboardModule.selectReplaySessionAfterImportConfirm(importResult, [
+      {
+        session_id: "seed-spx-2026-04-23",
+        symbol: "SPX",
+        expiry: "2026-04-23",
+        start_time: "2026-04-23T14:30:00Z",
+        end_time: "2026-04-23T14:35:00Z",
+        snapshot_count: 2
+      },
+      {
+        session_id: "import-session-ready",
+        symbol: "SPX",
+        expiry: "2026-04-24",
+        start_time: "2026-04-24T14:30:00Z",
+        end_time: "2026-04-24T14:40:00Z",
+        snapshot_count: 3
+      }
+    ])).toEqual({
+      selectedReplaySessionId: "import-session-ready",
+      selectedReplayIndex: 2
+    });
+  });
+
+  it("clears unpublished import review after cancel", () => {
+    const cancelledImport = {
+      import_id: "import-ready",
+      status: "cancelled",
+      summary: {},
+      warnings: [],
+      errors: [],
+      session_id: null,
+      replay_url: null
+    } satisfies ReplayImportResult;
+
+    expect(LiveDashboardModule.shouldClearReplayImportAfterCancel(cancelledImport, "import-ready")).toBe(true);
+    expect(LiveDashboardModule.shouldClearReplayImportAfterCancel(cancelledImport, "other-import")).toBe(false);
   });
 });

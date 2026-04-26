@@ -56,7 +56,10 @@ select {
 .topBar,
 .sessionBand,
 .dashboardControls,
+.replayControlStack,
 .replayPanel,
+.adminPanel,
+.replayImportPanel,
 .savedViewsPanel,
 .scenarioPanel,
 .kpiGrid,
@@ -273,7 +276,15 @@ h1 {
   margin: -6px 0 18px;
 }
 
+.replayControlStack {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+}
+
 .replayPanel,
+.adminPanel,
+.replayImportPanel,
 .savedViewsPanel {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -283,6 +294,209 @@ h1 {
   border-radius: 8px;
   background: rgba(16, 23, 34, 0.88);
   padding: 12px;
+}
+
+.adminPanel {
+  gap: 10px;
+}
+
+.adminPanelHeader,
+.importReviewHeader {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.adminPanelHeader strong,
+.importReviewHeader strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.adminLoginForm,
+.replayImportForm {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.adminLoginForm label,
+.importFileGrid label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.adminLoginForm label span,
+.importFileGrid label span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.adminLoginForm input,
+.importFileGrid input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  background: rgba(8, 13, 22, 0.78);
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.adminPanel button,
+.replayImportPanel button {
+  min-height: 36px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.16);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.adminPanel button:disabled,
+.replayImportPanel button:disabled {
+  cursor: wait;
+  opacity: 0.64;
+}
+
+.adminPanel .secondaryButton,
+.replayImportPanel .secondaryButton {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--soft);
+}
+
+.importFileGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.importReview {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.importReviewGrid {
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.importReviewGrid div {
+  min-width: 0;
+}
+
+.importReviewGrid span,
+.importChecksumList span {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.importReviewGrid strong,
+.importChecksumList code {
+  display: block;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.importChecksumList {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.importChecksumList code {
+  color: var(--soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.importPreviewTable {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.importPreviewTable table {
+  border-collapse: collapse;
+  min-width: 520px;
+  width: 100%;
+}
+
+.importPreviewTable th,
+.importPreviewTable td {
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--soft);
+  font-size: 12px;
+  padding: 6px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.importPreviewTable th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.importPreviewTable td {
+  overflow-wrap: anywhere;
+}
+
+.importMessage {
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding: 8px 9px;
+}
+
+.importMessage strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.importMessage ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.importMessage-error {
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  color: #fca5a5;
+}
+
+.importMessage-warning {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: #fcd34d;
+}
+
+.importReviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .replayCopy {
@@ -1231,6 +1445,8 @@ tbody tr:last-child td {
   .sessionBand,
   .dashboardControls,
   .scenarioForm,
+  .importFileGrid,
+  .importReviewGrid,
   .kpiGrid,
   .chartGrid {
     grid-template-columns: 1fr;
