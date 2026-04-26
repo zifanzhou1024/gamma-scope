@@ -65,6 +65,7 @@ describe("replay import proxy routes", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.resetModules();
   });
 
@@ -140,27 +141,115 @@ describe("replay import proxy routes", () => {
     const upstream = importResult();
     const fetcher = vi.fn(async () => jsonResponse(upstream, true, 201));
     vi.stubGlobal("fetch", fetcher);
-    const form = new FormData();
-    form.append("file", new Blob(["csv"]), "replay.csv");
+    const formDataSpy = vi.spyOn(Request.prototype, "formData");
+    const body = "--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"replay.csv\"\r\n\r\ncsv\r\n--boundary--";
     const { POST } = await import("../app/api/replay/imports/route");
-
-    const response = await POST(new Request("http://localhost/api/replay/imports", {
+    const request = new Request("http://localhost/api/replay/imports", {
       method: "POST",
-      headers: await adminHeaders(),
-      body: form
-    }));
+      headers: {
+        ...await adminHeaders(),
+        "Content-Type": "multipart/form-data; boundary=boundary",
+        "Content-Length": String(body.length)
+      },
+      body
+    });
+
+    const response = await POST(request);
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual(upstream);
+    expect(formDataSpy).not.toHaveBeenCalled();
     expect(fetcher).toHaveBeenCalledWith("http://fastapi.test/api/replay/imports", {
       method: "POST",
       cache: "no-store",
       headers: {
         Accept: "application/json",
+        "Content-Type": "multipart/form-data; boundary=boundary",
         "X-GammaScope-Admin-Token": "upstream-admin-token"
       },
-      body: expect.any(FormData)
+      body: request.body,
+      duplex: "half"
     });
+  });
+
+  it("returns 413 before forwarding uploads larger than the configured max bytes", async () => {
+    setAdminEnv({ GAMMASCOPE_REPLAY_IMPORT_MAX_BYTES: "10" });
+    const fetcher = vi.fn(async () => jsonResponse(importResult()));
+    vi.stubGlobal("fetch", fetcher);
+    const formDataSpy = vi.spyOn(Request.prototype, "formData");
+    const { POST } = await import("../app/api/replay/imports/route");
+
+    const response = await POST(new Request("http://localhost/api/replay/imports", {
+      method: "POST",
+      headers: {
+        ...await adminHeaders(),
+        "Content-Type": "multipart/form-data; boundary=boundary",
+        "Content-Length": "11"
+      },
+      body: "too much data"
+    }));
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: "Replay import upload too large" });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the default API base URL when the environment value is empty", async () => {
+    setAdminEnv({ GAMMASCOPE_API_BASE_URL: "   " });
+    const fetcher = vi.fn(async () => jsonResponse(importResult()));
+    vi.stubGlobal("fetch", fetcher);
+    const { GET } = await import("../app/api/replay/imports/[importId]/route");
+
+    const response = await GET(new Request("http://localhost/api/replay/imports/import-test-1", {
+      headers: await adminHeaders(false)
+    }), {
+      params: Promise.resolve({ importId: "import-test-1" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/replay/imports/import-test-1", {
+      method: "GET",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-GammaScope-Admin-Token": "upstream-admin-token"
+      }
+    });
+  });
+
+  it("returns 503 when the API base URL is invalid", async () => {
+    setAdminEnv({ GAMMASCOPE_API_BASE_URL: "not a url" });
+    const fetcher = vi.fn(async () => jsonResponse(importResult()));
+    vi.stubGlobal("fetch", fetcher);
+    const { GET } = await import("../app/api/replay/imports/[importId]/route");
+
+    const response = await GET(new Request("http://localhost/api/replay/imports/import-test-1", {
+      headers: await adminHeaders(false)
+    }), {
+      params: Promise.resolve({ importId: "import-test-1" })
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "Replay import proxy unavailable" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("returns 503 when the API base URL points back to the website origin", async () => {
+    setAdminEnv({ GAMMASCOPE_API_BASE_URL: "http://localhost" });
+    const fetcher = vi.fn(async () => jsonResponse(importResult()));
+    vi.stubGlobal("fetch", fetcher);
+    const { GET } = await import("../app/api/replay/imports/[importId]/route");
+
+    const response = await GET(new Request("http://localhost/api/replay/imports/import-test-1", {
+      headers: await adminHeaders(false)
+    }), {
+      params: Promise.resolve({ importId: "import-test-1" })
+    });
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: "Replay import proxy unavailable" });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("preserves upload replay import response fields", async () => {
