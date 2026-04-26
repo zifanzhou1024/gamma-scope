@@ -78,7 +78,7 @@ def replay_stream_snapshots(
     source_snapshot_id: str | None = None,
 ) -> list[dict[str, Any]]:
     imported_snapshots = _imported_replay_stream_snapshots(session_id, at, source_snapshot_id)
-    if imported_snapshots:
+    if imported_snapshots is not None:
         return imported_snapshots
 
     persisted_snapshots = _persisted_replay_snapshots(session_id, at)
@@ -143,9 +143,9 @@ def _imported_replay_stream_snapshots(
     session_id: str,
     at: str | None,
     source_snapshot_id: str | None,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | None:
     if not _is_completed_imported_session(session_id):
-        return []
+        return None
 
     try:
         snapshots = get_replay_import_repository().stream_snapshots(session_id, at, source_snapshot_id)

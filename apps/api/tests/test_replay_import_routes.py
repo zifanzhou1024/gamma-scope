@@ -623,6 +623,26 @@ def test_public_replay_websocket_closes_on_import_repository_failure(
     assert disconnect.value.code == 1011
 
 
+def test_public_replay_websocket_sends_empty_snapshot_for_empty_import_selection(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, _import_repository, replay_repository = public_replay_client
+    replay_repository.replay_snapshots_error = RuntimeError("persisted replay should not be queried")
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={
+            "session_id": "import-session-ready",
+            "source_snapshot_id": "missing-source",
+            "interval_ms": "50",
+        },
+    ) as websocket:
+        payload = websocket.receive_json()
+
+    assert payload["coverage_status"] == "empty"
+    assert payload["rows"] == []
+
+
 class _FakeImporter:
     def __init__(self) -> None:
         self.create_result = _result(status="awaiting_confirmation")
@@ -660,6 +680,9 @@ class _FakeImporter:
 
 
 class _FakeReplayRepository(NullReplayRepository):
+    def __init__(self) -> None:
+        self.replay_snapshots_error: Exception | None = None
+
     def list_sessions(self) -> list[dict[str, Any]]:
         return [
             {
@@ -695,6 +718,11 @@ class _FakeReplayRepository(NullReplayRepository):
             "scenario_params": None,
             "rows": [],
         }
+
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+        if self.replay_snapshots_error is not None:
+            raise self.replay_snapshots_error
+        return []
 
 
 class _FakeReplayImportRepository:
