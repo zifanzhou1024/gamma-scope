@@ -79,6 +79,34 @@ Open `http://localhost:3000`. After the mock publish populates API state, the da
 
 The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and persisted in Postgres using `GAMMASCOPE_DATABASE_URL` when available. If the Postgres-backed repository is unavailable at runtime, the FastAPI route falls back to in-memory saved views so local dashboard flows keep working.
 
+### Private Mode
+
+By default GammaScope keeps local development open: collector ingestion, live snapshots, live WebSocket updates, replay, scenarios, and saved views work without an admin token.
+
+Set private mode when the API may be reachable by non-admin users:
+
+    GAMMASCOPE_PRIVATE_MODE_ENABLED=true
+    GAMMASCOPE_ADMIN_TOKEN=local-admin-token
+    pnpm dev:api
+
+`GAMMASCOPE_PRIVATE_MODE=true` is also accepted. Truthy values are `1`, `true`, `yes`, `on`, and `enabled`.
+
+In private mode, public replay remains open:
+
+    curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
+    curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
+
+Live collector state requires the admin token:
+
+    curl -s -H "X-GammaScope-Admin-Token: local-admin-token" \
+      http://127.0.0.1:8000/api/spx/0dte/collector/state | python -m json.tool
+
+The live WebSocket accepts the same header, or `admin_token` as a query parameter for simple local clients:
+
+    ws://127.0.0.1:8000/ws/spx/0dte?admin_token=local-admin-token
+
+Without a valid admin token, private-mode latest snapshot, status, and scenario requests use seeded replay/fallback data instead of live collector state. Saved-view public requests list only `owner_scope: "public_demo"`; creating or listing admin scoped views requires the admin token. If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, private admin operations return `403`.
+
 ### Local IBKR Health Probe
 
 Check whether a local TWS or IB Gateway TCP endpoint is reachable:
