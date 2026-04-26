@@ -90,6 +90,12 @@ interface ReplaySnapshotApplyState {
   replayRequestsCanceled: boolean;
 }
 
+interface DashboardAsyncResultApplyState {
+  responseRequestId: number;
+  latestRequestId: number;
+  isCanceled?: boolean;
+}
+
 interface ReplayStartState {
   scenarioRequestsCanceled: boolean;
   replayRequestsCanceled: boolean;
@@ -273,6 +279,14 @@ export function canApplyReplaySnapshot({
   replayRequestsCanceled
 }: ReplaySnapshotApplyState): boolean {
   return !replayRequestsCanceled && responseRequestId === latestRequestId;
+}
+
+export function canApplyDashboardAsyncResult({
+  responseRequestId,
+  latestRequestId,
+  isCanceled = false
+}: DashboardAsyncResultApplyState): boolean {
+  return !isCanceled && responseRequestId === latestRequestId;
 }
 
 export function createDashboardAdminStateFromSessionPayload(
@@ -469,6 +483,8 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const stopReplayStreamRef = useRef<(() => void) | null>(null);
   const hasReplayStreamSnapshotRef = useRef(false);
   const replayStreamActiveRef = useRef(false);
+  const adminSessionRequestIdRef = useRef(0);
+  const replaySessionsRequestIdRef = useRef(0);
 
   const selectedReplaySession = useMemo(
     () => replaySessions.find((session) => session.session_id === selectedReplaySessionId) ?? replaySessions[0] ?? null,
@@ -488,11 +504,26 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     setAdminErrorMessage(adminState.adminErrorMessage);
   };
 
+  const nextAdminSessionRequestId = () => {
+    adminSessionRequestIdRef.current += 1;
+    return adminSessionRequestIdRef.current;
+  };
+
+  const nextReplaySessionsRequestId = () => {
+    replaySessionsRequestIdRef.current += 1;
+    return replaySessionsRequestIdRef.current;
+  };
+
   useEffect(() => {
     let isCanceled = false;
+    const responseRequestId = nextAdminSessionRequestId();
 
     loadDashboardAdminSession(isAdminAvailable).then((adminState) => {
-      if (isCanceled) {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: adminSessionRequestIdRef.current,
+        isCanceled
+      })) {
         return;
       }
 
@@ -523,9 +554,14 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
 
   useEffect(() => {
     let isCanceled = false;
+    const responseRequestId = nextReplaySessionsRequestId();
 
     loadClientReplaySessions().then((sessions) => {
-      if (isCanceled) {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: replaySessionsRequestIdRef.current,
+        isCanceled
+      })) {
         return;
       }
 
@@ -792,10 +828,18 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   const loginAdmin = async (username: string, password: string) => {
+    const responseRequestId = nextAdminSessionRequestId();
     setIsAdminSubmitting(true);
     setAdminErrorMessage(null);
 
     const response = await postAdminLogin(username, password);
+    if (!canApplyDashboardAsyncResult({
+      responseRequestId,
+      latestRequestId: adminSessionRequestIdRef.current
+    })) {
+      return;
+    }
+
     if (response.status === 503 && isAdminUnavailablePayload(response.payload)) {
       setIsAdminAuthenticated(false);
       setIsAdminAvailable(false);
@@ -816,7 +860,14 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     if (typeof response.payload.csrf_token === "string") {
       applyDashboardAdminState(createDashboardAdminStateFromSessionPayload(response.payload, true));
     } else {
-      applyDashboardAdminState(await loadDashboardAdminSession(true));
+      const adminState = await loadDashboardAdminSession(true);
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: adminSessionRequestIdRef.current
+      })) {
+        return;
+      }
+      applyDashboardAdminState(adminState);
     }
 
     setIsAdminAvailable(true);
@@ -824,10 +875,17 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   const logoutAdmin = async () => {
+    const responseRequestId = nextAdminSessionRequestId();
     setIsAdminSubmitting(true);
     setAdminErrorMessage(null);
 
     const action = await logoutAdminDashboardAction({ csrfToken: adminCsrfToken });
+    if (!canApplyDashboardAsyncResult({
+      responseRequestId,
+      latestRequestId: adminSessionRequestIdRef.current
+    })) {
+      return;
+    }
 
     applyDashboardAdminState(action.adminState);
     setCurrentReplayImport(action.currentReplayImport);
@@ -862,6 +920,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   const confirmReplayImportReview = async (importId: string) => {
+    const responseRequestId = nextReplaySessionsRequestId();
     setIsConfirmingReplayImport(true);
     setReplayImportError(null);
     setIsLoadingReplaySessions(true);
@@ -870,6 +929,12 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
       importId,
       csrfToken: adminCsrfToken
     });
+    if (!canApplyDashboardAsyncResult({
+      responseRequestId,
+      latestRequestId: replaySessionsRequestIdRef.current
+    })) {
+      return;
+    }
 
     if (!action.result) {
       setReplayImportError(action.errorMessage);

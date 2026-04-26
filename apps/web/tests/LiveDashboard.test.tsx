@@ -396,6 +396,40 @@ describe("LiveDashboard scenario panel", () => {
     expect(LiveDashboardModule.shouldShowReplayImportControls(loggedOutState.isAdminAuthenticated)).toBe(false);
   });
 
+  it("blocks stale admin session probe results after a newer admin transition", () => {
+    expect(LiveDashboardModule.canApplyDashboardAsyncResult({
+      responseRequestId: 1,
+      latestRequestId: 2,
+      isCanceled: false
+    })).toBe(false);
+    expect(LiveDashboardModule.canApplyDashboardAsyncResult({
+      responseRequestId: 2,
+      latestRequestId: 2,
+      isCanceled: false
+    })).toBe(true);
+    expect(LiveDashboardModule.canApplyDashboardAsyncResult({
+      responseRequestId: 2,
+      latestRequestId: 2,
+      isCanceled: true
+    })).toBe(false);
+  });
+
+  it("blocks stale replay session loads after a newer import refresh selection", () => {
+    const initialReplayLoadRequestId = 1;
+    const importRefreshRequestId = 2;
+
+    expect(LiveDashboardModule.canApplyDashboardAsyncResult({
+      responseRequestId: initialReplayLoadRequestId,
+      latestRequestId: importRefreshRequestId,
+      isCanceled: false
+    })).toBe(false);
+    expect(LiveDashboardModule.canApplyDashboardAsyncResult({
+      responseRequestId: importRefreshRequestId,
+      latestRequestId: importRefreshRequestId,
+      isCanceled: false
+    })).toBe(true);
+  });
+
   it("selects the completed imported replay session after refresh", () => {
     const importResult = replayImportResult({
       status: "completed",
