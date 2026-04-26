@@ -9,7 +9,9 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
   "psycopg[binary]>=3.2",
+  "pyarrow>=16",
   "pydantic>=2.8",
+  "python-multipart>=0.0.22",
   "redis>=5.0",
   "uvicorn[standard]>=0.30"
 ]
