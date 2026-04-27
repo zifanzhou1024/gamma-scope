@@ -311,7 +311,7 @@ describe("DashboardChart", () => {
     cleanupRenderedChart(root, container);
   });
 
-  it("renders synchronized crosshair and tooltip for the inspected strike", () => {
+  it("renders synchronized crosshair without the full inspection tooltip table", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart
         rows={baseRows}
@@ -346,33 +346,117 @@ describe("DashboardChart", () => {
     );
 
     expect(markup).toContain('data-inspection-crosshair="5200"');
-    expect(markup).toContain('data-inspection-tooltip="5200"');
-    expect(markup).toContain("Strike");
+    expect(markup).toContain('data-chart-inspection-chip="5200"');
     expect(markup).toContain("5,200");
-    expect(markup).toContain("+1 pts from spot");
-    expect(markup).toContain('<table class="chartInspectionTooltipGrid" aria-label="Call and put inspection values">');
-    expect(markup).toContain("<thead>");
-    expect(markup).toContain("<tbody>");
-    expect(markup).toContain('<th scope="col">Metric</th>');
-    expect(markup).toContain('<th scope="col">Call</th>');
-    expect(markup).toContain('<th scope="col">Put</th>');
-    expect(markup).toContain('<th scope="row">Bid</th>');
-    expect(markup).toContain("<td>18.80%</td>");
-    expect(markup).toContain("<td>20.50%</td>");
-    expect(markup).not.toContain('role="table"');
-    expect(markup).toContain("Call");
-    expect(markup).toContain("Put");
-    expect(markup).toContain("Bid");
-    expect(markup).toContain("Ask");
-    expect(markup).toContain("Mid");
-    expect(markup).toContain("IV");
-    expect(markup).toContain("Gamma");
-    expect(markup).toContain("Vanna");
-    expect(markup).toContain("OI");
-    expect(markup).toContain("18.80%");
-    expect(markup).toContain("20.50%");
-    expect(markup).toContain("0.01850");
-    expect(markup).toContain("0.00100");
+    expect(markup).not.toContain("chartInspectionTooltip");
+    expect(markup).not.toContain("Call and put inspection values");
+    expect(markup).not.toContain("<table");
+    expect(markup).not.toContain("+1 pts from spot");
+    expect(markup).not.toContain("Bid");
+    expect(markup).not.toContain("Ask");
+    expect(markup).not.toContain("Mid");
+    expect(markup).not.toContain("OI");
+  });
+
+  it.each([
+    { metricKey: "custom_iv" as const, title: "IV smile", tone: "blue" as const, valueKind: "percent" as const, callText: "Call IV 18.80%", putText: "Put IV 20.50%" },
+    {
+      metricKey: "custom_gamma" as const,
+      title: "Gamma by strike",
+      tone: "violet" as const,
+      valueKind: "decimal" as const,
+      callText: "Call Γ 0.01850",
+      putText: "Put Γ 0.01800"
+    },
+    {
+      metricKey: "custom_vanna" as const,
+      title: "Vanna by strike",
+      tone: "teal" as const,
+      valueKind: "decimal" as const,
+      callText: "Call Vanna 0.00080",
+      putText: "Put Vanna 0.00100"
+    }
+  ])("renders a compact $metricKey inspection chip instead of a full tooltip table", ({ metricKey, title, tone, valueKind, callText, putText }) => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title={title}
+        metricKey={metricKey}
+        tone={tone}
+        valueKind={valueKind}
+        inspectedStrike={5200}
+        inspection={{
+          strike: 5200,
+          distanceLabel: "+1 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain('data-chart-inspection-chip="5200"');
+    expect(markup).toContain("5,200");
+    expect(markup).toContain(callText);
+    expect(markup).toContain(putText);
+    expect(markup).not.toContain("chartInspectionTooltip");
+    expect(markup).not.toContain("Call and put inspection values");
+    expect(markup).not.toContain("<table");
+  });
+
+  it("does not render a compact inspection chip when the inspected strike is outside the chart domain", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        inspectedStrike={5225}
+        inspection={{
+          strike: 5225,
+          distanceLabel: "+26 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+      />
+    );
+
+    expect(markup).not.toContain("data-inspection-crosshair");
+    expect(markup).not.toContain("data-chart-inspection-chip");
   });
 
   it("uses green for call IV and red for put IV chart semantics", () => {

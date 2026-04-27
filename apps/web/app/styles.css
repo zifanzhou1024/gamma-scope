@@ -1527,76 +1527,31 @@ h1 {
   stroke-width: 1.4;
 }
 
-.chartInspectionTooltip {
-  background: rgba(15, 23, 42, 0.94);
-  border: 1px solid rgba(226, 232, 240, 0.2);
+.chartInspectionChip {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.16);
   border-radius: 8px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
   color: var(--soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   margin-top: 10px;
-  padding: 12px;
+  max-width: 100%;
+  padding: 7px 10px;
+  width: fit-content;
 }
 
-.chartInspectionTooltipHeader {
-  align-items: baseline;
-  display: grid;
-  gap: 4px 10px;
-  grid-template-columns: auto 1fr;
-  margin-bottom: 10px;
-}
-
-.chartInspectionTooltipHeader span,
-.chartInspectionTooltipGrid tbody th {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.chartInspectionTooltipHeader strong {
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 900;
-}
-
-.chartInspectionTooltipHeader small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  grid-column: 1 / -1;
-}
-
-.chartInspectionTooltipGrid {
-  border-collapse: collapse;
-  table-layout: fixed;
-  width: 100%;
-}
-
-.chartInspectionTooltipGrid thead th {
+.chartInspectionChip strong {
   color: var(--text);
   font-size: 12px;
   font-weight: 900;
-  padding: 0 7px 7px;
-  text-align: left;
 }
 
-.chartInspectionTooltipGrid tbody th,
-.chartInspectionTooltipGrid td {
+.chartInspectionChip span {
+  color: var(--muted);
   font-size: 12px;
   font-weight: 820;
-  min-width: 0;
-  padding: 3px 7px;
-  text-align: left;
-}
-
-.chartInspectionTooltipGrid th:first-child,
-.chartInspectionTooltipGrid td:first-child {
-  padding-left: 0;
-}
-
-.chartInspectionTooltipGrid th:last-child,
-.chartInspectionTooltipGrid td:last-child {
-  padding-right: 0;
 }
 
 .chartLegend-call-iv i {

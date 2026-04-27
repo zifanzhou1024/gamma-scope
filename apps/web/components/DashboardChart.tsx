@@ -196,7 +196,7 @@ export function DashboardChart({
           </g>
         ) : null}
       </svg>
-      {inspection ? <InspectionTooltip inspection={inspection} /> : null}
+      {inspection && inspectedStrikeInDomain ? <InspectionChip inspection={inspection} metricKey={metricKey} /> : null}
       <div className="chartStats" aria-label={`${chartTitle} summary`}>
         <ChartStat label={headlineLabel} value={formatHeadlineValue(headlineValue, valueKind, atmValue != null)} />
         <ChartStat label="Min" value={formatValue(extent?.[0] ?? null, valueKind)} />
@@ -270,44 +270,37 @@ function InspectionCrosshair({ strike, domainPoints }: { strike: number; domainP
   );
 }
 
-function InspectionTooltip({ inspection }: { inspection: StrikeInspection }) {
+function InspectionChip({ inspection, metricKey }: { inspection: StrikeInspection; metricKey: NumericRowKey }) {
+  const values = inspectionChipValues(inspection, metricKey);
+
   return (
-    <div className="chartInspectionTooltip" data-inspection-tooltip={inspection.strike} aria-label={`Strike ${formatStrike(inspection.strike)} inspection`}>
-      <div className="chartInspectionTooltipHeader">
-        <span>Strike</span>
-        <strong>{formatStrike(inspection.strike)}</strong>
-        <small>{inspection.distanceLabel}</small>
-      </div>
-      <table className="chartInspectionTooltipGrid" aria-label="Call and put inspection values">
-        <thead>
-          <tr>
-            <th scope="col">Metric</th>
-            <th scope="col">Call</th>
-            <th scope="col">Put</th>
-          </tr>
-        </thead>
-        <tbody>
-          <InspectionTooltipRow label="Bid" callValue={inspection.call.bid} putValue={inspection.put.bid} />
-          <InspectionTooltipRow label="Ask" callValue={inspection.call.ask} putValue={inspection.put.ask} />
-          <InspectionTooltipRow label="Mid" callValue={inspection.call.mid} putValue={inspection.put.mid} />
-          <InspectionTooltipRow label="IV" callValue={inspection.call.iv} putValue={inspection.put.iv} />
-          <InspectionTooltipRow label="Gamma" callValue={inspection.call.gamma} putValue={inspection.put.gamma} />
-          <InspectionTooltipRow label="Vanna" callValue={inspection.call.vanna} putValue={inspection.put.vanna} />
-          <InspectionTooltipRow label="OI" callValue={inspection.call.openInterest} putValue={inspection.put.openInterest} />
-        </tbody>
-      </table>
+    <div
+      className="chartInspectionChip"
+      data-chart-inspection-chip={inspection.strike}
+      aria-label={`Selected strike ${formatStrike(inspection.strike)}`}
+    >
+      <strong>{formatStrike(inspection.strike)}</strong>
+      <span>
+        {values.callLabel} {values.callValue}
+      </span>
+      <span>
+        {values.putLabel} {values.putValue}
+      </span>
     </div>
   );
 }
 
-function InspectionTooltipRow({ label, callValue, putValue }: { label: string; callValue: string; putValue: string }) {
-  return (
-    <tr>
-      <th scope="row">{label}</th>
-      <td>{callValue}</td>
-      <td>{putValue}</td>
-    </tr>
-  );
+function inspectionChipValues(inspection: StrikeInspection, metricKey: NumericRowKey) {
+  if (metricKey === "custom_iv") {
+    return { callLabel: "Call IV", callValue: inspection.call.iv, putLabel: "Put IV", putValue: inspection.put.iv };
+  }
+  if (metricKey === "custom_gamma") {
+    return { callLabel: "Call Γ", callValue: inspection.call.gamma, putLabel: "Put Γ", putValue: inspection.put.gamma };
+  }
+  if (metricKey === "custom_vanna") {
+    return { callLabel: "Call Vanna", callValue: inspection.call.vanna, putLabel: "Put Vanna", putValue: inspection.put.vanna };
+  }
+  return { callLabel: "Call", callValue: "N/A", putLabel: "Put", putValue: "N/A" };
 }
 
 function handleHitZoneKeyDown(
