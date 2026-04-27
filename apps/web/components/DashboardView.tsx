@@ -365,9 +365,9 @@ function MarketMapPanel({ marketMap }: { marketMap: ReturnType<typeof deriveMark
         />
         <MarketMapItem
           level="vanna-flip"
-          label="Vanna flip"
+          label={vannaFlipLabel(marketMap.vannaFlip)}
           value={formatMarketStrike(marketMap.vannaFlip)}
-          detail={formatMarketLevel(marketMap.vannaFlip, "decimal")}
+          detail={formatVannaFlipDetail(marketMap.vannaFlip)}
           tone="vanna"
         />
         <MarketMapItem
@@ -425,6 +425,20 @@ function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow
   }
 
   return `${formatPrice(level.strike)} strike`;
+}
+
+function vannaFlipLabel(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {
+  return level?.source === "nearest_zero" ? "Vanna nearest zero" : "Vanna flip";
+}
+
+function formatVannaFlipDetail(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {
+  if (level == null) {
+    return "—";
+  }
+  if (level.source === "nearest_zero") {
+    return `Nearest zero value ${formatMarketLevel(level, "decimal")}`;
+  }
+  return formatMarketLevel(level, "decimal");
 }
 
 function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {

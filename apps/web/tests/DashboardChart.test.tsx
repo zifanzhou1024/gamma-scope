@@ -227,6 +227,11 @@ describe("DashboardChart", () => {
     expect(styles).toMatch(/\.ivMinSummaryItem-call-iv i\s*{[\s\S]*background:\s*var\(--call-color\)/);
     expect(styles).toMatch(/\.ivMinSummaryItem-put-iv i\s*{[\s\S]*background:\s*var\(--put-color\)/);
   });
+
+  it("uses solid spot references and dashed forward references", () => {
+    expect(styles).toMatch(/\.chartReferenceLine-spot line\s*{[\s\S]*stroke-dasharray:\s*none/);
+    expect(styles).toMatch(/\.chartReferenceLine-forward line\s*{[\s\S]*stroke-dasharray:\s*4 5/);
+  });
 });
 
 function marketRow({ strike, right, ...overrides }: Partial<Row> & Pick<Row, "strike" | "right">): Row {

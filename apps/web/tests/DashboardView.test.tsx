@@ -75,6 +75,21 @@ describe("DashboardView", () => {
     expect(markup).toContain("Abs vanna");
   });
 
+  it("marks vanna fallback levels as nearest zero instead of a true flip", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const oneSidedVannaSnapshot = {
+      ...snapshot,
+      rows: snapshot.rows.map((row, index) => ({
+        ...row,
+        custom_vanna: 0.001 + index * 0.0001
+      }))
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={oneSidedVannaSnapshot} />);
+
+    expect(markup).toContain('data-market-map-level="vanna-flip"');
+    expect(markup).toContain("Vanna nearest zero");
+  });
+
   it("passes spot forward ATM values and vanna zero line flag to charts", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);

@@ -1465,7 +1465,6 @@ h1 {
 }
 
 .chartReferenceLine line {
-  stroke-dasharray: 4 5;
   stroke-width: 1.6;
 }
 
@@ -1482,10 +1481,19 @@ h1 {
   fill: #bae6fd;
 }
 
+.chartReferenceLine-spot line {
+  stroke-dasharray: none;
+  stroke-width: 2;
+}
+
 .chartReferenceLine-forward line,
 .chartReferenceLine-forward text {
   stroke: rgba(245, 158, 11, 0.86);
   fill: #fde68a;
+}
+
+.chartReferenceLine-forward line {
+  stroke-dasharray: 4 5;
 }
 
 .chartZeroLine line {
