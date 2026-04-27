@@ -21,7 +21,6 @@ import type {
   ReplayTimelineEntry
 } from "../lib/clientReplaySource";
 import {
-  clampReplayIndex,
   clampReplayTimelineIndex,
   loadClientReplaySessions,
   loadClientReplaySnapshot,
@@ -36,9 +35,13 @@ import {
   uploadReplayImport
 } from "../lib/replayImportSource";
 import { startSnapshotPolling } from "../lib/snapshotPolling";
-import { startReplayStream } from "../lib/replayStream";
 import { startLiveSnapshotUpdates } from "../lib/snapshotUpdates";
 import type { LiveSnapshotUpdateSource } from "../lib/snapshotUpdates";
+import {
+  nextReplayPlaybackIndex,
+  REPLAY_PLAYBACK_TICK_MS
+} from "../lib/replayPlayback";
+import type { ReplayPlaybackSpeed } from "../lib/replayPlayback";
 import { AdminLoginPanel } from "./AdminLoginPanel";
 import { DashboardView } from "./DashboardView";
 import { ReplayImportPanel } from "./ReplayImportPanel";
@@ -138,6 +141,13 @@ interface DashboardAdminState {
 interface ConfirmedImportReplaySelection {
   selectedReplaySessionId: string;
   selectedReplayIndex: number;
+}
+
+interface ReplaySelectionChangeState {
+  latestReplayRequestId: number;
+  replayRequestsCanceled: boolean;
+  isReplayStreamActive: boolean;
+  isLoadingReplay: boolean;
 }
 
 type ConfirmReplayImportClient = (importId: string, csrfToken: string) => Promise<ReplayImportResult | null>;
@@ -297,12 +307,12 @@ export function createReplayStartState(): ReplayStartState {
 export function createReplayStreamStartState(): ReplayStreamStartState {
   return {
     scenarioRequestsCanceled: true,
-    replayRequestsCanceled: true,
+    replayRequestsCanceled: false,
     isApplyingScenario: false,
     isLoadingReplay: false,
     replayError: null,
     isReplayStreamActive: true,
-    isReplayModeActive: false
+    isReplayModeActive: true
   };
 }
 
@@ -311,6 +321,23 @@ export function createReplayStreamUnavailableState(hasReceivedSnapshot: boolean)
     isReplayStreamActive: false,
     isReplayModeActive: hasReceivedSnapshot,
     replayError: "Replay stream unavailable."
+  };
+}
+
+export function nextDashboardReplayPlaybackIndex(
+  entries: ReplayTimelineEntry[],
+  currentIndex: number,
+  speed: ReplayPlaybackSpeed
+): number {
+  return nextReplayPlaybackIndex(entries, currentIndex, speed);
+}
+
+export function createReplaySelectionChangeState(currentLatestReplayRequestId: number): ReplaySelectionChangeState {
+  return {
+    latestReplayRequestId: currentLatestReplayRequestId + 1,
+    replayRequestsCanceled: true,
+    isReplayStreamActive: false,
+    isLoadingReplay: false
   };
 }
 
@@ -416,7 +443,7 @@ export function selectReplaySessionAfterImportConfirm(
 
   return {
     selectedReplaySessionId: importedSession.session_id,
-    selectedReplayIndex: clampReplayIndex(Number.POSITIVE_INFINITY, importedSession)
+    selectedReplayIndex: 0
   };
 }
 
@@ -532,6 +559,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const [replayTimelineStatus, setReplayTimelineStatus] = useState<string | null>(null);
   const [selectedReplaySessionId, setSelectedReplaySessionId] = useState<string | null>(null);
   const [selectedReplayIndex, setSelectedReplayIndex] = useState(0);
+  const [replayPlaybackSpeed, setReplayPlaybackSpeed] = useState<ReplayPlaybackSpeed>(1);
   const [isLoadingReplaySessions, setIsLoadingReplaySessions] = useState(true);
   const [isReplayModeActive, setIsReplayModeActive] = useState(false);
   const [isReplayStreamActive, setIsReplayStreamActive] = useState(false);
@@ -565,9 +593,11 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const scenarioRequestsCanceledRef = useRef(false);
   const latestReplayRequestIdRef = useRef(0);
   const replayRequestsCanceledRef = useRef(false);
-  const stopReplayStreamRef = useRef<(() => void) | null>(null);
-  const hasReplayStreamSnapshotRef = useRef(false);
+  const replayPlaybackIntervalRef = useRef<number | null>(null);
   const replayStreamActiveRef = useRef(false);
+  const replayTimelineEntriesRef = useRef<ReplayTimelineEntry[]>([]);
+  const selectedReplayIndexRef = useRef(0);
+  const replayPlaybackSpeedRef = useRef<ReplayPlaybackSpeed>(1);
   const adminSessionRequestIdRef = useRef(0);
   const replaySessionsRequestIdRef = useRef(0);
   const replayTimestampsRequestIdRef = useRef(0);
@@ -659,7 +689,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
 
       setReplaySessions(sessions);
       setSelectedReplaySessionId(sessions[0]?.session_id ?? null);
-      setSelectedReplayIndex(sessions[0] ? clampReplayIndex(Number.POSITIVE_INFINITY, sessions[0]) : 0);
+      setSelectedReplayIndex(0);
       setIsLoadingReplaySessions(false);
     });
 
@@ -715,6 +745,18 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   }, [selectedReplaySession]);
 
   useEffect(() => {
+    replayTimelineEntriesRef.current = replayTimelineEntries;
+  }, [replayTimelineEntries]);
+
+  useEffect(() => {
+    selectedReplayIndexRef.current = clampedReplayIndex;
+  }, [clampedReplayIndex]);
+
+  useEffect(() => {
+    replayPlaybackSpeedRef.current = replayPlaybackSpeed;
+  }, [replayPlaybackSpeed]);
+
+  useEffect(() => {
     scenarioModeRef.current = isScenarioModeActive;
     replayModeRef.current = isReplayModeActive;
     replayStreamActiveRef.current = isReplayStreamActive;
@@ -763,7 +805,10 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
 
   useEffect(() => {
     return () => {
-      stopReplayStreamRef.current?.();
+      if (replayPlaybackIntervalRef.current !== null) {
+        window.clearInterval(replayPlaybackIntervalRef.current);
+        replayPlaybackIntervalRef.current = null;
+      }
     };
   }, []);
 
@@ -779,25 +824,38 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     });
   }, [isScenarioModeActive, isReplayModeActive, isReplayStreamActive]);
 
-  const loadReplay = async () => {
-    const replayRequest = createReplayLoadRequest(selectedReplaySessionId, selectedReplayEntry);
+  const stopReplayStream = () => {
+    if (replayPlaybackIntervalRef.current !== null) {
+      window.clearInterval(replayPlaybackIntervalRef.current);
+      replayPlaybackIntervalRef.current = null;
+    }
+
+    replayStreamActiveRef.current = false;
+    setIsReplayStreamActive(false);
+  };
+
+  const loadReplaySnapshot = async (
+    replaySessionId: string | null,
+    replayEntry: ReplayTimelineEntry | null,
+    options: { stopPlayback: boolean }
+  ) => {
+    const replayRequest = createReplayLoadRequest(replaySessionId, replayEntry);
 
     if (!replayRequest) {
-      setReplayError(selectedReplaySessionId ? "Replay timestamps unavailable." : "No replay sessions available.");
+      setReplayError(replaySessionId ? "Replay timestamps unavailable." : "No replay sessions available.");
       return;
     }
 
     latestReplayRequestIdRef.current += 1;
-    stopReplayStreamRef.current?.();
-    stopReplayStreamRef.current = null;
-    replayStreamActiveRef.current = false;
+    if (options.stopPlayback) {
+      stopReplayStream();
+    }
     const responseRequestId = latestReplayRequestIdRef.current;
     const replayStartState = createReplayStartState();
     scenarioRequestsCanceledRef.current = replayStartState.scenarioRequestsCanceled;
     replayRequestsCanceledRef.current = replayStartState.replayRequestsCanceled;
     setIsApplyingScenario(replayStartState.isApplyingScenario);
     setIsLoadingReplay(replayStartState.isLoadingReplay);
-    setIsReplayStreamActive(false);
     setReplayError(replayStartState.replayError);
 
     const replaySnapshot = await loadClientReplaySnapshot(replayRequest);
@@ -825,27 +883,29 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     setScenarioError(null);
   };
 
-  const stopReplayStream = () => {
-    stopReplayStreamRef.current?.();
-    stopReplayStreamRef.current = null;
-    replayStreamActiveRef.current = false;
-    setIsReplayStreamActive(false);
+  const loadReplay = async () => {
+    await loadReplaySnapshot(selectedReplaySessionId, selectedReplayEntry, { stopPlayback: true });
   };
 
   const playReplayStream = () => {
-    const replayRequest = createReplayStreamRequest(selectedReplaySessionId, selectedReplayEntry);
-
-    if (!replayRequest) {
+    if (!selectedReplaySessionId || replayTimelineEntriesRef.current.length === 0) {
       setReplayError(selectedReplaySessionId ? "Replay timestamps unavailable." : "No replay sessions available.");
       return;
     }
 
-    stopReplayStreamRef.current?.();
+    stopReplayStream();
+    const finalReplayIndex = replayTimelineEntriesRef.current.length - 1;
+    const startingIndex = selectedReplayIndexRef.current >= finalReplayIndex ? 0 : selectedReplayIndexRef.current;
+
+    if (startingIndex !== selectedReplayIndexRef.current) {
+      selectedReplayIndexRef.current = startingIndex;
+      setSelectedReplayIndex(startingIndex);
+    }
+
     latestReplayRequestIdRef.current += 1;
     const replayStartState = createReplayStreamStartState();
     scenarioRequestsCanceledRef.current = replayStartState.scenarioRequestsCanceled;
     replayRequestsCanceledRef.current = replayStartState.replayRequestsCanceled;
-    hasReplayStreamSnapshotRef.current = false;
     replayStreamActiveRef.current = replayStartState.isReplayStreamActive;
     scenarioModeRef.current = false;
     replayModeRef.current = replayStartState.isReplayModeActive;
@@ -857,43 +917,30 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     setScenarioError(null);
     setReplayError(replayStartState.replayError);
 
-    stopReplayStreamRef.current = startReplayStream({
-      sessionId: replayRequest.sessionId,
-      at: replayRequest.at,
-      sourceSnapshotId: replayRequest.sourceSnapshotId,
-      intervalMs: 250,
-      onSnapshot: (replaySnapshot) => {
-        hasReplayStreamSnapshotRef.current = true;
-        scenarioModeRef.current = false;
-        replayModeRef.current = true;
-        setSnapshot(replaySnapshot);
-        setIsScenarioModeActive(false);
-        setIsReplayModeActive(true);
-        setScenarioError(null);
-      },
-      onComplete: () => {
-        stopReplayStreamRef.current = null;
-        replayStreamActiveRef.current = false;
-        setIsReplayStreamActive(false);
-      },
-      onUnavailable: () => {
-        const replayUnavailableState = createReplayStreamUnavailableState(hasReplayStreamSnapshotRef.current);
-        stopReplayStreamRef.current = null;
-        replayStreamActiveRef.current = replayUnavailableState.isReplayStreamActive;
-        replayModeRef.current = replayUnavailableState.isReplayModeActive;
-        setIsReplayStreamActive(replayUnavailableState.isReplayStreamActive);
-        setIsReplayModeActive(replayUnavailableState.isReplayModeActive);
-        setReplayError(replayUnavailableState.replayError);
+    replayPlaybackIntervalRef.current = window.setInterval(() => {
+      const entries = replayTimelineEntriesRef.current;
+      const currentIndex = selectedReplayIndexRef.current;
+      const nextIndex = nextDashboardReplayPlaybackIndex(entries, currentIndex, replayPlaybackSpeedRef.current);
+      const finalIndex = Math.max(entries.length - 1, 0);
+
+      if (nextIndex !== currentIndex) {
+        const replaySelectionChangeState = createReplaySelectionChangeState(latestReplayRequestIdRef.current);
+        latestReplayRequestIdRef.current = replaySelectionChangeState.latestReplayRequestId;
+        replayRequestsCanceledRef.current = replaySelectionChangeState.replayRequestsCanceled;
+        selectedReplayIndexRef.current = nextIndex;
+        setSelectedReplayIndex(nextIndex);
       }
-    });
+
+      if (nextIndex >= finalIndex) {
+        stopReplayStream();
+      }
+    }, REPLAY_PLAYBACK_TICK_MS);
   };
 
   const applyScenario = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     latestScenarioRequestIdRef.current += 1;
-    stopReplayStreamRef.current?.();
-    stopReplayStreamRef.current = null;
-    replayStreamActiveRef.current = false;
+    stopReplayStream();
     const responseRequestId = latestScenarioRequestIdRef.current;
     scenarioRequestsCanceledRef.current = false;
     replayRequestsCanceledRef.current = true;
@@ -936,9 +983,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   const returnToLive = () => {
-    stopReplayStreamRef.current?.();
-    stopReplayStreamRef.current = null;
-    replayStreamActiveRef.current = false;
+    stopReplayStream();
     scenarioModeRef.current = false;
     replayModeRef.current = false;
     scenarioRequestsCanceledRef.current = true;
@@ -965,6 +1010,14 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
       }
     });
   };
+
+  useEffect(() => {
+    if (isLoadingReplaySessions || !selectedReplaySessionId || !selectedReplayEntry) {
+      return;
+    }
+
+    void loadReplaySnapshot(selectedReplaySessionId, selectedReplayEntry, { stopPlayback: false });
+  }, [isLoadingReplaySessions, selectedReplaySessionId, selectedReplayEntry]);
 
   const loginAdmin = async (username: string, password: string) => {
     const responseRequestId = nextAdminSessionRequestId();
@@ -1085,6 +1138,11 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     setCurrentReplayImport(action.result);
 
     if (action.result.status === "completed" && action.result.session_id) {
+      const replaySelectionChangeState = createReplaySelectionChangeState(latestReplayRequestIdRef.current);
+      latestReplayRequestIdRef.current = replaySelectionChangeState.latestReplayRequestId;
+      replayRequestsCanceledRef.current = replaySelectionChangeState.replayRequestsCanceled;
+      stopReplayStream();
+      setIsLoadingReplay(replaySelectionChangeState.isLoadingReplay);
       setReplaySessions(action.replaySessions);
       if (action.selection) {
         setSelectedReplaySessionId(action.selection.selectedReplaySessionId);
@@ -1165,19 +1223,25 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
             timelineEntries={replayTimelineEntries}
             selectedSnapshotIndex={clampedReplayIndex}
             selectedTimelineEntry={selectedReplayEntry}
+            selectedPlaybackSpeed={replayPlaybackSpeed}
             isReplayModeActive={isReplayModeActive}
             isReplayStreamActive={isReplayStreamActive}
             isLoadingSessions={isLoadingReplaySessions}
             isLoadingReplay={isLoadingReplay}
             errorMessage={replayError ?? replayTimelineStatus}
             onSelectSessionId={(sessionId) => {
-              const session = replaySessions.find((candidate) => candidate.session_id === sessionId) ?? null;
+              const replaySelectionChangeState = createReplaySelectionChangeState(latestReplayRequestIdRef.current);
+              latestReplayRequestIdRef.current = replaySelectionChangeState.latestReplayRequestId;
+              replayRequestsCanceledRef.current = replaySelectionChangeState.replayRequestsCanceled;
+              stopReplayStream();
               setSelectedReplaySessionId(sessionId || null);
-              setSelectedReplayIndex(session ? clampReplayIndex(Number.POSITIVE_INFINITY, session) : 0);
+              setSelectedReplayIndex(0);
+              setIsLoadingReplay(replaySelectionChangeState.isLoadingReplay);
             }}
             onSelectSnapshotIndex={(index) => {
               setSelectedReplayIndex(clampReplayTimelineIndex(index, replayTimelineEntries));
             }}
+            onSelectPlaybackSpeed={setReplayPlaybackSpeed}
             onLoadReplay={loadReplay}
             onPlayReplayStream={playReplayStream}
             onStopReplayStream={stopReplayStream}

@@ -352,17 +352,17 @@ describe("LiveDashboard scenario panel", () => {
     });
   });
 
-  it("creates replay stream start state without activating replay mode before the first snapshot", () => {
+  it("creates replay playback start state with replay mode active to suppress live polling", () => {
     expect(LiveDashboardModule.createReplayStreamStartState).toBeTypeOf("function");
 
     expect(LiveDashboardModule.createReplayStreamStartState()).toEqual({
       scenarioRequestsCanceled: true,
-      replayRequestsCanceled: true,
+      replayRequestsCanceled: false,
       isApplyingScenario: false,
       isLoadingReplay: false,
       replayError: null,
       isReplayStreamActive: true,
-      isReplayModeActive: false
+      isReplayModeActive: true
     });
   });
 
@@ -496,6 +496,51 @@ describe("LiveDashboard scenario panel", () => {
     })).toBe(false);
   });
 
+  it("invalidates in-flight replay responses before replay selection changes or advances", () => {
+    expect(LiveDashboardModule.createReplaySelectionChangeState).toBeTypeOf("function");
+
+    const selectionChangeState = LiveDashboardModule.createReplaySelectionChangeState(4);
+
+    expect(selectionChangeState).toEqual({
+      latestReplayRequestId: 5,
+      replayRequestsCanceled: true,
+      isReplayStreamActive: false,
+      isLoadingReplay: false
+    });
+    expect(LiveDashboardModule.canApplyReplaySnapshot({
+      responseRequestId: 4,
+      latestRequestId: selectionChangeState.latestReplayRequestId,
+      replayRequestsCanceled: selectionChangeState.replayRequestsCanceled
+    })).toBe(false);
+  });
+
+  it("advances client replay playback from timeline entries while preserving source ids by index", () => {
+    expect(LiveDashboardModule.nextDashboardReplayPlaybackIndex).toBeTypeOf("function");
+
+    const entries = [
+      {
+        index: 0,
+        snapshot_time: "2026-04-22T13:30:00.000Z",
+        source_snapshot_id: "snapshot-a"
+      },
+      {
+        index: 1,
+        snapshot_time: "2026-04-22T13:30:00.000Z",
+        source_snapshot_id: "snapshot-b"
+      },
+      {
+        index: 2,
+        snapshot_time: "2026-04-22T13:30:05.000Z",
+        source_snapshot_id: "snapshot-c"
+      }
+    ];
+
+    const nextIndex = LiveDashboardModule.nextDashboardReplayPlaybackIndex(entries, 0, 5);
+
+    expect(nextIndex).toBe(1);
+    expect(entries[nextIndex]?.source_snapshot_id).toBe("snapshot-b");
+  });
+
   it("derives authenticated and logged-out admin dashboard states", () => {
     expect(LiveDashboardModule.createDashboardAdminStateFromSessionPayload({
       authenticated: true,
@@ -561,7 +606,7 @@ describe("LiveDashboard scenario panel", () => {
     })).toBe(true);
   });
 
-  it("selects the completed imported replay session after refresh", () => {
+  it("selects the completed imported replay session after refresh at the first timestamp", () => {
     const importResult = replayImportResult({
       status: "completed",
       session_id: "import-session-ready",
@@ -582,7 +627,7 @@ describe("LiveDashboard scenario panel", () => {
       })
     ])).toEqual({
       selectedReplaySessionId: "import-session-ready",
-      selectedReplayIndex: 2
+      selectedReplayIndex: 0
     });
   });
 
@@ -613,7 +658,7 @@ describe("LiveDashboard scenario panel", () => {
       replaySessions: refreshedSessions,
       selection: {
         selectedReplaySessionId: "import-session-ready",
-        selectedReplayIndex: 2
+        selectedReplayIndex: 0
       },
       errorMessage: null
     });
