@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
 from datetime import date
 from typing import cast
@@ -14,10 +15,12 @@ from gammascope_collector.events import (
 )
 from gammascope_collector.moomoo_snapshot import MoomooOptionRow
 
+_MAX_SYNTHETIC_CON_ID = 2_147_483_647
+
 
 def synthetic_ibkr_con_id(option_code: str) -> int:
-    data = option_code.encode("utf-8")
-    return int.from_bytes(len(data).to_bytes(4, "big") + data, "big") + 1
+    digest = hashlib.blake2b(option_code.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % _MAX_SYNTHETIC_CON_ID + 1
 
 
 def moomoo_rows_to_spx_events(
@@ -57,7 +60,7 @@ def _contract_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
         right=right,
         strike=row.strike,
         multiplier=row.contract_multiplier or 100.0,
-        exchange="Moomoo",
+        exchange="CBOE",
         currency="USD",
     )
 

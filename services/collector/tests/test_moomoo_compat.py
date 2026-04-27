@@ -7,6 +7,8 @@ from gammascope_api.contracts.generated.collector_events import CollectorEvents
 from gammascope_collector.moomoo_compat import moomoo_rows_to_spx_events, synthetic_ibkr_con_id
 from gammascope_collector.moomoo_snapshot import MoomooOptionRow
 
+MAX_SYNTHETIC_CON_ID = 2_147_483_647
+
 
 def _row(
     symbol: str,
@@ -54,7 +56,9 @@ def test_synthetic_ibkr_con_id_is_stable_positive_and_distinct() -> None:
 
     assert first == second
     assert first > 0
+    assert first <= MAX_SYNTHETIC_CON_ID
     assert other > 0
+    assert other <= MAX_SYNTHETIC_CON_ID
     assert first != other
 
 
@@ -63,6 +67,8 @@ def test_synthetic_ibkr_con_id_does_not_collide_for_known_hash_mod_pair() -> Non
     second = synthetic_ibkr_con_id("US.SPXW260427C00089630")
 
     assert first != second
+    assert 0 < first <= MAX_SYNTHETIC_CON_ID
+    assert 0 < second <= MAX_SYNTHETIC_CON_ID
 
 
 def test_moomoo_rows_to_spx_events_filters_non_spx_and_validates_events() -> None:
@@ -86,6 +92,20 @@ def test_moomoo_rows_to_spx_events_filters_non_spx_and_validates_events() -> Non
     ]
     for event in events:
         CollectorEvents.model_validate(event)
+
+
+def test_moomoo_rows_to_spx_events_uses_cboe_exchange_for_contract_discovered() -> None:
+    events = moomoo_rows_to_spx_events(
+        session_id="session-1",
+        collector_id="collector-1",
+        spot=7050.25,
+        rows=[_row("SPX", "US.SPXW260427C07050000", "CALL", 7050)],
+        status="connected",
+        message="ok",
+    )
+    contract_events = [event for event in events if _event_type(event) == "ContractDiscovered"]
+
+    assert contract_events[0]["exchange"] == "CBOE"
 
 
 def test_moomoo_rows_to_spx_events_returns_expected_event_order() -> None:
