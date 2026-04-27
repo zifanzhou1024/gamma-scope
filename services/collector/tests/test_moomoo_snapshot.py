@@ -1063,6 +1063,13 @@ def test_main_publish_mode_publishes_each_snapshot_loop(
     payload = json.loads(capsys.readouterr().out)
     assert len(captured_batches) == 2
     assert all(len(batch) == 6 for batch in captured_batches)
+    session_ids = {
+        event["session_id"]
+        for batch in captured_batches
+        for event in batch
+        if "session_id" in event
+    }
+    assert len(session_ids) == 1
     assert payload["publish"]["accepted_count"] == 6
 
 

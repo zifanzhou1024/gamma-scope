@@ -10,9 +10,9 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from statistics import median
 from typing import Any, Protocol
-from uuid import uuid4
 
 from gammascope_collector.moomoo_config import (
+    DEFAULT_SPX_SESSION_ID,
     SNAPSHOT_CODE_LIMIT,
     MoomooCollectorConfig,
     MoomooSymbolConfig,
@@ -432,6 +432,7 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     parser.add_argument("--port", type=int, default=11111)
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     parser.add_argument("--collector-id", default="local-moomoo")
+    parser.add_argument("--session-id", default=None, help="Stable SPX dashboard session id for published events.")
     parser.add_argument("--expiry", type=_parse_date, required=True)
     parser.add_argument("--spot", action="append", default=[])
     parser.add_argument("--interval-seconds", type=float, default=2.0)
@@ -449,6 +450,7 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
             port=args.port,
             refresh_interval_seconds=args.interval_seconds,
             collector_id=args.collector_id,
+            spx_session_id=args.session_id or DEFAULT_SPX_SESSION_ID,
             api_base=args.api,
             manual_spots=parse_manual_spots(args.spot),
         )
@@ -516,7 +518,7 @@ def _publish_spx_compatibility_snapshot(
     from gammascope_collector.moomoo_compat import moomoo_rows_to_spx_events
 
     events = moomoo_rows_to_spx_events(
-        session_id=f"moomoo-spx-0dte-{uuid4()}",
+        session_id=config.spx_session_id,
         collector_id=config.collector_id,
         spot=_spx_spot(result),
         rows=result.rows,

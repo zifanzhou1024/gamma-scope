@@ -7,6 +7,7 @@ from math import ceil, isfinite
 DEFAULT_MOOMOO_HOST = "127.0.0.1"
 DEFAULT_MOOMOO_PORT = 11111
 DEFAULT_REFRESH_INTERVAL_SECONDS = 2.0
+DEFAULT_SPX_SESSION_ID = "moomoo-spx-0dte-live"
 SNAPSHOT_CODE_LIMIT = 400
 SNAPSHOT_REQUEST_LIMIT_PER_30_SECONDS = 60
 
@@ -54,6 +55,7 @@ class MoomooCollectorConfig:
     port: int = DEFAULT_MOOMOO_PORT
     refresh_interval_seconds: float = DEFAULT_REFRESH_INTERVAL_SECONDS
     collector_id: str = "local-moomoo"
+    spx_session_id: str = DEFAULT_SPX_SESSION_ID
     api_base: str = "http://127.0.0.1:8000"
     manual_spots: dict[str, float] = field(default_factory=dict)
     universe: Sequence[MoomooSymbolConfig] = field(default_factory=tuple)
@@ -61,6 +63,8 @@ class MoomooCollectorConfig:
     def __post_init__(self) -> None:
         if self.refresh_interval_seconds <= 0:
             raise ValueError("refresh_interval_seconds must be greater than zero")
+        if not self.spx_session_id.strip():
+            raise ValueError("spx_session_id must be non-empty")
         if not self.universe:
             object.__setattr__(self, "universe", tuple(default_moomoo_universe()))
 

@@ -204,7 +204,7 @@ Run one snapshot loop. SPX uses live `US.SPY` from Moomoo as its discovery basel
 
     pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot RUT=2050 --spot NDX=18300 --max-loops 1
 
-Publish SPX compatibility events into the local FastAPI ingestion path. By default, the collector runs continuously and publishes each 2-second snapshot loop; pass `--max-loops 1` only for a bounded smoke test:
+Publish SPX compatibility events into the local FastAPI ingestion path. By default, the collector runs continuously and publishes each 2-second snapshot loop into the stable `moomoo-spx-0dte-live` dashboard session; pass `--max-loops 1` only for a bounded smoke test:
 
     pnpm dev:api
     pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot RUT=2050 --spot NDX=18300 --publish

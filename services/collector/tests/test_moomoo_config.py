@@ -53,6 +53,7 @@ def test_collector_config_defaults_populate_moomoo_universe() -> None:
     assert config.port == 11111
     assert config.refresh_interval_seconds == 2.0
     assert config.collector_id == "local-moomoo"
+    assert config.spx_session_id == "moomoo-spx-0dte-live"
     assert config.api_base == "http://127.0.0.1:8000"
     assert config.manual_spots == {}
     assert [item.symbol for item in config.universe] == ["SPX", "SPY", "QQQ", "IWM", "RUT", "NDX"]
