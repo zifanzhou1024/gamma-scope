@@ -50,6 +50,55 @@ export function nextReplayPlaybackIndex(
   return lastIndex;
 }
 
+export function jumpReplayTimelineIndex(
+  entries: ReplayTimelineEntry[],
+  currentIndex: number,
+  offsetMs: number
+): number {
+  if (entries.length === 0) {
+    return 0;
+  }
+
+  const lastIndex = entries.length - 1;
+  const clampedIndex = clampIndex(currentIndex, lastIndex);
+  const currentTimestamp = Date.parse(entries[clampedIndex]?.snapshot_time ?? "");
+
+  if (!Number.isFinite(currentTimestamp) || !Number.isFinite(offsetMs)) {
+    return clampedIndex;
+  }
+
+  const targetTimestamp = currentTimestamp + offsetMs;
+  const firstTimestamp = Date.parse(entries[0]?.snapshot_time ?? "");
+  const lastTimestamp = Date.parse(entries[lastIndex]?.snapshot_time ?? "");
+
+  if (Number.isFinite(firstTimestamp) && targetTimestamp <= firstTimestamp) {
+    return 0;
+  }
+
+  if (Number.isFinite(lastTimestamp) && targetTimestamp >= lastTimestamp) {
+    return lastIndex;
+  }
+
+  let nearestIndex = clampedIndex;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index <= lastIndex; index += 1) {
+    const timestamp = Date.parse(entries[index]?.snapshot_time ?? "");
+
+    if (!Number.isFinite(timestamp)) {
+      continue;
+    }
+
+    const distance = Math.abs(timestamp - targetTimestamp);
+    if (distance < nearestDistance || (distance === nearestDistance && isTieCloserForDirection(index, nearestIndex, offsetMs))) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearestIndex;
+}
+
 export function formatReplayMarketTime(value: string): string {
   const timestamp = Date.parse(value);
 
@@ -76,4 +125,16 @@ function clampIndex(currentIndex: number, lastIndex: number): number {
   }
 
   return Math.min(Math.max(Math.trunc(currentIndex), 0), lastIndex);
+}
+
+function isTieCloserForDirection(index: number, nearestIndex: number, offsetMs: number): boolean {
+  if (offsetMs < 0) {
+    return index < nearestIndex;
+  }
+
+  if (offsetMs > 0) {
+    return index > nearestIndex;
+  }
+
+  return false;
 }

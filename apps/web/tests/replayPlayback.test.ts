@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatReplayMarketTime,
   isReplayPlaybackSpeed,
+  jumpReplayTimelineIndex,
   nextReplayPlaybackIndex,
   REPLAY_PLAYBACK_SPEEDS,
   REPLAY_PLAYBACK_TICK_MS
@@ -100,5 +101,32 @@ describe("formatReplayMarketTime", () => {
 
   it("returns invalid timestamps unchanged", () => {
     expect(formatReplayMarketTime("not-a-date")).toBe("not-a-date");
+  });
+});
+
+describe("jumpReplayTimelineIndex", () => {
+  const entries = [
+    entry(0, "2026-04-22T13:30:00.000Z"),
+    entry(1, "2026-04-22T13:30:55.000Z"),
+    entry(2, "2026-04-22T13:30:59.000Z"),
+    entry(3, "2026-04-22T13:31:00.000Z"),
+    entry(4, "2026-04-22T13:31:01.000Z"),
+    entry(5, "2026-04-22T13:31:05.000Z"),
+    entry(6, "2026-04-22T13:32:00.000Z")
+  ];
+
+  it("moves to the nearest valid frame for second and minute jumps", () => {
+    expect(jumpReplayTimelineIndex(entries, 3, -1000)).toBe(2);
+    expect(jumpReplayTimelineIndex(entries, 3, -5000)).toBe(1);
+    expect(jumpReplayTimelineIndex(entries, 3, -60_000)).toBe(0);
+    expect(jumpReplayTimelineIndex(entries, 3, 1000)).toBe(4);
+    expect(jumpReplayTimelineIndex(entries, 3, 5000)).toBe(5);
+    expect(jumpReplayTimelineIndex(entries, 3, 60_000)).toBe(6);
+  });
+
+  it("clamps jumps at the timeline ends", () => {
+    expect(jumpReplayTimelineIndex(entries, 0, -60_000)).toBe(0);
+    expect(jumpReplayTimelineIndex(entries, 6, 60_000)).toBe(6);
+    expect(jumpReplayTimelineIndex([], 0, 1000)).toBe(0);
   });
 });

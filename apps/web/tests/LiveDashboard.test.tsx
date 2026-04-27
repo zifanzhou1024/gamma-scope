@@ -43,7 +43,7 @@ function replaySession(overrides: {
 }
 
 describe("LiveDashboard scenario panel", () => {
-  it("shows admin login while keeping import controls hidden for public users", () => {
+  it("renders the live dashboard without replay, import, or admin controls", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -52,15 +52,20 @@ describe("LiveDashboard scenario panel", () => {
 
     const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
 
-    expect(markup).toContain("Admin");
-    expect(markup).toContain("Username");
-    expect(markup).toContain("Password");
-    expect(markup).toContain("Log in");
+    expect(markup).toContain("SPX 0DTE analytics");
+    expect(markup).toContain("Spot shift");
+    expect(markup).toContain("Saved views");
+    expect(markup).not.toContain("Replay session");
+    expect(markup).not.toContain("Previous replay timestamp");
+    expect(markup).not.toContain("Load replay");
+    expect(markup).not.toContain("Admin");
+    expect(markup).not.toContain("Username");
+    expect(markup).not.toContain("Password");
     expect(markup).not.toContain("Replay import");
     expect(markup).not.toContain("Upload import");
   });
 
-  it("shows import controls near replay controls for an authenticated admin session", () => {
+  it("ignores replay admin props on the live dashboard route", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -78,11 +83,11 @@ describe("LiveDashboard scenario panel", () => {
       />
     );
 
-    expect(markup).toContain("Replay");
-    expect(markup).toContain("Replay import");
-    expect(markup).toContain("snapshots.parquet");
-    expect(markup).toContain("quotes.parquet");
-    expect(markup.indexOf("Replay")).toBeLessThan(markup.indexOf("Replay import"));
+    expect(markup).not.toContain("Replay session");
+    expect(markup).not.toContain("Replay import");
+    expect(markup).not.toContain("snapshots.parquet");
+    expect(markup).not.toContain("quotes.parquet");
+    expect(markup).not.toContain("Admin");
   });
 
   it("renders compact scenario controls with the live dashboard", () => {
@@ -100,7 +105,7 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toContain("Apply scenario");
   });
 
-  it("renders compact replay controls with the live dashboard", () => {
+  it("links to the replay workstation from the live dashboard", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -109,10 +114,8 @@ describe("LiveDashboard scenario panel", () => {
 
     const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
 
-    expect(markup).toContain("Replay");
-    expect(markup).toContain("Previous replay timestamp");
-    expect(markup).toContain("Next replay timestamp");
-    expect(markup).toContain("Load replay");
+    expect(markup).toContain("href=\"/replay\"");
+    expect(markup).toContain("Replay workstation");
   });
 
   it("renders saved view controls with the live dashboard", () => {
@@ -722,9 +725,9 @@ describe("LiveDashboard scenario panel", () => {
       shouldClearCurrentImport: true,
       errorMessage: null
     });
-    expect(beforeMarkup).toContain("import-ready");
-    expect(beforeMarkup).toContain("Confirm import");
-    expect(afterMarkup).toContain("Replay import");
+    expect(beforeMarkup).not.toContain("import-ready");
+    expect(beforeMarkup).not.toContain("Confirm import");
+    expect(afterMarkup).not.toContain("Replay import");
     expect(afterMarkup).not.toContain("import-ready");
     expect(afterMarkup).not.toContain("Confirm import");
   });
@@ -784,8 +787,8 @@ describe("LiveDashboard scenario panel", () => {
       isUploadingReplayImport: false,
       isConfirmingReplayImport: false
     });
-    expect(beforeMarkup).toContain("Replay import");
-    expect(beforeMarkup).toContain("import-ready");
+    expect(beforeMarkup).not.toContain("Replay import");
+    expect(beforeMarkup).not.toContain("import-ready");
     expect(afterMarkup).not.toContain("Replay import");
     expect(afterMarkup).not.toContain("import-ready");
     expect(LiveDashboardModule.shouldShowReplayImportControls(result.adminState.isAdminAuthenticated)).toBe(false);

@@ -33,6 +33,10 @@ interface DashboardViewProps {
   collectorHealth?: CollectorHealth | null;
   transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
+  navigationLink?: {
+    href: string;
+    label: string;
+  };
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
@@ -49,6 +53,7 @@ export function DashboardView({
   collectorHealth,
   transportStatus,
   initialChainSide = "all",
+  navigationLink,
   replayPanel,
   savedViewsPanel,
   scenarioPanel
@@ -96,10 +101,15 @@ export function DashboardView({
               </span>
             </>
           ) : null}
+          {navigationLink ? (
+            <a className="dashboardNavLink" href={navigationLink.href}>
+              {navigationLink.label}
+            </a>
+          ) : null}
         </div>
       </header>
 
-      <section className="sessionBand" aria-label="Current replay session">
+      <section className="sessionBand" aria-label="Current session">
         <div>
           <span className="eyebrow">Session</span>
           <strong>{snapshot.session_id}</strong>
@@ -147,9 +157,9 @@ export function DashboardView({
       </section>
 
       <section className="chartGrid" aria-label="Analytics charts">
-        <DashboardChart rows={rows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />
-        <DashboardChart rows={rows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
-        <DashboardChart rows={rows} title="Vanna by strike" metricKey="custom_vanna" tone="teal" valueKind="decimal" />
+        <DashboardChart rows={rows} title="IV BY STRIKE" metricKey="custom_iv" tone="blue" valueKind="percent" />
+        <DashboardChart rows={rows} title="GAMMA BY STRIKE" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
+        <DashboardChart rows={rows} title="VANNA BY STRIKE" metricKey="custom_vanna" tone="teal" valueKind="decimal" />
       </section>
 
       <section className="chainSection" aria-label="Option chain">

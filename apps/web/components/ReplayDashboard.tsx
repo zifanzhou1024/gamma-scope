@@ -43,9 +43,9 @@ import {
 } from "../lib/replayPlayback";
 import type { ReplayPlaybackSpeed } from "../lib/replayPlayback";
 import { AdminLoginPanel } from "./AdminLoginPanel";
+import { ArchiveTransport } from "./ArchiveTransport";
 import { DashboardView } from "./DashboardView";
 import { ReplayImportPanel } from "./ReplayImportPanel";
-import { ReplayPanel } from "./ReplayPanel";
 import { SavedViewsPanel } from "./SavedViewsPanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 
@@ -56,8 +56,9 @@ const ADMIN_LOGIN_PATH = "/api/admin/login";
 const ADMIN_LOGOUT_PATH = "/api/admin/logout";
 const CSRF_HEADER_NAME = "X-GammaScope-CSRF";
 
-interface LiveDashboardProps {
+interface ReplayDashboardProps {
   initialSnapshot: AnalyticsSnapshot;
+  requestedSessionId?: string | null;
   initialAdminSession?: InitialAdminSession;
   initialReplayImport?: ReplayImportResult | null;
 }
@@ -148,6 +149,10 @@ interface ReplaySelectionChangeState {
   replayRequestsCanceled: boolean;
   isReplayStreamActive: boolean;
   isLoadingReplay: boolean;
+}
+
+interface ManualReplayFrameSelectionState extends ReplaySelectionChangeState {
+  selectedReplayIndex: number;
 }
 
 type ConfirmReplayImportClient = (importId: string, csrfToken: string) => Promise<ReplayImportResult | null>;
@@ -332,6 +337,20 @@ export function nextDashboardReplayPlaybackIndex(
   return nextReplayPlaybackIndex(entries, currentIndex, speed);
 }
 
+export function createReplayStreamStartingIndex(
+  currentIndex: number,
+  entries: ReplayTimelineEntry[]
+): number {
+  if (entries.length === 0) {
+    return 0;
+  }
+
+  const finalIndex = entries.length - 1;
+  const clampedIndex = clampReplayTimelineIndex(currentIndex, entries);
+
+  return clampedIndex >= finalIndex ? 0 : clampedIndex;
+}
+
 export function createReplaySelectionChangeState(currentLatestReplayRequestId: number): ReplaySelectionChangeState {
   return {
     latestReplayRequestId: currentLatestReplayRequestId + 1,
@@ -339,6 +358,28 @@ export function createReplaySelectionChangeState(currentLatestReplayRequestId: n
     isReplayStreamActive: false,
     isLoadingReplay: false
   };
+}
+
+export function createManualReplayFrameSelectionState(
+  currentLatestReplayRequestId: number,
+  selectedReplayIndex: number,
+  replayTimelineEntries: ReplayTimelineEntry[]
+): ManualReplayFrameSelectionState {
+  return {
+    ...createReplaySelectionChangeState(currentLatestReplayRequestId),
+    selectedReplayIndex: clampReplayTimelineIndex(selectedReplayIndex, replayTimelineEntries)
+  };
+}
+
+export function selectInitialReplaySessionId(
+  sessions: ReplaySession[],
+  requestedSessionId: string | null | undefined
+): string | null {
+  if (requestedSessionId && sessions.some((session) => session.session_id === requestedSessionId)) {
+    return requestedSessionId;
+  }
+
+  return sessions[0]?.session_id ?? null;
 }
 
 export function shouldPollLiveSnapshot(
@@ -550,7 +591,12 @@ export async function logoutAdminDashboardAction({
   };
 }
 
-export function LiveDashboard({ initialSnapshot, initialAdminSession, initialReplayImport = null }: LiveDashboardProps) {
+export function ReplayDashboard({
+  initialSnapshot,
+  requestedSessionId = null,
+  initialAdminSession,
+  initialReplayImport = null
+}: ReplayDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
@@ -637,9 +683,24 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   useEffect(() => {
-    applyDashboardAdminState(createLoggedOutAdminState(isAdminAvailable));
-    nextAdminSessionRequestId();
-    return undefined;
+    let isCanceled = false;
+    const responseRequestId = nextAdminSessionRequestId();
+
+    loadDashboardAdminSession(isAdminAvailable).then((adminState) => {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: adminSessionRequestIdRef.current,
+        isCanceled
+      })) {
+        return;
+      }
+
+      applyDashboardAdminState(adminState);
+    });
+
+    return () => {
+      isCanceled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -660,13 +721,28 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   }, []);
 
   useEffect(() => {
-    nextReplaySessionsRequestId();
-    setReplaySessions([]);
-    setSelectedReplaySessionId(null);
-    setSelectedReplayIndex(0);
-    setIsLoadingReplaySessions(false);
-    return undefined;
-  }, []);
+    let isCanceled = false;
+    const responseRequestId = nextReplaySessionsRequestId();
+
+    loadClientReplaySessions().then((sessions) => {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: replaySessionsRequestIdRef.current,
+        isCanceled
+      })) {
+        return;
+      }
+
+      setReplaySessions(sessions);
+      setSelectedReplaySessionId(selectInitialReplaySessionId(sessions, requestedSessionId));
+      setSelectedReplayIndex(0);
+      setIsLoadingReplaySessions(false);
+    });
+
+    return () => {
+      isCanceled = true;
+    };
+  }, [requestedSessionId]);
 
   useEffect(() => {
     let isCanceled = false;
@@ -864,14 +940,6 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     }
 
     stopReplayStream();
-    const finalReplayIndex = replayTimelineEntriesRef.current.length - 1;
-    const startingIndex = selectedReplayIndexRef.current >= finalReplayIndex ? 0 : selectedReplayIndexRef.current;
-
-    if (startingIndex !== selectedReplayIndexRef.current) {
-      selectedReplayIndexRef.current = startingIndex;
-      setSelectedReplayIndex(startingIndex);
-    }
-
     latestReplayRequestIdRef.current += 1;
     const replayStartState = createReplayStreamStartState();
     scenarioRequestsCanceledRef.current = replayStartState.scenarioRequestsCanceled;
@@ -886,6 +954,13 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     setIsReplayModeActive(replayStartState.isReplayModeActive);
     setScenarioError(null);
     setReplayError(replayStartState.replayError);
+
+    const startingIndex = createReplayStreamStartingIndex(
+      selectedReplayIndexRef.current,
+      replayTimelineEntriesRef.current
+    );
+    selectedReplayIndexRef.current = startingIndex;
+    setSelectedReplayIndex(startingIndex);
 
     replayPlaybackIntervalRef.current = window.setInterval(() => {
       const entries = replayTimelineEntriesRef.current;
@@ -1184,7 +1259,72 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
       snapshot={snapshot}
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
-      navigationLink={{ href: "/replay", label: "Replay workstation" }}
+      navigationLink={{ href: "/", label: "Live dashboard" }}
+      replayPanel={
+        <div className="replayWorkstationControls">
+          <ArchiveTransport
+            selectedSessionId={selectedReplaySessionId}
+            sessions={replaySessions}
+            hasSessions={replaySessions.length > 0}
+            timelineEntries={replayTimelineEntries}
+            selectedSnapshotIndex={clampedReplayIndex}
+            selectedTimelineEntry={selectedReplayEntry}
+            selectedPlaybackSpeed={replayPlaybackSpeed}
+            isReplayModeActive={isReplayModeActive}
+            isReplayStreamActive={isReplayStreamActive}
+            isLoadingSessions={isLoadingReplaySessions}
+            isLoadingReplay={isLoadingReplay}
+            errorMessage={replayError ?? replayTimelineStatus}
+            onSelectSessionId={(sessionId) => {
+              const replaySelectionChangeState = createReplaySelectionChangeState(latestReplayRequestIdRef.current);
+              latestReplayRequestIdRef.current = replaySelectionChangeState.latestReplayRequestId;
+              replayRequestsCanceledRef.current = replaySelectionChangeState.replayRequestsCanceled;
+              stopReplayStream();
+              setSelectedReplaySessionId(sessionId || null);
+              setSelectedReplayIndex(0);
+              setIsLoadingReplay(replaySelectionChangeState.isLoadingReplay);
+            }}
+            onSelectSnapshotIndex={(index) => {
+              const replaySelectionChangeState = createManualReplayFrameSelectionState(
+                latestReplayRequestIdRef.current,
+                index,
+                replayTimelineEntries
+              );
+              latestReplayRequestIdRef.current = replaySelectionChangeState.latestReplayRequestId;
+              replayRequestsCanceledRef.current = replaySelectionChangeState.replayRequestsCanceled;
+              stopReplayStream();
+              setIsLoadingReplay(replaySelectionChangeState.isLoadingReplay);
+              setSelectedReplayIndex(replaySelectionChangeState.selectedReplayIndex);
+            }}
+            onSelectPlaybackSpeed={setReplayPlaybackSpeed}
+            onLoadReplay={loadReplay}
+            onPlayReplayStream={playReplayStream}
+            onStopReplayStream={stopReplayStream}
+            onReturnToLive={returnToLive}
+          />
+          <div className="replaySecondaryTools">
+            <AdminLoginPanel
+              isAuthenticated={isAdminAuthenticated}
+              isAvailable={isAdminAvailable}
+              isSubmitting={isAdminSubmitting}
+              errorMessage={adminErrorMessage}
+              onLogin={loginAdmin}
+              onLogout={logoutAdmin}
+            />
+            <ReplayImportPanel
+              isAdminAuthenticated={shouldShowReplayImportControls(isAdminAuthenticated)}
+              csrfToken={adminCsrfToken}
+              currentImport={currentReplayImport}
+              isUploading={isUploadingReplayImport}
+              isConfirming={isConfirmingReplayImport}
+              errorMessage={replayImportError}
+              onUpload={uploadReplayFiles}
+              onConfirm={confirmReplayImportReview}
+              onCancel={cancelReplayImportReview}
+            />
+          </div>
+        </div>
+      }
       savedViewsPanel={
         <SavedViewsPanel
           savedViews={savedViews}

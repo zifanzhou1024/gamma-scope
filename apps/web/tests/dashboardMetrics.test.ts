@@ -255,6 +255,23 @@ describe("chart geometry", () => {
     expect(path).toContain(" L ");
   });
 
+  it("builds an SVG path against a shared multi-series domain", () => {
+    const path = buildPath(
+      [
+        { x: 0, y: 10 },
+        { x: 1, y: 20 }
+      ],
+      { width: 100, height: 100, padding: 10 },
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 10 },
+        { x: 1, y: 20 }
+      ]
+    );
+
+    expect(path).toBe("M 10.00 50.00 L 90.00 10.00");
+  });
+
   it("returns an empty path for fewer than two points", () => {
     expect(buildPath([{ x: 5200, y: 0.18 }], { width: 320, height: 160, padding: 20 })).toBe("");
   });
