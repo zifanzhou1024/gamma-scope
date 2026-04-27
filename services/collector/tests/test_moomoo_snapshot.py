@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from collections.abc import Iterable
 from datetime import date
 
@@ -385,6 +387,27 @@ def test_main_prints_error_json_when_real_client_cannot_be_created(capsys: pytes
     output = capsys.readouterr().out
     assert '"status":"error"' in output
     assert "moomoo-api package is not installed" in output
+
+
+def test_main_help_describes_moomoo_0dte_snapshot(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Collect Moomoo 0DTE option snapshots" in output
+
+
+def test_module_cli_help_accepts_pnpm_forwarded_separator() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "gammascope_collector.moomoo_snapshot", "--", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "Collect Moomoo 0DTE option snapshots" in result.stdout
 
 
 def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(

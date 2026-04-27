@@ -12,3 +12,10 @@ test("root test script runs API tests with local Postgres", () => {
   assert.match(packageJson.scripts["test:api"], /^docker compose up -d postgres && \.venv\/bin\/pytest apps\/api\/tests -q$/);
   assert.match(packageJson.scripts.test, /pnpm test:api/);
 });
+
+test("collector:moomoo-snapshot runs the Moomoo collector from the project virtualenv", () => {
+  assert.equal(
+    packageJson.scripts["collector:moomoo-snapshot"],
+    "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_snapshot",
+  );
+});

@@ -357,7 +357,7 @@ def normalize_snapshot_record(contract: MoomooContract, record: dict[str, object
 
 
 def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Poll Moomoo option snapshots and print collector JSON.")
+    parser = argparse.ArgumentParser(description="Collect Moomoo 0DTE option snapshots.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=11111)
     parser.add_argument("--api", default="http://127.0.0.1:8000")
@@ -367,7 +367,10 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     parser.add_argument("--interval-seconds", type=float, default=2.0)
     parser.add_argument("--max-loops", type=int, default=1)
     parser.add_argument("--publish", action="store_true")
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+    raw_args = list(argv if argv is not None else sys.argv[1:])
+    if raw_args[:1] == ["--"]:
+        raw_args = raw_args[1:]
+    args = parser.parse_args(raw_args)
 
     client: MoomooQuoteClient | None = None
     try:
@@ -528,6 +531,10 @@ def _first_present(record: dict[str, object], *keys: str) -> object:
 
 def _parse_date(raw_value: str) -> date:
     return date.fromisoformat(raw_value)
+
+
+if __name__ == "__main__":
+    main()
 
 
 __all__ = [

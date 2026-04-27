@@ -187,6 +187,30 @@ Use the captured `session_id` to replay the persisted IBKR snapshot:
 
 Then open `http://localhost:3000`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
 
+### Local Moomoo 0DTE Snapshot
+
+Moomoo is the default direction for new live-source work. The first Moomoo collector uses local OpenD and keeps the current SPX dashboard contract by publishing only SPX rows into the existing collector event path.
+
+Install the Moomoo package in the project virtualenv:
+
+    .venv/bin/python -m pip install --upgrade moomoo-api pandas
+
+Start Moomoo OpenD locally and confirm it is listening on:
+
+    host=127.0.0.1
+    port=11111
+
+Run one snapshot loop. Manual spot is required for index symbols where direct Moomoo index snapshots may not return usable spot values:
+
+    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1
+
+Publish SPX compatibility events into the local FastAPI ingestion path:
+
+    pnpm dev:api
+    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1 --publish
+
+The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds when running multiple loops and chunks requests to at most 400 option codes. It uses `get_option_chain()` only for startup contract discovery.
+
 ### Local Replay Baseline Import
 
 For a local-only replay baseline import, copy the parquet pair into the ignored `.gammascope/` directory and run the helper:
