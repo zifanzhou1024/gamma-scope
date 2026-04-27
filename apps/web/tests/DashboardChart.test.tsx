@@ -97,6 +97,41 @@ describe("DashboardChart", () => {
     expect(markup).toContain("0.01800");
   });
 
+  it("does not render spot or forward reference lines outside the x-domain", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5189}
+        forward={5211}
+      />
+    );
+
+    expect(markup).not.toContain('data-reference-line="spot"');
+    expect(markup).not.toContain("SPX spot 5,189.00");
+    expect(markup).not.toContain('data-reference-line="forward"');
+    expect(markup).not.toContain("Forward 5,211.00");
+  });
+
+  it("places right-edge reference labels inside the chart", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5210}
+      />
+    );
+
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toMatch(/data-reference-line="spot"[\s\S]*<text[^>]*text-anchor="end"[^>]*>SPX spot 5,210\.00<\/text>/);
+  });
+
   it("renders a zero line on vanna charts when zero is inside the domain", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart
@@ -115,6 +150,73 @@ describe("DashboardChart", () => {
     expect(markup).toContain('data-zero-line="vanna"');
     expect(markup).toContain("Vanna 0");
     expect(markup).toContain("ATM Vanna");
+  });
+
+  it("does not render a vanna zero line for gamma or IV charts", () => {
+    const zeroCrossingRows = [
+      marketRow({ strike: 5190, right: "call", custom_iv: -0.01, custom_gamma: -0.001, custom_vanna: -0.001 }),
+      marketRow({ strike: 5200, right: "put", custom_iv: 0.01, custom_gamma: 0.001, custom_vanna: 0.001 })
+    ];
+    const gammaMarkup = renderToStaticMarkup(
+      <DashboardChart
+        rows={zeroCrossingRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        showZeroLine
+      />
+    );
+    const ivMarkup = renderToStaticMarkup(
+      <DashboardChart rows={zeroCrossingRows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" showZeroLine />
+    );
+
+    expect(gammaMarkup).not.toContain('data-zero-line="vanna"');
+    expect(ivMarkup).not.toContain('data-zero-line="vanna"');
+  });
+
+  it("does not render a vanna zero line when zero is outside the y-domain", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows.map((row) => ({ ...row, custom_vanna: Math.abs(row.custom_vanna ?? 0.001) }))}
+        title="Vanna by strike"
+        metricKey="custom_vanna"
+        tone="teal"
+        valueKind="decimal"
+        showZeroLine
+      />
+    );
+
+    expect(markup).not.toContain('data-zero-line="vanna"');
+    expect(markup).not.toContain("Vanna 0");
+  });
+
+  it("uses ATM summary labels for zero values and current labels for null ATM values", () => {
+    const zeroMarkup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        atmValue={0}
+      />
+    );
+    const nullMarkup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        atmValue={null}
+      />
+    );
+
+    expect(zeroMarkup).toContain("ATM Gamma");
+    expect(zeroMarkup).toContain("0.00000");
+    expect(nullMarkup).toContain("Current");
+    expect(nullMarkup).not.toContain("ATM Gamma");
   });
 
   it("uses green for call IV and red for put IV chart semantics", () => {

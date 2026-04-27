@@ -177,11 +177,14 @@ interface ReferenceLineModel {
 function ReferenceLine({ line, domainPoints }: { line: ReferenceLineModel; domainPoints: ChartPoint[] }) {
   const x = projectX(line.value, domainPoints);
   const y = line.key === "spot" ? FRAME.padding + 12 : FRAME.padding + 26;
+  const isRightSide = x > FRAME.width / 2;
+  const labelX = isRightSide ? x - 6 : x + 6;
+  const textAnchor = isRightSide ? "end" : "start";
 
   return (
     <g className={`chartReferenceLine chartReferenceLine-${line.key}`} data-reference-line={line.key} aria-label={line.label}>
       <line x1={x} x2={x} y1={FRAME.padding} y2={FRAME.height - FRAME.padding} />
-      <text x={x + 6} y={y}>
+      <text x={labelX} y={y} textAnchor={textAnchor}>
         {line.label}
       </text>
     </g>
