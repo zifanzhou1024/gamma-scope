@@ -144,6 +144,33 @@ describe("DashboardView chart inspection interactions", () => {
 
     cleanupRenderedDashboard(root, container);
   });
+
+  it("updates level movement when DashboardView receives a second snapshot", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const { container, root } = renderDashboardView(<DashboardView snapshot={snapshot} activeDashboard="replay" />);
+
+    expect(container.querySelector("[data-level-movement-panel]")?.textContent).toContain("Waiting for next snapshot");
+
+    const nextSnapshot = {
+      ...snapshot,
+      spot: 5206.25,
+      snapshot_time: "2026-04-23T18:00:01Z"
+    } satisfies AnalyticsSnapshot;
+
+    act(() => {
+      root.render(<DashboardView snapshot={nextSnapshot} activeDashboard="replay" />);
+    });
+
+    const movementPanel = container.querySelector("[data-level-movement-panel]");
+    expect(movementPanel).not.toBeNull();
+    expect(movementPanel?.textContent).toContain("Spot");
+    expect(movementPanel?.textContent).toContain("Prev 5,201.25");
+    expect(movementPanel?.textContent).toContain("Now 5,206.25");
+    expect(movementPanel?.textContent).toContain("+5.00");
+    expect(movementPanel?.textContent).toContain("Up");
+
+    cleanupRenderedDashboard(root, container);
+  });
 });
 
 function renderDashboardView(element: React.ReactElement) {

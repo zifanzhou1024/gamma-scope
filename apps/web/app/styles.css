@@ -1401,6 +1401,91 @@ h1 {
   border-color: rgba(45, 212, 191, 0.3);
 }
 
+.levelMovementPanel {
+  background: rgba(10, 16, 25, 0.7);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 16px 0;
+}
+
+.levelMovementPanel .sectionHeader {
+  padding: 0 2px;
+}
+
+.levelMovementPanel .sectionHeader h2 {
+  color: var(--soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.levelMovementGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 14px;
+}
+
+.levelMovementItem {
+  background: rgba(8, 13, 22, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  min-width: 0;
+  padding: 11px 12px;
+}
+
+.levelMovementLabel,
+.levelMovementDetail,
+.levelMovementDelta {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.levelMovementValue {
+  color: var(--text);
+  display: block;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.levelMovementDelta {
+  color: var(--soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.levelMovementItem-up {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.levelMovementItem-up .levelMovementDelta {
+  color: #86efac;
+}
+
+.levelMovementItem-down {
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.levelMovementItem-down .levelMovementDelta {
+  color: #fca5a5;
+}
+
+.levelMovementItem-flat {
+  border-color: rgba(56, 189, 248, 0.26);
+}
+
+.levelMovementItem-unavailable {
+  border-color: rgba(148, 163, 184, 0.14);
+}
+
 .chartGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(320px, 1fr));

@@ -125,6 +125,20 @@ describe("DashboardView", () => {
     expect(markup).toContain("Left-skew");
   });
 
+  it("renders level movement labels with a waiting state for the first snapshot", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} activeDashboard="replay" />);
+
+    expect(markup).toContain('aria-label="Level movement"');
+    expect(markup).toContain("LEVEL MOVEMENT");
+    expect(markup).toContain("Waiting for next snapshot");
+    expect(markup).toContain("Spot");
+    expect(markup).toContain("Call IV low");
+    expect(markup).toContain("Put IV low");
+    expect(markup).toContain("Gamma peak");
+    expect(markup).toContain("Vanna flip");
+  });
+
   it("marks vanna fallback levels as nearest zero instead of a true flip", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const oneSidedVannaSnapshot = {
@@ -413,5 +427,12 @@ describe("DashboardView", () => {
     expect(styles).toMatch(/\.marketIntelligenceGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
     expect(styles).toMatch(/\.marketIntelligenceItem\s*{[\s\S]*min-width:\s*0/);
     expect(styles).toMatch(/\.marketIntelligenceItem strong\s*{[\s\S]*overflow-wrap:\s*anywhere/);
+  });
+
+  it("defines compact wrapping styles for the level movement panel", async () => {
+    expect(styles).toMatch(/\.levelMovementPanel\s*{[\s\S]*padding:\s*16px 0/);
+    expect(styles).toMatch(/\.levelMovementGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.levelMovementItem\s*{[\s\S]*min-width:\s*0/);
+    expect(styles).toMatch(/\.levelMovementValue\s*{[\s\S]*overflow-wrap:\s*anywhere/);
   });
 });

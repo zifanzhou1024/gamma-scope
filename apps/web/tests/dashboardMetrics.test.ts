@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   deriveMarketMap,
   deriveMarketIntelligence,
+  deriveLevelHistoryEntry,
+  deriveLevelMovements,
   deriveDataQuality,
   filterChainRowsBySide,
   formatBasisPointDiff,
@@ -20,7 +22,8 @@ import {
   getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
-  summarizeSnapshot
+  summarizeSnapshot,
+  updateLevelHistory
 } from "../lib/dashboardMetrics";
 import { buildPath, buildSeries } from "../lib/chartGeometry";
 import { seedSnapshot } from "../lib/seedSnapshot";
@@ -70,6 +73,66 @@ describe("dashboard metrics", () => {
     expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
     expect(marketMap.vannaFlip?.strike).toBeCloseTo(5200.91, 2);
     expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
+  });
+
+  it("appends bounded level history and resets when session or expiry changes", () => {
+    const firstEntry = deriveLevelHistoryEntry(marketMapSnapshot, "replay");
+    const secondEntry = deriveLevelHistoryEntry(
+      { ...marketMapSnapshot, spot: 5208, snapshot_time: "2026-04-23T18:00:01Z" },
+      "replay"
+    );
+    const thirdEntry = deriveLevelHistoryEntry(
+      { ...marketMapSnapshot, spot: 5209, snapshot_time: "2026-04-23T18:00:02Z" },
+      "replay"
+    );
+
+    const boundedHistory = updateLevelHistory(
+      updateLevelHistory(updateLevelHistory([], firstEntry, 2), secondEntry, 2),
+      thirdEntry,
+      2
+    );
+
+    expect(boundedHistory).toHaveLength(2);
+    expect(boundedHistory.map((entry) => entry.levels.spot)).toEqual([5208, 5209]);
+
+    const changedSession = deriveLevelHistoryEntry({ ...marketMapSnapshot, session_id: "new-session" }, "replay");
+    expect(updateLevelHistory(boundedHistory, changedSession, 2)).toEqual([changedSession]);
+
+    const changedExpiry = deriveLevelHistoryEntry({ ...marketMapSnapshot, expiry: "2026-04-24" }, "replay");
+    expect(updateLevelHistory(boundedHistory, changedExpiry, 2)).toEqual([changedExpiry]);
+  });
+
+  it("derives previous current delta and direction for tracked market levels", () => {
+    const previous = deriveLevelHistoryEntry(marketMapSnapshot, "realtime");
+    const current = deriveLevelHistoryEntry(
+      {
+        ...marketMapSnapshot,
+        spot: 5207,
+        rows: [
+          { ...seedSnapshot.rows[0]!, strike: 5190, right: "call" as const, custom_iv: 0.16, custom_gamma: 0.01, custom_vanna: -0.04 },
+          { ...seedSnapshot.rows[1]!, strike: 5190, right: "put" as const, custom_iv: 0.24, custom_gamma: 0.01, custom_vanna: -0.03 },
+          { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.02, custom_vanna: -0.01 },
+          { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.01, custom_vanna: 0.005 },
+          { ...seedSnapshot.rows[4]!, strike: 5210, right: "call" as const, custom_iv: 0.21, custom_gamma: 0.01, custom_vanna: 0.03 },
+          { ...seedSnapshot.rows[5]!, strike: 5210, right: "put" as const, custom_iv: 0.17, custom_gamma: 0.01, custom_vanna: 0.02 }
+        ]
+      },
+      "realtime"
+    );
+
+    const movements = deriveLevelMovements([previous, current]);
+
+    expect(movements.spot).toMatchObject({ previous: 5206, current: 5207, delta: 1, direction: "Up" });
+    expect(movements.callIvLowStrike).toMatchObject({ previous: 5200, current: 5190, delta: -10, direction: "Down" });
+    expect(movements.putIvLowStrike).toMatchObject({ previous: 5210, current: 5210, delta: 0, direction: "Flat" });
+    expect(movements.gammaPeakStrike).toMatchObject({ previous: 5210, current: 5200, delta: -10, direction: "Down" });
+    expect(movements.vannaFlipStrike.direction).toBe("Flat");
+  });
+
+  it("marks movements unavailable until at least two compatible snapshots exist", () => {
+    const movements = deriveLevelMovements([deriveLevelHistoryEntry(marketMapSnapshot, "realtime")]);
+
+    expect(movements.spot).toMatchObject({ previous: null, current: 5206, delta: null, direction: "Unavailable" });
   });
 
   it("derives expected move bands from ATM IV and remaining time to SPX close", () => {

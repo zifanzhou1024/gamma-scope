@@ -108,6 +108,29 @@ export interface MarketIntelligence {
   };
 }
 
+export type LevelMovementDirection = "Up" | "Down" | "Flat" | "Unavailable";
+export type LevelHistoryKey =
+  | "spot"
+  | "callIvLowStrike"
+  | "putIvLowStrike"
+  | "gammaPeakStrike"
+  | "vannaFlipStrike";
+
+export interface LevelHistoryEntry {
+  resetKey: string;
+  snapshotTime: string;
+  levels: Record<LevelHistoryKey, number | null>;
+}
+
+export interface LevelMovement {
+  previous: number | null;
+  current: number | null;
+  delta: number | null;
+  direction: LevelMovementDirection;
+}
+
+export type LevelMovements = Record<LevelHistoryKey, LevelMovement>;
+
 export interface ChainStrikeRow {
   strike: number;
   call: AnalyticsRow | null;
@@ -504,6 +527,68 @@ export function deriveMarketMap(snapshot: AnalyticsSnapshot): MarketMap {
   };
 }
 
+export function deriveLevelHistoryEntry(
+  snapshot: AnalyticsSnapshot,
+  activeDashboard: DashboardSurface = "realtime"
+): LevelHistoryEntry {
+  const marketMap = deriveMarketMap(snapshot);
+
+  return {
+    resetKey: [activeDashboard, snapshot.mode, snapshot.session_id, snapshot.expiry].join("|"),
+    snapshotTime: snapshot.snapshot_time,
+    levels: {
+      spot: snapshot.spot,
+      callIvLowStrike: marketMap.callIvLow?.strike ?? null,
+      putIvLowStrike: marketMap.putIvLow?.strike ?? null,
+      gammaPeakStrike: marketMap.gammaPeak?.strike ?? null,
+      vannaFlipStrike: marketMap.vannaFlip?.strike ?? null
+    }
+  };
+}
+
+export function updateLevelHistory(
+  history: LevelHistoryEntry[],
+  nextEntry: LevelHistoryEntry,
+  maxEntries = 12
+): LevelHistoryEntry[] {
+  const boundedMax = Math.max(1, maxEntries);
+  const previousEntry = history.at(-1);
+
+  if (previousEntry == null || previousEntry.resetKey !== nextEntry.resetKey) {
+    return [nextEntry];
+  }
+
+  const nextHistory =
+    previousEntry.snapshotTime === nextEntry.snapshotTime ? [...history.slice(0, -1), nextEntry] : [...history, nextEntry];
+
+  return nextHistory.slice(-boundedMax);
+}
+
+export function deriveLevelMovements(history: LevelHistoryEntry[]): LevelMovements {
+  const currentEntry = history.at(-1) ?? null;
+  const previousEntry = history.length > 1 ? history.at(-2) ?? null : null;
+
+  return {
+    spot: deriveLevelMovement(previousEntry?.levels.spot ?? null, currentEntry?.levels.spot ?? null),
+    callIvLowStrike: deriveLevelMovement(
+      previousEntry?.levels.callIvLowStrike ?? null,
+      currentEntry?.levels.callIvLowStrike ?? null
+    ),
+    putIvLowStrike: deriveLevelMovement(
+      previousEntry?.levels.putIvLowStrike ?? null,
+      currentEntry?.levels.putIvLowStrike ?? null
+    ),
+    gammaPeakStrike: deriveLevelMovement(
+      previousEntry?.levels.gammaPeakStrike ?? null,
+      currentEntry?.levels.gammaPeakStrike ?? null
+    ),
+    vannaFlipStrike: deriveLevelMovement(
+      previousEntry?.levels.vannaFlipStrike ?? null,
+      currentEntry?.levels.vannaFlipStrike ?? null
+    )
+  };
+}
+
 export function deriveMarketIntelligence(snapshot: AnalyticsSnapshot): MarketIntelligence {
   const gammaLevels = aggregateByStrike(snapshot.rows, "custom_gamma");
   const vannaLevels = aggregateByStrike(snapshot.rows, "custom_vanna");
@@ -551,6 +636,25 @@ export function getAtmMetricValue(
 
 function compactNumbers(values: Array<number | null>): number[] {
   return values.filter((value): value is number => value != null);
+}
+
+function deriveLevelMovement(previous: number | null, current: number | null): LevelMovement {
+  if (previous == null || current == null) {
+    return {
+      previous,
+      current,
+      delta: null,
+      direction: "Unavailable"
+    };
+  }
+
+  const delta = current - previous;
+  return {
+    previous,
+    current,
+    delta,
+    direction: delta > 0 ? "Up" : delta < 0 ? "Down" : "Flat"
+  };
 }
 
 function average(values: number[]): number | null {

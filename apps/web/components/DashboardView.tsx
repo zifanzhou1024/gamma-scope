@@ -1,16 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
 import { DataQualityPanel } from "./DataQualityPanel";
+import { LevelMovementPanel } from "./LevelMovementPanel";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import { deriveStrikeInspection } from "../lib/chartInspection";
 import {
   type ChainSide,
   type LiveTransportStatus,
+  deriveLevelHistoryEntry,
+  deriveLevelMovements,
   deriveOperationalNotices,
   deriveMarketIntelligence,
   deriveMarketMap,
@@ -31,7 +34,8 @@ import {
   groupRowsByStrike,
   nearestStrike,
   sortRowsByStrike,
-  summarizeSnapshot
+  summarizeSnapshot,
+  updateLevelHistory
 } from "../lib/dashboardMetrics";
 
 interface DashboardViewProps {
@@ -65,6 +69,7 @@ export function DashboardView({
 }: DashboardViewProps) {
   const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
   const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
+  const [levelHistory, setLevelHistory] = useState(() => [deriveLevelHistoryEntry(snapshot, activeDashboard)]);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const sharedStrikeDomain = deriveSharedStrikeDomain(rows);
@@ -76,6 +81,7 @@ export function DashboardView({
   const atmStrike = nearestStrike(snapshot);
   const marketMap = deriveMarketMap(snapshot);
   const marketIntelligence = deriveMarketIntelligence(snapshot);
+  const levelMovements = deriveLevelMovements(levelHistory);
   const atmIv = getAtmMetricValue(snapshot, "custom_iv");
   const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
   const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
@@ -85,6 +91,10 @@ export function DashboardView({
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
   const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
   const handleClearInspection = () => setInspectedStrike(null);
+
+  useEffect(() => {
+    setLevelHistory((history) => updateLevelHistory(history, deriveLevelHistoryEntry(snapshot, activeDashboard), 12));
+  }, [activeDashboard, snapshot]);
 
   return (
     <main className="dashboardShell">
@@ -201,6 +211,7 @@ export function DashboardView({
 
       <MarketMapPanel marketMap={marketMap} />
       <MarketIntelligencePanel intelligence={marketIntelligence} />
+      <LevelMovementPanel movements={levelMovements} historyCount={levelHistory.length} />
 
       <section className="chartGrid" aria-label="Analytics charts">
         <DashboardChart
