@@ -9,6 +9,7 @@ import {
   type ChainSide,
   type LiveTransportStatus,
   deriveOperationalNotices,
+  deriveMarketMap,
   filterChainRowsBySide,
   formatGammaDiff,
   formatInteger,
@@ -19,6 +20,7 @@ import {
   formatSnapshotTime,
   formatStatusLabel,
   formatStrikeRange,
+  getAtmMetricValue,
   getRowOperationalStatusDisplays,
   getTransportStatusDisplay,
   getComparisonStatusDisplay,
@@ -65,6 +67,10 @@ export function DashboardView({
   const showCalls = chainSide === "all" || chainSide === "calls";
   const showPuts = chainSide === "all" || chainSide === "puts";
   const atmStrike = nearestStrike(snapshot);
+  const marketMap = deriveMarketMap(snapshot);
+  const atmIv = getAtmMetricValue(snapshot, "custom_iv");
+  const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
+  const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
   const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
@@ -170,14 +176,46 @@ export function DashboardView({
         <Metric label="Forward" value={formatPrice(snapshot.forward)} />
         <Metric label="Strike range" value={formatStrikeRange(summary.strikeRange)} />
         <Metric label="Average IV" value={formatPercent(summary.averageIv)} />
+        <Metric label="Net gamma" value={formatNumber(summary.totalNetGamma, 4)} />
         <Metric label="Abs gamma" value={formatNumber(summary.totalAbsGamma, 4)} />
+        <Metric label="Net vanna" value={formatNumber(summary.totalNetVanna, 4)} />
         <Metric label="Abs vanna" value={formatNumber(summary.totalAbsVanna, 4)} />
       </section>
 
+      <MarketMapPanel marketMap={marketMap} />
+
       <section className="chartGrid" aria-label="Analytics charts">
-        <DashboardChart rows={rows} title="IV BY STRIKE" metricKey="custom_iv" tone="blue" valueKind="percent" />
-        <DashboardChart rows={rows} title="GAMMA BY STRIKE" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
-        <DashboardChart rows={rows} title="VANNA BY STRIKE" metricKey="custom_vanna" tone="teal" valueKind="decimal" />
+        <DashboardChart
+          rows={rows}
+          title="IV BY STRIKE"
+          metricKey="custom_iv"
+          tone="blue"
+          valueKind="percent"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmIv}
+        />
+        <DashboardChart
+          rows={rows}
+          title="GAMMA BY STRIKE"
+          metricKey="custom_gamma"
+          tone="violet"
+          valueKind="decimal"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmGamma}
+        />
+        <DashboardChart
+          rows={rows}
+          title="VANNA BY STRIKE"
+          metricKey="custom_vanna"
+          tone="teal"
+          valueKind="decimal"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmVanna}
+          showZeroLine
+        />
       </section>
 
       <section className="chainSection" aria-label="Option chain">
@@ -277,6 +315,96 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function MarketMapPanel({ marketMap }: { marketMap: ReturnType<typeof deriveMarketMap> }) {
+  return (
+    <section className="marketMapPanel" aria-label="Market map">
+      <div className="sectionHeader">
+        <div>
+          <h2>MARKET MAP</h2>
+          <p>Spot-relative strikes and exposure inflection points.</p>
+        </div>
+        <strong>{formatPrice(marketMap.spot)}</strong>
+      </div>
+      <div className="marketMapGrid">
+        <MarketMapItem label="ATM strike" value={formatPrice(marketMap.atmStrike)} detail="Nearest listed strike" tone="spot" />
+        <MarketMapItem
+          label="Call IV low"
+          value={formatMarketLevel(marketMap.callIvLow, "percent")}
+          detail={formatMarketStrike(marketMap.callIvLow)}
+          side="call"
+        />
+        <MarketMapItem
+          label="Put IV low"
+          value={formatMarketLevel(marketMap.putIvLow, "percent")}
+          detail={formatMarketStrike(marketMap.putIvLow)}
+          side="put"
+        />
+        <MarketMapItem
+          label="Gamma peak"
+          value={formatMarketLevel(marketMap.gammaPeak, "decimal")}
+          detail={formatMarketStrike(marketMap.gammaPeak)}
+          tone="gamma"
+        />
+        <MarketMapItem
+          label="Vanna flip"
+          value={formatMarketStrike(marketMap.vannaFlip)}
+          detail={formatMarketLevel(marketMap.vannaFlip, "decimal")}
+          tone="vanna"
+        />
+        <MarketMapItem
+          label="Vanna max"
+          value={formatMarketLevel(marketMap.vannaMax, "decimal")}
+          detail={formatMarketStrike(marketMap.vannaMax)}
+          tone="vanna"
+        />
+      </div>
+    </section>
+  );
+}
+
+function MarketMapItem({
+  label,
+  value,
+  detail,
+  side,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  side?: "call" | "put";
+  tone?: "spot" | "gamma" | "vanna";
+}) {
+  const modifier = side ? ` marketMapItem-${side}` : tone ? ` marketMapItem-${tone}` : "";
+
+  return (
+    <div className={`marketMapItem${modifier}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function formatMarketLevel(
+  level: ReturnType<typeof deriveMarketMap>["callIvLow"],
+  valueKind: "percent" | "decimal"
+): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return valueKind === "percent" ? formatPercent(level.value) : formatNumber(level.value, 4);
+}
+
+function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return `${formatPrice(level.strike)} strike`;
 }
 
 function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {

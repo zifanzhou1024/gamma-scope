@@ -8,7 +8,29 @@ import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "@gammascope/contracts/collector-events";
 
 vi.mock("../components/DashboardChart", () => ({
-  DashboardChart: ({ title }: { title: string }) => <section>{title}</section>
+  DashboardChart: ({
+    title,
+    spot,
+    forward,
+    atmValue,
+    showZeroLine
+  }: {
+    title: string;
+    spot?: number | null;
+    forward?: number | null;
+    atmValue?: number | null;
+    showZeroLine?: boolean;
+  }) => (
+    <section
+      data-chart-title={title}
+      data-chart-spot={spot ?? ""}
+      data-chart-forward={forward ?? ""}
+      data-chart-atm-value={atmValue ?? ""}
+      data-chart-zero-line={showZeroLine ? "true" : "false"}
+    >
+      {title}
+    </section>
+  )
 }));
 
 const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
@@ -18,7 +40,8 @@ describe("DashboardView", () => {
     ...seedSnapshot,
     mode: "live",
     session_id: "dashboard-view-session",
-    spot: 5212.75
+    spot: 5201.25,
+    forward: 5202.1
   } satisfies AnalyticsSnapshot;
 
   it("renders the dashboard snapshot details and option chain", async () => {
@@ -27,8 +50,37 @@ describe("DashboardView", () => {
 
     expect(markup).toContain("Live");
     expect(markup).toContain("dashboard-view-session");
-    expect(markup).toContain("5,212.75");
+    expect(markup).toContain("5,201.25");
     expect(markup).toContain("Option chain");
+  });
+
+  it("renders market map levels and expanded exposure metrics", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+
+    expect(markup).toContain("MARKET MAP");
+    expect(markup).toContain("ATM strike");
+    expect(markup).toContain("Call IV low");
+    expect(markup).toContain("Put IV low");
+    expect(markup).toContain("Gamma peak");
+    expect(markup).toContain("Vanna flip");
+    expect(markup).toContain("Vanna max");
+    expect(markup).toContain("Net gamma");
+    expect(markup).toContain("Abs gamma");
+    expect(markup).toContain("Net vanna");
+    expect(markup).toContain("Abs vanna");
+  });
+
+  it("passes spot forward ATM values and vanna zero line flag to charts", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+
+    expect(markup).toContain('data-chart-spot="5201.25"');
+    expect(markup).toContain('data-chart-forward="5202.1"');
+    expect(markup).toContain('data-chart-title="IV BY STRIKE"');
+    expect(markup).toContain('data-chart-title="GAMMA BY STRIKE"');
+    expect(markup).toContain('data-chart-title="VANNA BY STRIKE"');
+    expect(markup).toContain('data-chart-zero-line="true"');
   });
 
   it("renders option-chain filters as pressed-state buttons with All selected by default", async () => {
