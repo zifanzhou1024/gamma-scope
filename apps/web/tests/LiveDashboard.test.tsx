@@ -69,6 +69,20 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).not.toContain("Upload import");
   });
 
+  it("defaults the dashboard source selector to Moomoo", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
+
+    expect(markup).toContain("Data source");
+    expect(markup).toContain("Moomoo");
+    expect(markup).toMatch(/option[^>]*value="moomoo"[^>]*selected=""/);
+  });
+
   it("keeps replay import hidden while showing top-bar admin status on the live route", () => {
     const snapshot = {
       ...seedSnapshot,

@@ -6,9 +6,12 @@ import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
 import { DataQualityPanel } from "./DataQualityPanel";
 import { LevelMovementPanel } from "./LevelMovementPanel";
+import { SourceSelector } from "./SourceSelector";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import { deriveStrikeInspection } from "../lib/chartInspection";
+import type { DataSourcePreference } from "../lib/sourcePreference";
+import { DEFAULT_DATA_SOURCE, formatDataSourcePreference } from "../lib/sourcePreference";
 import {
   type ChainSide,
   type LiveTransportStatus,
@@ -44,6 +47,8 @@ interface DashboardViewProps {
   transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
   activeDashboard?: "realtime" | "replay";
+  selectedDataSource?: DataSourcePreference;
+  onSelectedDataSourceChange?: (value: DataSourcePreference) => void;
   adminUtility?: React.ReactNode;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
@@ -62,6 +67,8 @@ export function DashboardView({
   transportStatus,
   initialChainSide = "all",
   activeDashboard = "realtime",
+  selectedDataSource = DEFAULT_DATA_SOURCE,
+  onSelectedDataSourceChange = () => undefined,
   adminUtility,
   replayPanel,
   savedViewsPanel,
@@ -128,6 +135,10 @@ export function DashboardView({
           </nav>
         </div>
         <div className="topBarUtility">
+          <SourceSelector value={selectedDataSource} onChange={onSelectedDataSourceChange} />
+          <div className="sourcePreferenceLabel" aria-label="Preferred data source">
+            Preferred {formatDataSourcePreference(selectedDataSource)}
+          </div>
           <div className="statusRail" aria-label="Session status">
             <span>{formatStatusLabel(snapshot.mode)}</span>
             <span>{formatStatusLabel(snapshot.source_status)}</span>
