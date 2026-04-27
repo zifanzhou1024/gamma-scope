@@ -11,6 +11,7 @@ from gammascope_collector.moomoo_snapshot import (
     discover_symbol_contracts,
     main,
     normalize_snapshot_record,
+    run_moomoo_snapshot_loop,
     select_atm_strikes,
 )
 
@@ -31,7 +32,7 @@ class FakeQuoteClient:
     def query_subscription(self, is_all_conn: bool = True) -> tuple[int, dict[str, object]]:
         return 0, {"is_all_conn": is_all_conn, "sub_list": ["US.SPY"]}
 
-    def get_option_chain(self, code: str, start: str, end: str) -> tuple[int, list[dict[str, object]]]:
+    def get_option_chain(self, code: str, *, start: str, end: str) -> tuple[int, list[dict[str, object]]]:
         self.option_chain_calls.append((code, start, end))
         return 0, self.chains.get(code, [])
 
@@ -98,6 +99,32 @@ def test_discover_symbol_contracts_filters_family_and_selects_calls_and_puts_for
         "US.SPXW240427P07050000",
     ]
     assert result.warnings == []
+
+
+def test_discover_symbol_contracts_calls_option_chain_with_keyword_dates() -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240427C00500000", strike=500, option_type="CALL"),
+                _option("US.SPY240427P00500000", strike=500, option_type="PUT"),
+            ]
+        }
+    )
+    symbol = MoomooSymbolConfig(
+        symbol="SPY",
+        owner_code="US.SPY",
+        strike_window_down=0,
+        strike_window_up=0,
+        manual_spot=500,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert [contract.option_code for contract in result.contracts] == [
+        "US.SPY240427C00500000",
+        "US.SPY240427P00500000",
+    ]
+    assert client.option_chain_calls == [("US.SPY", "2026-04-27", "2026-04-27")]
 
 
 def test_family_filter_fallback_warns_and_uses_unfiltered_chain_when_filter_matches_zero_rows() -> None:
@@ -189,6 +216,49 @@ def test_normalize_snapshot_record_maps_moomoo_option_fields_into_option_row_dat
     assert row.delta == 0.51
 
 
+def test_normalize_snapshot_record_maps_documented_moomoo_option_fields() -> None:
+    contract = MoomooContract(
+        symbol="SPY",
+        owner_code="US.SPY",
+        option_code="US.SPY240427P00500000",
+        option_type="PUT",
+        strike=500.0,
+        expiry=date(2026, 4, 27),
+        name="SPY 500P",
+    )
+
+    row = normalize_snapshot_record(
+        contract,
+        {
+            "code": "US.SPY240427P00500000",
+            "last_price": 2.5,
+            "bid_price": 2.4,
+            "ask_price": 2.6,
+            "bid_vol": 21,
+            "ask_vol": 22,
+            "option_open_interest": 300,
+            "option_implied_volatility": 0.31,
+            "option_delta": -0.48,
+            "option_gamma": 0.03,
+            "option_vega": 0.16,
+            "option_theta": -0.05,
+            "option_rho": -0.02,
+            "option_contract_multiplier": 100,
+        },
+    )
+
+    assert row.bid_size == 21.0
+    assert row.ask_size == 22.0
+    assert row.open_interest == 300.0
+    assert row.implied_volatility == 0.31
+    assert row.delta == -0.48
+    assert row.gamma == 0.03
+    assert row.vega == 0.16
+    assert row.theta == -0.05
+    assert row.rho == -0.02
+    assert row.contract_multiplier == 100.0
+
+
 def test_collect_moomoo_snapshot_once_chunks_normalizes_and_reports_rate_estimate() -> None:
     contracts = [
         _option(f"US.SPY240427C{i:05d}", strike=400 + i, option_type="CALL", name=f"SPY {400 + i}C")
@@ -231,6 +301,77 @@ def test_collect_moomoo_snapshot_once_chunks_normalizes_and_reports_rate_estimat
     assert result.rate_estimate.requests_per_refresh == 2
     assert result.rate_estimate.requests_per_30_seconds == 60
     assert result.as_dict()["per_symbol"][0]["selected_contracts"] == 401
+
+
+def test_run_moomoo_snapshot_loop_discovers_once_and_snapshots_each_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240427C00500000", strike=500, option_type="CALL"),
+                _option("US.SPY240427P00500000", strike=500, option_type="PUT"),
+            ]
+        },
+        snapshots={
+            "US.SPY240427C00500000": {"code": "US.SPY240427C00500000", "last_price": 1.0},
+            "US.SPY240427P00500000": {"code": "US.SPY240427P00500000", "last_price": 1.1},
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=1,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=0,
+                strike_window_up=0,
+                manual_spot=500,
+            )
+        ],
+    )
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda seconds: None)
+
+    result = run_moomoo_snapshot_loop(client, config, expiry=date(2026, 4, 27), max_loops=2)
+
+    assert len(client.option_chain_calls) == 1
+    assert len(client.snapshot_calls) == 2
+    assert result.snapshot_rows_count == 2
+
+
+def test_run_moomoo_snapshot_loop_sleeps_only_remaining_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240427C00500000", strike=500, option_type="CALL"),
+            ]
+        },
+        snapshots={
+            "US.SPY240427C00500000": {"code": "US.SPY240427C00500000", "last_price": 1.0},
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=1,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=0,
+                strike_window_up=0,
+                manual_spot=500,
+            )
+        ],
+    )
+    clock_values = iter([10.0, 10.25, 11.0, 11.25])
+    sleeps: list[float] = []
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.perf_counter", lambda: next(clock_values))
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", sleeps.append)
+
+    run_moomoo_snapshot_loop(client, config, expiry=date(2026, 4, 27), max_loops=2)
+
+    assert sleeps == [0.75]
 
 
 def test_main_prints_error_json_when_real_client_cannot_be_created(capsys: pytest.CaptureFixture[str]) -> None:

@@ -27,7 +27,7 @@ class MoomooQuoteClient(Protocol):
     def query_subscription(self, is_all_conn: bool = True) -> tuple[int, Any]:
         ...
 
-    def get_option_chain(self, code: str, start: str, end: str) -> tuple[int, Any]:
+    def get_option_chain(self, code: str, *, start: str, end: str) -> tuple[int, Any]:
         ...
 
     def get_market_snapshot(self, code_list: list[str]) -> tuple[int, Any]:
@@ -72,6 +72,8 @@ class MoomooOptionRow:
     gamma: float | None = None
     vega: float | None = None
     theta: float | None = None
+    rho: float | None = None
+    contract_multiplier: float | None = None
 
     @property
     def mid_price(self) -> float | None:
@@ -130,6 +132,16 @@ class MoomooSnapshotResult:
         }
 
 
+@dataclass(frozen=True)
+class _SnapshotContext:
+    subscription: object
+    discoveries: list[MoomooSymbolDiscoveryResult]
+    contract_by_code: dict[str, MoomooContract]
+    codes: list[str]
+    rate_estimate: SnapshotRateEstimate
+    warnings: list[str]
+
+
 def select_atm_strikes(strikes: Sequence[float], *, spot: float, down: int, up: int) -> list[float]:
     ordered = sorted({float(strike) for strike in strikes})
     if not ordered:
@@ -170,7 +182,7 @@ def discover_symbol_contracts(
             )
 
     expiry_text = expiry.isoformat()
-    return_code, chain_data = client.get_option_chain(symbol_config.owner_code, expiry_text, expiry_text)
+    return_code, chain_data = client.get_option_chain(code=symbol_config.owner_code, start=expiry_text, end=expiry_text)
     if return_code != RET_OK:
         warnings.append(f"{symbol_config.symbol} option chain request failed with code {return_code}")
         return MoomooSymbolDiscoveryResult(symbol_config.symbol, symbol_config.owner_code, float(spot), [], warnings)
@@ -224,6 +236,16 @@ def collect_moomoo_snapshot_once(
     *,
     expiry: date,
 ) -> MoomooSnapshotResult:
+    snapshot_context = _discover_snapshot_context(client, config, expiry=expiry)
+    return _collect_snapshot_from_context(client, snapshot_context)
+
+
+def _discover_snapshot_context(
+    client: MoomooQuoteClient,
+    config: MoomooCollectorConfig,
+    *,
+    expiry: date,
+) -> _SnapshotContext:
     subscription_code, subscription = client.query_subscription(is_all_conn=True)
     if subscription_code != RET_OK:
         subscription = {"return_code": subscription_code, "data": subscription}
@@ -241,9 +263,23 @@ def collect_moomoo_snapshot_once(
         warnings.append(
             f"Snapshot preflight exceeds limit: {rate_estimate.requests_per_30_seconds} requests per 30 seconds"
         )
+    return _SnapshotContext(
+        subscription=subscription,
+        discoveries=discoveries,
+        contract_by_code=contract_by_code,
+        codes=codes,
+        rate_estimate=rate_estimate,
+        warnings=warnings,
+    )
 
+
+def _collect_snapshot_from_context(
+    client: MoomooQuoteClient,
+    snapshot_context: _SnapshotContext,
+) -> MoomooSnapshotResult:
+    warnings = list(snapshot_context.warnings)
     rows: list[MoomooOptionRow] = []
-    for code_chunk in chunked(codes, SNAPSHOT_CODE_LIMIT):
+    for code_chunk in chunked(snapshot_context.codes, SNAPSHOT_CODE_LIMIT):
         return_code, snapshot_data = client.get_market_snapshot(code_chunk)
         if return_code != RET_OK:
             warnings.append(f"Snapshot request failed with code {return_code}")
@@ -251,17 +287,17 @@ def collect_moomoo_snapshot_once(
         for record in _records(snapshot_data):
             normalized = _normalize_record(record)
             code = str(normalized.get("code", ""))
-            contract = contract_by_code.get(code)
+            contract = snapshot_context.contract_by_code.get(code)
             if contract is not None:
                 rows.append(normalize_snapshot_record(contract, normalized))
 
     return MoomooSnapshotResult(
         status="connected" if rows else "degraded",
-        subscription=subscription,
-        discoveries=discoveries,
+        subscription=snapshot_context.subscription,
+        discoveries=snapshot_context.discoveries,
         rows=rows,
-        total_selected_codes=len(codes),
-        rate_estimate=rate_estimate,
+        total_selected_codes=len(snapshot_context.codes),
+        rate_estimate=snapshot_context.rate_estimate,
         warnings=warnings,
     )
 
@@ -274,14 +310,17 @@ def run_moomoo_snapshot_loop(
     max_loops: int | None = None,
 ) -> MoomooSnapshotResult:
     result: MoomooSnapshotResult | None = None
+    snapshot_context = _discover_snapshot_context(client, config, expiry=expiry)
     loops = 0
     while max_loops is None or loops < max_loops:
-        result = collect_moomoo_snapshot_once(client, config, expiry=expiry)
+        started_at = time.perf_counter()
+        result = _collect_snapshot_from_context(client, snapshot_context)
+        elapsed = time.perf_counter() - started_at
         loops += 1
         if max_loops is None or loops < max_loops:
-            time.sleep(config.refresh_interval_seconds)
+            time.sleep(max(0, config.refresh_interval_seconds - elapsed))
     if result is None:
-        result = collect_moomoo_snapshot_once(client, config, expiry=expiry)
+        result = _collect_snapshot_from_context(client, snapshot_context)
     return result
 
 
@@ -297,15 +336,21 @@ def normalize_snapshot_record(contract: MoomooContract, record: dict[str, object
         last_price=_float_or_none(_first_present(record, "last_price", "last")),
         bid_price=_float_or_none(_first_present(record, "bid_price", "bid")),
         ask_price=_float_or_none(_first_present(record, "ask_price", "ask")),
-        bid_size=_float_or_none(_first_present(record, "bid_volume", "bid_size")),
-        ask_size=_float_or_none(_first_present(record, "ask_volume", "ask_size")),
+        bid_size=_float_or_none(_first_present(record, "bid_volume", "bid_size", "bid_vol")),
+        ask_size=_float_or_none(_first_present(record, "ask_volume", "ask_size", "ask_vol")),
         volume=_float_or_none(record.get("volume")),
-        open_interest=_float_or_none(record.get("open_interest")),
-        implied_volatility=_float_or_none(_first_present(record, "implied_volatility", "iv")),
-        delta=_float_or_none(record.get("delta")),
-        gamma=_float_or_none(record.get("gamma")),
-        vega=_float_or_none(record.get("vega")),
-        theta=_float_or_none(record.get("theta")),
+        open_interest=_float_or_none(_first_present(record, "open_interest", "option_open_interest")),
+        implied_volatility=_float_or_none(
+            _first_present(record, "implied_volatility", "iv", "option_implied_volatility")
+        ),
+        delta=_float_or_none(_first_present(record, "delta", "option_delta")),
+        gamma=_float_or_none(_first_present(record, "gamma", "option_gamma")),
+        vega=_float_or_none(_first_present(record, "vega", "option_vega")),
+        theta=_float_or_none(_first_present(record, "theta", "option_theta")),
+        rho=_float_or_none(_first_present(record, "rho", "option_rho")),
+        contract_multiplier=_float_or_none(
+            _first_present(record, "contract_multiplier", "option_contract_multiplier")
+        ),
     )
 
 
