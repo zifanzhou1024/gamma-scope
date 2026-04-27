@@ -12,6 +12,7 @@ import {
   type ChainSide,
   type LiveTransportStatus,
   deriveOperationalNotices,
+  deriveMarketIntelligence,
   deriveMarketMap,
   filterChainRowsBySide,
   formatGammaDiff,
@@ -74,6 +75,7 @@ export function DashboardView({
   const showPuts = chainSide === "all" || chainSide === "puts";
   const atmStrike = nearestStrike(snapshot);
   const marketMap = deriveMarketMap(snapshot);
+  const marketIntelligence = deriveMarketIntelligence(snapshot);
   const atmIv = getAtmMetricValue(snapshot, "custom_iv");
   const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
   const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
@@ -198,6 +200,7 @@ export function DashboardView({
       </section>
 
       <MarketMapPanel marketMap={marketMap} />
+      <MarketIntelligencePanel intelligence={marketIntelligence} />
 
       <section className="chartGrid" aria-label="Analytics charts">
         <DashboardChart
@@ -448,6 +451,76 @@ function MarketMapItem({
   );
 }
 
+function MarketIntelligencePanel({ intelligence }: { intelligence: ReturnType<typeof deriveMarketIntelligence> }) {
+  return (
+    <section className="marketIntelligencePanel" aria-label="Market intelligence">
+      <div className="sectionHeader">
+        <div>
+          <h2>MARKET INTELLIGENCE</h2>
+          <p>Expected ranges, walls, and regime labels from the current snapshot.</p>
+        </div>
+      </div>
+      <div className="marketIntelligenceGrid">
+        <MarketIntelligenceItem
+          label="0.5σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.halfSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.halfSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="1σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.oneSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.oneSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="Positive gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.positiveGamma)}
+          detail={formatMarketLevel(intelligence.walls.positiveGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Negative gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.negativeGamma)}
+          detail={formatMarketLevel(intelligence.walls.negativeGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Vanna wall"
+          value={formatMarketStrikeValue(intelligence.walls.vanna)}
+          detail={formatMarketLevel(intelligence.walls.vanna, "decimal")}
+          tone="vanna"
+        />
+        <MarketIntelligenceItem label="Gamma regime" value={intelligence.regimes.gamma} detail="Net gamma / abs gamma" />
+        <MarketIntelligenceItem label="Vanna regime" value={intelligence.regimes.vanna} detail="Net vanna / abs vanna" />
+        <MarketIntelligenceItem label="IV smile bias" value={intelligence.regimes.ivSmileBias} detail="Below spot vs above spot" />
+      </div>
+    </section>
+  );
+}
+
+function MarketIntelligenceItem({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "move" | "gamma" | "vanna";
+}) {
+  const modifier = tone ? ` marketIntelligenceItem-${tone}` : "";
+
+  return (
+    <div className={`marketIntelligenceItem${modifier}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function formatMarketLevel(
   level: ReturnType<typeof deriveMarketMap>["callIvLow"],
   valueKind: "percent" | "decimal"
@@ -465,6 +538,30 @@ function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow
   }
 
   return `${formatPrice(level.strike)} strike`;
+}
+
+function formatMarketStrikeValue(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return formatPrice(level.strike);
+}
+
+function formatExpectedMoveRange(range: [number, number] | null): string {
+  if (range == null) {
+    return "—";
+  }
+
+  return `${formatPrice(range[0])}–${formatPrice(range[1])}`;
+}
+
+function formatExpectedMoveDetail(move: number | null): string {
+  if (move == null) {
+    return "Move unavailable";
+  }
+
+  return `±${formatPrice(move)} pts`;
 }
 
 function vannaFlipLabel(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {

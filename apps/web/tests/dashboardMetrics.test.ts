@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveMarketMap,
+  deriveMarketIntelligence,
   deriveDataQuality,
   filterChainRowsBySide,
   formatBasisPointDiff,
@@ -69,6 +70,82 @@ describe("dashboard metrics", () => {
     expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
     expect(marketMap.vannaFlip?.strike).toBeCloseTo(5200.91, 2);
     expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
+  });
+
+  it("derives expected move bands from ATM IV and remaining time to SPX close", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "2026-04-23T18:00:00Z",
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 4990, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[1]!, strike: 4990, right: "put" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[2]!, strike: 5000, right: "call" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[3]!, strike: 5000, right: "put" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[4]!, strike: 5010, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[5]!, strike: 5010, right: "put" as const, custom_iv: 0.32 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.iv).toBeCloseTo(0.16);
+    expect(intelligence.expectedMove.oneSigma.move).toBeCloseTo(12.09, 2);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([
+      expect.closeTo(4987.91, 2),
+      expect.closeTo(5012.09, 2)
+    ]);
+    expect(intelligence.expectedMove.halfSigma.range).toEqual([
+      expect.closeTo(4993.96, 2),
+      expect.closeTo(5006.04, 2)
+    ]);
+  });
+
+  it("falls back to average IV for expected move and clamps expired time to zero", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "2026-04-23T21:00:00Z",
+      rows: marketMapSnapshot.rows.map((row) => ({
+        ...row,
+        custom_iv: row.strike === 5000 ? null : 0.24
+      }))
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.iv).toBeCloseTo(0.24);
+    expect(intelligence.expectedMove.oneSigma.move).toBe(0);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([5000, 5000]);
+    expect(intelligence.expectedMove.halfSigma.range).toEqual([5000, 5000]);
+  });
+
+  it("derives wall levels and deterministic regime labels", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5200,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: -0.2, custom_vanna: 0.01 },
+        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: -0.15, custom_vanna: 0.02 },
+        { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.3 },
+        { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.2 },
+        { ...seedSnapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.3, custom_vanna: 0.05 },
+        { ...seedSnapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.2, custom_vanna: 0.04 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.walls.positiveGamma).toMatchObject({ strike: 5220, value: 0.5 });
+    expect(intelligence.walls.negativeGamma).toMatchObject({ strike: 5180, value: -0.35 });
+    expect(intelligence.walls.vanna).toMatchObject({ strike: 5200, value: -0.5 });
+    expect(intelligence.regimes).toEqual({
+      gamma: "Pinning",
+      vanna: "Suppressive",
+      ivSmileBias: "Left-skew"
+    });
   });
 
   it("returns ATM aggregate values for chart headers", () => {

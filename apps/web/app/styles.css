@@ -79,6 +79,8 @@ select {
 .kpiGrid,
 .marketMapPanel,
 .marketMapGrid,
+.marketIntelligencePanel,
+.marketIntelligenceGrid,
 .chartGrid,
 .sharedInspectionBar,
 .sharedInspectionStrike,
@@ -1331,6 +1333,72 @@ h1 {
 
 .marketMapItem-vanna {
   border-top-color: rgba(45, 212, 191, 0.72);
+}
+
+.marketIntelligencePanel {
+  background: rgba(10, 16, 25, 0.74);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 16px 0;
+}
+
+.marketIntelligencePanel .sectionHeader {
+  padding: 0 2px;
+}
+
+.marketIntelligencePanel .sectionHeader h2 {
+  color: var(--soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.marketIntelligenceGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 14px;
+}
+
+.marketIntelligenceItem {
+  background: rgba(8, 13, 22, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 78px;
+  min-width: 0;
+  padding: 11px 12px;
+}
+
+.marketIntelligenceItem span,
+.marketIntelligenceItem small {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.marketIntelligenceItem strong {
+  color: var(--text);
+  display: block;
+  font-size: 16px;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.marketIntelligenceItem-move {
+  border-color: rgba(56, 189, 248, 0.28);
+}
+
+.marketIntelligenceItem-gamma {
+  border-color: rgba(167, 139, 250, 0.3);
+}
+
+.marketIntelligenceItem-vanna {
+  border-color: rgba(45, 212, 191, 0.3);
 }
 
 .chartGrid {

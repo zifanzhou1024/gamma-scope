@@ -90,6 +90,41 @@ describe("DashboardView", () => {
     expect(markup).toContain("Abs vanna");
   });
 
+  it("renders a compact market intelligence panel with ranges, walls, and regimes", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const intelligenceSnapshot = {
+      ...snapshot,
+      spot: 5200,
+      expiry: "2026-04-23",
+      snapshot_time: "2026-04-23T18:00:00Z",
+      rows: [
+        { ...snapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: -0.2, custom_vanna: 0.01 },
+        { ...snapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: -0.15, custom_vanna: 0.02 },
+        { ...snapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.3 },
+        { ...snapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.2 },
+        { ...snapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.3, custom_vanna: 0.05 },
+        { ...snapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.2, custom_vanna: 0.04 }
+      ]
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={intelligenceSnapshot} />);
+
+    expect(markup).toContain('aria-label="Market intelligence"');
+    expect(markup).toContain("MARKET INTELLIGENCE");
+    expect(markup).toContain("0.5σ range");
+    expect(markup).toContain("1σ range");
+    expect(markup).toContain("Positive gamma wall");
+    expect(markup).toContain("5,220.00");
+    expect(markup).toContain("Negative gamma wall");
+    expect(markup).toContain("5,180.00");
+    expect(markup).toContain("Vanna wall");
+    expect(markup).toContain("Gamma regime");
+    expect(markup).toContain("Pinning");
+    expect(markup).toContain("Vanna regime");
+    expect(markup).toContain("Suppressive");
+    expect(markup).toContain("IV smile bias");
+    expect(markup).toContain("Left-skew");
+  });
+
   it("marks vanna fallback levels as nearest zero instead of a true flip", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const oneSidedVannaSnapshot = {
@@ -371,5 +406,12 @@ describe("DashboardView", () => {
     expect(styles).toMatch(/\.dataQualityGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
     expect(styles).toMatch(/\.dataQualityItem\s*{[\s\S]*min-width:\s*0/);
     expect(styles).toMatch(/\.dataQualityValue\s*{[\s\S]*overflow-wrap:\s*anywhere/);
+  });
+
+  it("defines compact wrapping styles for the market intelligence panel", async () => {
+    expect(styles).toMatch(/\.marketIntelligencePanel\s*{[\s\S]*padding:\s*16px 0/);
+    expect(styles).toMatch(/\.marketIntelligenceGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.marketIntelligenceItem\s*{[\s\S]*min-width:\s*0/);
+    expect(styles).toMatch(/\.marketIntelligenceItem strong\s*{[\s\S]*overflow-wrap:\s*anywhere/);
   });
 });

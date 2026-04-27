@@ -76,6 +76,34 @@ export interface MarketMap {
   vannaMax: MarketLevel | null;
 }
 
+export type GammaRegime = "Pinning" | "Trending" | "Unstable";
+export type VannaRegime = "Supportive" | "Suppressive" | "Mixed";
+export type IvSmileBias = "Left-skew" | "Right-skew" | "Balanced";
+
+export interface ExpectedMoveBand {
+  move: number | null;
+  range: [number, number] | null;
+}
+
+export interface MarketIntelligence {
+  expectedMove: {
+    iv: number | null;
+    timeToCloseYears: number;
+    halfSigma: ExpectedMoveBand;
+    oneSigma: ExpectedMoveBand;
+  };
+  walls: {
+    positiveGamma: MarketLevel | null;
+    negativeGamma: MarketLevel | null;
+    vanna: MarketLevel | null;
+  };
+  regimes: {
+    gamma: GammaRegime;
+    vanna: VannaRegime;
+    ivSmileBias: IvSmileBias;
+  };
+}
+
 export interface ChainStrikeRow {
   strike: number;
   call: AnalyticsRow | null;
@@ -472,6 +500,32 @@ export function deriveMarketMap(snapshot: AnalyticsSnapshot): MarketMap {
   };
 }
 
+export function deriveMarketIntelligence(snapshot: AnalyticsSnapshot): MarketIntelligence {
+  const gammaLevels = aggregateByStrike(snapshot.rows, "custom_gamma");
+  const vannaLevels = aggregateByStrike(snapshot.rows, "custom_vanna");
+  const iv = getAtmMetricValue(snapshot, "custom_iv") ?? average(compactNumbers(snapshot.rows.map((row) => row.custom_iv)));
+  const timeToCloseYears = timeToSpxCloseYears(snapshot.snapshot_time, snapshot.expiry);
+
+  return {
+    expectedMove: {
+      iv,
+      timeToCloseYears,
+      halfSigma: expectedMoveBand(snapshot.spot, iv, timeToCloseYears, 0.5),
+      oneSigma: expectedMoveBand(snapshot.spot, iv, timeToCloseYears, 1)
+    },
+    walls: {
+      positiveGamma: findLargestPositiveLevel(gammaLevels),
+      negativeGamma: findLargestNegativeLevel(gammaLevels),
+      vanna: findLargestAbsLevel(vannaLevels)
+    },
+    regimes: {
+      gamma: deriveGammaRegime(compactNumbers(snapshot.rows.map((row) => row.custom_gamma))),
+      vanna: deriveVannaRegime(compactNumbers(snapshot.rows.map((row) => row.custom_vanna))),
+      ivSmileBias: deriveIvSmileBias(snapshot)
+    }
+  };
+}
+
 export function getAtmMetricValue(
   snapshot: AnalyticsSnapshot,
   metricKey: "custom_iv" | "custom_gamma" | "custom_vanna"
@@ -549,11 +603,132 @@ function findLargestAbsLevel(levels: MarketLevel[]): MarketLevel | null {
   return levels.reduce((largest, level) => (Math.abs(level.value) >= Math.abs(largest.value) ? level : largest));
 }
 
+function findLargestPositiveLevel(levels: MarketLevel[]): MarketLevel | null {
+  const positiveLevels = levels.filter((level) => level.value > 0);
+  if (positiveLevels.length === 0) {
+    return null;
+  }
+  return positiveLevels.reduce((largest, level) => (level.value > largest.value ? level : largest));
+}
+
+function findLargestNegativeLevel(levels: MarketLevel[]): MarketLevel | null {
+  const negativeLevels = levels.filter((level) => level.value < 0);
+  if (negativeLevels.length === 0) {
+    return null;
+  }
+  return negativeLevels.reduce((largest, level) => (level.value < largest.value ? level : largest));
+}
+
 function findLargestValueLevel(levels: MarketLevel[]): MarketLevel | null {
   if (levels.length === 0) {
     return null;
   }
   return levels.reduce((largest, level) => (level.value >= largest.value ? level : largest));
+}
+
+function expectedMoveBand(spot: number, iv: number | null, timeToCloseYears: number, sigma: number): ExpectedMoveBand {
+  if (iv == null) {
+    return { move: null, range: null };
+  }
+
+  const move = spot * iv * Math.sqrt(timeToCloseYears) * sigma;
+  return {
+    move,
+    range: [spot - move, spot + move]
+  };
+}
+
+function timeToSpxCloseYears(snapshotTime: string, expiry: string): number {
+  const closeTime = marketCloseUtc(expiry);
+  const remainingMs = Math.max(0, closeTime.getTime() - new Date(snapshotTime).getTime());
+  return remainingMs / (365 * 24 * 60 * 60 * 1000);
+}
+
+function marketCloseUtc(expiry: string): Date {
+  const [year, month, day] = expiry.split("-").map(Number);
+  const localCloseAsUtc = Date.UTC(year!, month! - 1, day!, 16, 0, 0, 0);
+  let utcGuess = localCloseAsUtc;
+
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    utcGuess = localCloseAsUtc - getTimeZoneOffsetMs(new Date(utcGuess), "America/New_York");
+  }
+
+  return new Date(utcGuess);
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    year: "numeric"
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value;
+  const localAsUtc = Date.UTC(
+    Number(part("year")),
+    Number(part("month")) - 1,
+    Number(part("day")),
+    Number(part("hour")),
+    Number(part("minute")),
+    Number(part("second"))
+  );
+
+  return localAsUtc - date.getTime();
+}
+
+function deriveGammaRegime(values: number[]): GammaRegime {
+  const absGamma = sumAbs(values);
+  if (absGamma === 0) {
+    return "Unstable";
+  }
+
+  const ratio = sum(values) / absGamma;
+  if (ratio > 0.2) {
+    return "Pinning";
+  }
+  if (ratio < -0.2) {
+    return "Trending";
+  }
+  return "Unstable";
+}
+
+function deriveVannaRegime(values: number[]): VannaRegime {
+  const absVanna = sumAbs(values);
+  if (absVanna === 0) {
+    return "Mixed";
+  }
+
+  const ratio = sum(values) / absVanna;
+  if (ratio > 0.2) {
+    return "Supportive";
+  }
+  if (ratio < -0.2) {
+    return "Suppressive";
+  }
+  return "Mixed";
+}
+
+function deriveIvSmileBias(snapshot: AnalyticsSnapshot): IvSmileBias {
+  const leftAverage = average(compactNumbers(snapshot.rows.filter((row) => row.strike < snapshot.spot).map((row) => row.custom_iv)));
+  const rightAverage = average(
+    compactNumbers(snapshot.rows.filter((row) => row.strike > snapshot.spot).map((row) => row.custom_iv))
+  );
+
+  if (leftAverage == null || rightAverage == null) {
+    return "Balanced";
+  }
+
+  if (leftAverage - rightAverage > 0.01) {
+    return "Left-skew";
+  }
+  if (rightAverage - leftAverage > 0.01) {
+    return "Right-skew";
+  }
+  return "Balanced";
 }
 
 function findZeroCrossing(levels: MarketLevel[]): MarketLevel | null {
