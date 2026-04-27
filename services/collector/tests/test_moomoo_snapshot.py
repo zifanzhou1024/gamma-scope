@@ -563,6 +563,55 @@ def test_collect_moomoo_snapshot_once_refreshes_live_spx_spot_proxy() -> None:
     assert result.rate_estimate.requests_per_refresh == 2
 
 
+def test_collect_moomoo_snapshot_once_prefers_option_implied_spx_spot_over_proxy() -> None:
+    client = SequencedSnapshotQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07130000", strike=7130, option_type="CALL", name="SPXW 7130C"),
+                _option("US.SPXW260427P07130000", strike=7130, option_type="PUT", name="SPXW 7130P"),
+                _option("US.SPXW260427C07140000", strike=7140, option_type="CALL", name="SPXW 7140C"),
+                _option("US.SPXW260427P07140000", strike=7140, option_type="PUT", name="SPXW 7140P"),
+                _option("US.SPXW260427C07150000", strike=7150, option_type="CALL", name="SPXW 7150C"),
+                _option("US.SPXW260427P07150000", strike=7150, option_type="PUT", name="SPXW 7150P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07130000": {"code": "US.SPXW260427C07130000", "bid_price": 15.7, "ask_price": 16.3},
+            "US.SPXW260427P07130000": {"code": "US.SPXW260427P07130000", "bid_price": 5.7, "ask_price": 6.3},
+            "US.SPXW260427C07140000": {"code": "US.SPXW260427C07140000", "bid_price": 10.7, "ask_price": 11.3},
+            "US.SPXW260427P07140000": {"code": "US.SPXW260427P07140000", "bid_price": 10.7, "ask_price": 11.3},
+            "US.SPXW260427C07150000": {"code": "US.SPXW260427C07150000", "bid_price": 5.7, "ask_price": 6.3},
+            "US.SPXW260427P07150000": {"code": "US.SPXW260427P07150000", "bid_price": 15.7, "ask_price": 16.3},
+        },
+        snapshot_sequences={
+            "US.SPY": [
+                {"code": "US.SPY", "last_price": 711.0},
+                {"code": "US.SPY", "last_price": 711.2},
+            ]
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=2,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPX",
+                owner_code="US..SPX",
+                strike_window_down=1,
+                strike_window_up=1,
+                family_filter="SPXW",
+                spot_proxy_code="US.SPY",
+                spot_proxy_multiplier=10.035,
+                infer_spot_from_options=True,
+                publish_to_spx_dashboard=True,
+            )
+        ],
+    )
+
+    result = collect_moomoo_snapshot_once(client, config, expiry=date(2026, 4, 27))
+
+    assert result.discoveries[0].spot == pytest.approx(7140.0)
+
+
 def test_run_moomoo_snapshot_loop_discovers_once_and_snapshots_each_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

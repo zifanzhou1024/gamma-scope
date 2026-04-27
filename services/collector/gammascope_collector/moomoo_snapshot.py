@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
+from statistics import median
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -357,6 +358,7 @@ def _collect_snapshot_from_context(
             mismatch_parts.append(f"duplicates {duplicate_known_rows_count}")
         warnings.append(f"Snapshot row count mismatch: {', '.join(mismatch_parts)}")
 
+    discoveries = _discoveries_with_option_inferred_spots(discoveries, snapshot_context.symbols, rows)
     return MoomooSnapshotResult(
         status="connected" if rows and not has_row_count_mismatch else "degraded",
         subscription=snapshot_context.subscription,
@@ -650,6 +652,89 @@ def _snapshot_proxy_spots(
     return spots
 
 
+def _discoveries_with_option_inferred_spots(
+    discoveries: Sequence[MoomooSymbolDiscoveryResult],
+    symbols: Sequence[MoomooSymbolConfig],
+    rows: Sequence[MoomooOptionRow],
+) -> list[MoomooSymbolDiscoveryResult]:
+    inference_symbols = {symbol.symbol: symbol for symbol in symbols if symbol.infer_spot_from_options}
+    if not inference_symbols:
+        return list(discoveries)
+
+    rows_by_symbol: dict[str, list[MoomooOptionRow]] = {}
+    for row in rows:
+        if row.symbol in inference_symbols:
+            rows_by_symbol.setdefault(row.symbol, []).append(row)
+
+    inferred_spots: dict[str, float] = {}
+    for discovery in discoveries:
+        symbol_rows = rows_by_symbol.get(discovery.symbol, [])
+        inferred_spot = _infer_spot_from_option_pairs(symbol_rows, baseline_spot=discovery.spot)
+        if inferred_spot is not None:
+            inferred_spots[discovery.symbol] = inferred_spot
+
+    if not inferred_spots:
+        return list(discoveries)
+
+    return [
+        MoomooSymbolDiscoveryResult(
+            symbol=discovery.symbol,
+            owner_code=discovery.owner_code,
+            spot=inferred_spots.get(discovery.symbol, discovery.spot),
+            contracts=discovery.contracts,
+            warnings=discovery.warnings,
+        )
+        for discovery in discoveries
+    ]
+
+
+def _infer_spot_from_option_pairs(
+    rows: Sequence[MoomooOptionRow],
+    *,
+    baseline_spot: float | None,
+    max_pairs: int = 5,
+) -> float | None:
+    by_strike: dict[float, dict[str, MoomooOptionRow]] = {}
+    for row in rows:
+        strike = _positive_float_or_none(row.strike)
+        if strike is None:
+            continue
+        option_type = row.option_type.upper()
+        if option_type not in {"CALL", "PUT"}:
+            continue
+        by_strike.setdefault(strike, {})[option_type] = row
+
+    candidates: list[tuple[float, float, float]] = []
+    baseline = _positive_float_or_none(baseline_spot)
+    for strike, pair in by_strike.items():
+        call = pair.get("CALL")
+        put = pair.get("PUT")
+        if call is None or put is None:
+            continue
+        call_price = _option_price_for_spot_inference(call)
+        put_price = _option_price_for_spot_inference(put)
+        if call_price is None or put_price is None:
+            continue
+        inferred_spot = strike + call_price - put_price
+        if _positive_float_or_none(inferred_spot) is None:
+            continue
+        distance = abs(strike - baseline) if baseline is not None else 0.0
+        candidates.append((distance, strike, inferred_spot))
+
+    if not candidates:
+        return None
+
+    nearest = sorted(candidates)[:max_pairs]
+    return float(median(candidate[2] for candidate in nearest))
+
+
+def _option_price_for_spot_inference(row: MoomooOptionRow) -> float | None:
+    mid_price = _non_negative_float_or_none(row.mid_price)
+    if mid_price is not None:
+        return mid_price
+    return _non_negative_float_or_none(row.last_price)
+
+
 def _snapshot_underlying_spot(client: MoomooQuoteClient, owner_code: str) -> float | None:
     return_code, data = client.get_market_snapshot([owner_code])
     if return_code != RET_OK:
@@ -730,6 +815,13 @@ def _float_or_none(value: object) -> float | None:
 def _positive_float_or_none(value: object) -> float | None:
     result = _float_or_none(value)
     if result is None or result <= 0:
+        return None
+    return result
+
+
+def _non_negative_float_or_none(value: object) -> float | None:
+    result = _float_or_none(value)
+    if result is None or result < 0:
         return None
     return result
 

@@ -24,6 +24,7 @@ class MoomooSymbolConfig:
     manual_spot: float | None = None
     spot_proxy_code: str | None = None
     spot_proxy_multiplier: float = 1.0
+    infer_spot_from_options: bool = False
     priority: int = 100
 
     @property
@@ -74,7 +75,8 @@ def default_moomoo_universe() -> list[MoomooSymbolConfig]:
             publish_to_spx_dashboard=True,
             family_filter="SPXW",
             spot_proxy_code="US.SPY",
-            spot_proxy_multiplier=10.0,
+            spot_proxy_multiplier=10.035,
+            infer_spot_from_options=True,
             priority=10,
         ),
         MoomooSymbolConfig(

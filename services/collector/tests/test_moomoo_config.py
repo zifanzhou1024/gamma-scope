@@ -41,7 +41,8 @@ def test_default_universe_matches_moomoo_design() -> None:
     assert next(item for item in universe if item.symbol == "SPY").publish_to_spx_dashboard is False
     spx = next(item for item in universe if item.symbol == "SPX")
     assert spx.spot_proxy_code == "US.SPY"
-    assert spx.spot_proxy_multiplier == 10.0
+    assert spx.spot_proxy_multiplier == 10.035
+    assert spx.infer_spot_from_options is True
     assert [item.symbol for item in universe if item.requires_manual_spot] == ["RUT", "NDX"]
 
 
