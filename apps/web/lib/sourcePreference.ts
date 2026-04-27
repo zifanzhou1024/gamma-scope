@@ -9,15 +9,23 @@ export function isDataSourcePreference(value: unknown): value is DataSourcePrefe
 }
 
 export function loadDataSourcePreference(storage: Pick<Storage, "getItem"> | null | undefined): DataSourcePreference {
-  const value = storage?.getItem(DATA_SOURCE_STORAGE_KEY);
-  return isDataSourcePreference(value) ? value : DEFAULT_DATA_SOURCE;
+  try {
+    const value = storage?.getItem(DATA_SOURCE_STORAGE_KEY);
+    return isDataSourcePreference(value) ? value : DEFAULT_DATA_SOURCE;
+  } catch {
+    return DEFAULT_DATA_SOURCE;
+  }
 }
 
 export function saveDataSourcePreference(
   value: DataSourcePreference,
   storage: Pick<Storage, "setItem"> | null | undefined
 ): void {
-  storage?.setItem(DATA_SOURCE_STORAGE_KEY, value);
+  try {
+    storage?.setItem(DATA_SOURCE_STORAGE_KEY, value);
+  } catch {
+    // Storage can be unavailable in private browsing or restricted environments.
+  }
 }
 
 export function formatDataSourcePreference(value: DataSourcePreference): string {

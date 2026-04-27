@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SourceSelector } from "../components/SourceSelector";
 
 describe("SourceSelector", () => {
-  it("renders Moomoo and IBKR options with Moomoo selected by default", () => {
+  it("renders Moomoo and IBKR options with the controlled Moomoo value", () => {
     const markup = renderToStaticMarkup(<SourceSelector value="moomoo" onChange={vi.fn()} />);
 
     expect(markup).toContain("Data source");

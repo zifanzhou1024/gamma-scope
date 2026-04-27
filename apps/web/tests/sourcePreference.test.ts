@@ -55,4 +55,24 @@ describe("sourcePreference", () => {
     saveDataSourcePreference("ibkr", storage);
     expect(storage.getItem(DATA_SOURCE_STORAGE_KEY)).toBe("ibkr");
   });
+
+  it("defaults to Moomoo when storage getItem throws", () => {
+    const storage = {
+      getItem() {
+        throw new Error("Storage unavailable");
+      }
+    };
+
+    expect(loadDataSourcePreference(storage)).toBe("moomoo");
+  });
+
+  it("ignores storage setItem failures when saving", () => {
+    const storage = {
+      setItem() {
+        throw new Error("Storage unavailable");
+      }
+    };
+
+    expect(() => saveDataSourcePreference("ibkr", storage)).not.toThrow();
+  });
 });
