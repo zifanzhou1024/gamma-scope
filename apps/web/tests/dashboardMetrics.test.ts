@@ -76,6 +76,18 @@ describe("dashboard metrics", () => {
     expect(getAtmMetricValue(marketMapSnapshot, "custom_vanna")).toBeCloseTo(0.05);
   });
 
+  it("returns null for missing ATM exposure values", () => {
+    const snapshotWithMissingAtmExposures = {
+      ...marketMapSnapshot,
+      rows: marketMapSnapshot.rows.map((row) =>
+        row.strike === 5210 ? { ...row, custom_gamma: null, custom_vanna: null } : row
+      )
+    };
+
+    expect(getAtmMetricValue(snapshotWithMissingAtmExposures, "custom_gamma")).toBeNull();
+    expect(getAtmMetricValue(snapshotWithMissingAtmExposures, "custom_vanna")).toBeNull();
+  });
+
   it("formats dashboard values consistently", () => {
     expect(formatPercent(0.184)).toBe("18.40%");
     expect(formatPercent(null)).toBe("—");

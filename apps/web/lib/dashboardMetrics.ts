@@ -355,6 +355,9 @@ export function getAtmMetricValue(
   }
 
   const values = compactNumbers(snapshot.rows.filter((row) => row.strike === atmStrike).map((row) => row[metricKey]));
+  if (values.length === 0) {
+    return null;
+  }
   if (metricKey === "custom_iv") {
     return average(values);
   }
@@ -399,7 +402,7 @@ function aggregateByStrike(rows: AnalyticsRow[], key: "custom_gamma" | "custom_v
 function findSideMinimum(
   rows: AnalyticsRow[],
   right: AnalyticsRow["right"],
-  key: "custom_iv" | "custom_gamma" | "custom_vanna"
+  key: "custom_iv"
 ): MarketLevel | null {
   const levels = rows
     .filter((row) => row.right === right && row[key] != null)
