@@ -325,35 +325,53 @@ function MarketMapPanel({ marketMap }: { marketMap: ReturnType<typeof deriveMark
           <h2>MARKET MAP</h2>
           <p>Spot-relative strikes and exposure inflection points.</p>
         </div>
-        <strong>{formatPrice(marketMap.spot)}</strong>
       </div>
       <div className="marketMapGrid">
-        <MarketMapItem label="ATM strike" value={formatPrice(marketMap.atmStrike)} detail="Nearest listed strike" tone="spot" />
+        <MarketMapItem level="spot" label="Spot" value={formatPrice(marketMap.spot)} detail="Current index level" tone="spot" />
         <MarketMapItem
+          level="forward"
+          label="Forward"
+          value={formatPrice(marketMap.forward)}
+          detail="Implied forward level"
+          tone="forward"
+        />
+        <MarketMapItem
+          level="atm-strike"
+          label="ATM strike"
+          value={formatPrice(marketMap.atmStrike)}
+          detail="Nearest listed strike"
+          tone="spot"
+        />
+        <MarketMapItem
+          level="call-iv-low"
           label="Call IV low"
           value={formatMarketLevel(marketMap.callIvLow, "percent")}
           detail={formatMarketStrike(marketMap.callIvLow)}
           side="call"
         />
         <MarketMapItem
+          level="put-iv-low"
           label="Put IV low"
           value={formatMarketLevel(marketMap.putIvLow, "percent")}
           detail={formatMarketStrike(marketMap.putIvLow)}
           side="put"
         />
         <MarketMapItem
+          level="gamma-peak"
           label="Gamma peak"
           value={formatMarketLevel(marketMap.gammaPeak, "decimal")}
           detail={formatMarketStrike(marketMap.gammaPeak)}
           tone="gamma"
         />
         <MarketMapItem
+          level="vanna-flip"
           label="Vanna flip"
           value={formatMarketStrike(marketMap.vannaFlip)}
           detail={formatMarketLevel(marketMap.vannaFlip, "decimal")}
           tone="vanna"
         />
         <MarketMapItem
+          level="vanna-max"
           label="Vanna max"
           value={formatMarketLevel(marketMap.vannaMax, "decimal")}
           detail={formatMarketStrike(marketMap.vannaMax)}
@@ -365,22 +383,24 @@ function MarketMapPanel({ marketMap }: { marketMap: ReturnType<typeof deriveMark
 }
 
 function MarketMapItem({
+  level,
   label,
   value,
   detail,
   side,
   tone
 }: {
+  level: string;
   label: string;
   value: string;
   detail: string;
   side?: "call" | "put";
-  tone?: "spot" | "gamma" | "vanna";
+  tone?: "spot" | "forward" | "gamma" | "vanna";
 }) {
   const modifier = side ? ` marketMapItem-${side}` : tone ? ` marketMapItem-${tone}` : "";
 
   return (
-    <div className={`marketMapItem${modifier}`}>
+    <div className={`marketMapItem${modifier}`} data-market-map-level={level}>
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{detail}</small>

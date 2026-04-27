@@ -59,6 +59,10 @@ describe("DashboardView", () => {
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
 
     expect(markup).toContain("MARKET MAP");
+    expect(markup).toContain('data-market-map-level="spot"');
+    expect(markup).toContain('data-market-map-level="forward"');
+    expect(markup).toContain(">Spot<");
+    expect(markup).toContain(">Forward<");
     expect(markup).toContain("ATM strike");
     expect(markup).toContain("Call IV low");
     expect(markup).toContain("Put IV low");

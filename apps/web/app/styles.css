@@ -1182,7 +1182,7 @@ h1 {
 .marketMapGrid {
   display: grid;
   gap: 1px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 14px;
   background: rgba(36, 50, 68, 0.68);
   border: 1px solid rgba(36, 50, 68, 0.78);
@@ -1223,6 +1223,10 @@ h1 {
 
 .marketMapItem-spot {
   border-top-color: rgba(56, 189, 248, 0.72);
+}
+
+.marketMapItem-forward {
+  border-top-color: rgba(245, 158, 11, 0.72);
 }
 
 .marketMapItem-gamma {
