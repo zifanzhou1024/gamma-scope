@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { DashboardChart } from "./DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
+import { deriveStrikeInspection } from "../lib/chartInspection";
 import {
   type ChainSide,
   type LiveTransportStatus,
@@ -60,8 +61,10 @@ export function DashboardView({
   scenarioPanel
 }: DashboardViewProps) {
   const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
+  const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
+  const inspection = deriveStrikeInspection(rows, inspectedStrike, snapshot.spot);
   const chainRows = groupRowsByStrike(rows);
   const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
   const showCalls = chainSide === "all" || chainSide === "calls";
@@ -75,6 +78,8 @@ export function DashboardView({
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
+  const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
+  const handleClearInspection = () => setInspectedStrike(null);
 
   return (
     <main className="dashboardShell">
@@ -194,6 +199,10 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmIv}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
         <DashboardChart
           rows={rows}
@@ -204,6 +213,10 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmGamma}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
         <DashboardChart
           rows={rows}
@@ -215,6 +228,10 @@ export function DashboardView({
           forward={snapshot.forward}
           atmValue={atmVanna}
           showZeroLine
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
       </section>
 

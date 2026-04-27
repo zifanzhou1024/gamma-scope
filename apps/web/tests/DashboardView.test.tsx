@@ -13,13 +13,21 @@ vi.mock("../components/DashboardChart", () => ({
     spot,
     forward,
     atmValue,
-    showZeroLine
+    showZeroLine,
+    inspectedStrike,
+    inspection,
+    onInspectStrike,
+    onClearInspection
   }: {
     title: string;
     spot?: number | null;
     forward?: number | null;
     atmValue?: number | null;
     showZeroLine?: boolean;
+    inspectedStrike?: number | null;
+    inspection?: { strike: number } | null;
+    onInspectStrike?: (strike: number) => void;
+    onClearInspection?: () => void;
   }) => (
     <section
       data-chart-title={title}
@@ -27,6 +35,10 @@ vi.mock("../components/DashboardChart", () => ({
       data-chart-forward={forward ?? ""}
       data-chart-atm-value={atmValue ?? ""}
       data-chart-zero-line={showZeroLine ? "true" : "false"}
+      data-chart-inspected-strike={inspectedStrike ?? ""}
+      data-chart-inspection-strike={inspection?.strike ?? ""}
+      data-chart-can-inspect={typeof onInspectStrike === "function" ? "true" : "false"}
+      data-chart-can-clear={typeof onClearInspection === "function" ? "true" : "false"}
     >
       {title}
     </section>
@@ -100,6 +112,16 @@ describe("DashboardView", () => {
     expect(markup).toContain('data-chart-title="GAMMA BY STRIKE"');
     expect(markup).toContain('data-chart-title="VANNA BY STRIKE"');
     expect(markup).toContain('data-chart-zero-line="true"');
+  });
+
+  it("passes default shared inspection props and handlers to all charts", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+
+    expect(markup.match(/data-chart-can-inspect="true"/g) ?? []).toHaveLength(3);
+    expect(markup.match(/data-chart-can-clear="true"/g) ?? []).toHaveLength(3);
+    expect(markup.match(/data-chart-inspected-strike=""/g) ?? []).toHaveLength(3);
+    expect(markup.match(/data-chart-inspection-strike=""/g) ?? []).toHaveLength(3);
   });
 
   it("renders option-chain filters as pressed-state buttons with All selected by default", async () => {
