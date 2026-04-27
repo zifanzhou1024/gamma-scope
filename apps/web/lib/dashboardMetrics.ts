@@ -500,6 +500,41 @@ export function filterChainRowsBySide(rows: ChainStrikeRow[], side: ChainSide): 
   }));
 }
 
+export function filterRowsToSpotCenteredStrikeWindow(
+  rows: AnalyticsRow[],
+  spot: number,
+  levelsEachSide: number
+): AnalyticsRow[] {
+  if (rows.length === 0 || !Number.isFinite(spot) || levelsEachSide < 0) {
+    return rows;
+  }
+
+  const sortedStrikes = [...new Set(rows.map((row) => row.strike))].sort((a, b) => a - b);
+  const maxStrikeCount = levelsEachSide * 2 + 1;
+  if (sortedStrikes.length <= maxStrikeCount) {
+    return rows;
+  }
+
+  const atmIndex = sortedStrikes.reduce((nearestIndex, strike, index) => {
+    const nearestStrikeDistance = Math.abs(sortedStrikes[nearestIndex]! - spot);
+    const currentStrikeDistance = Math.abs(strike - spot);
+    return currentStrikeDistance < nearestStrikeDistance ? index : nearestIndex;
+  }, 0);
+  let start = Math.max(0, atmIndex - levelsEachSide);
+  let end = Math.min(sortedStrikes.length, atmIndex + levelsEachSide + 1);
+
+  if (end - start < maxStrikeCount) {
+    if (start === 0) {
+      end = Math.min(sortedStrikes.length, maxStrikeCount);
+    } else if (end === sortedStrikes.length) {
+      start = Math.max(0, sortedStrikes.length - maxStrikeCount);
+    }
+  }
+
+  const visibleStrikes = new Set(sortedStrikes.slice(start, end));
+  return rows.filter((row) => visibleStrikes.has(row.strike));
+}
+
 export function nearestStrike(snapshot: AnalyticsSnapshot): number | null {
   if (snapshot.rows.length === 0) {
     return null;

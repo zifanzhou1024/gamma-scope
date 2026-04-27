@@ -22,7 +22,7 @@ from gammascope_collector.moomoo_config import (
     parse_manual_spots,
     selected_symbols,
 )
-from gammascope_collector.publisher import PublishSummary, publish_events
+from gammascope_collector.publisher import PublishSummary, publish_events_bulk
 
 RET_OK = 0
 
@@ -525,7 +525,7 @@ def _publish_spx_compatibility_snapshot(
         status=_spx_publish_status(result),
         message=_health_message(result),
     )
-    return publish_events(events, api_base=config.api_base)
+    return publish_events_bulk(events, api_base=config.api_base)
 
 
 def _spx_spot(result: MoomooSnapshotResult) -> float | None:

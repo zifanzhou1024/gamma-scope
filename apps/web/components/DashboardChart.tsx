@@ -19,6 +19,7 @@ interface DashboardChartProps {
   inspectedStrike?: number | null;
   inspection?: StrikeInspection | null;
   sharedStrikeDomain?: [number, number] | null;
+  strikeCountLabel?: string;
   onInspectStrike?: (strike: number) => void;
   onClearInspection?: () => void;
 }
@@ -45,6 +46,7 @@ export function DashboardChart({
   inspectedStrike = null,
   inspection = null,
   sharedStrikeDomain = null,
+  strikeCountLabel,
   onInspectStrike,
   onClearInspection
 }: DashboardChartProps) {
@@ -74,7 +76,7 @@ export function DashboardChart({
       <div className="panelHeader chartPanelHeader">
         <div>
           <h2>{chartTitle}</h2>
-          <p>{strikeCount} strikes</p>
+          <p>{strikeCountLabel ?? `${strikeCount} strikes`}</p>
         </div>
         <strong>{formatValue(latest, valueKind)}</strong>
       </div>

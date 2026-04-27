@@ -62,6 +62,8 @@ const ADMIN_SESSION_PATH = "/api/admin/session";
 const ADMIN_LOGIN_PATH = "/api/admin/login";
 const ADMIN_LOGOUT_PATH = "/api/admin/logout";
 const CSRF_HEADER_NAME = "X-GammaScope-CSRF";
+export const LIVE_SNAPSHOT_INTERVAL_MS = 2000;
+export const CHAIN_SNAPSHOT_INTERVAL_MS = 8000;
 
 interface LiveDashboardProps {
   initialSnapshot: AnalyticsSnapshot;
@@ -364,6 +366,44 @@ export function shouldPollCollectorHealth(
   return shouldPollLiveSnapshot(isScenarioModeActive, isReplayModeActive, isReplayStreamActive);
 }
 
+export function shouldUpdateChainSnapshot(
+  currentSnapshot: AnalyticsSnapshot,
+  nextSnapshot: AnalyticsSnapshot,
+  minIntervalMs = CHAIN_SNAPSHOT_INTERVAL_MS
+): boolean {
+  if (
+    currentSnapshot.mode !== nextSnapshot.mode ||
+    currentSnapshot.session_id !== nextSnapshot.session_id ||
+    currentSnapshot.expiry !== nextSnapshot.expiry ||
+    currentSnapshot.rows.length !== nextSnapshot.rows.length
+  ) {
+    return true;
+  }
+
+  const currentRange = strikeRangeKey(currentSnapshot);
+  const nextRange = strikeRangeKey(nextSnapshot);
+  if (currentRange !== nextRange) {
+    return true;
+  }
+
+  const currentTimeMs = Date.parse(currentSnapshot.snapshot_time);
+  const nextTimeMs = Date.parse(nextSnapshot.snapshot_time);
+  if (!Number.isFinite(currentTimeMs) || !Number.isFinite(nextTimeMs)) {
+    return true;
+  }
+
+  return nextTimeMs - currentTimeMs >= minIntervalMs;
+}
+
+function strikeRangeKey(snapshot: AnalyticsSnapshot): string {
+  if (snapshot.rows.length === 0) {
+    return "empty";
+  }
+
+  const strikes = snapshot.rows.map((row) => row.strike);
+  return `${Math.min(...strikes)}:${Math.max(...strikes)}`;
+}
+
 export function canApplyLiveSnapshot({
   isScenarioModeActive,
   isReplayModeActive = false,
@@ -559,6 +599,7 @@ export async function logoutAdminDashboardAction({
 
 export function LiveDashboard({ initialSnapshot, initialAdminSession, initialReplayImport = null }: LiveDashboardProps) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [chainSnapshot, setChainSnapshot] = useState(initialSnapshot);
   const [collectorHealth, setCollectorHealth] = useState<CollectorHealth | null>(null);
   const [liveTransportStatus, setLiveTransportStatus] = useState<LiveTransportStatus | null>(null);
   const [replaySessions, setReplaySessions] = useState<ReplaySession[]>([]);
@@ -781,6 +822,9 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
             isReplayStreamActive: replayStreamActiveRef.current
           })) {
             setSnapshot(liveSnapshot);
+            setChainSnapshot((currentChainSnapshot) =>
+              shouldUpdateChainSnapshot(currentChainSnapshot, liveSnapshot) ? liveSnapshot : currentChainSnapshot
+            );
           }
           return;
         }
@@ -793,9 +837,12 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
           latestRequestId: latestLiveRequestIdRef.current
         })) {
           setSnapshot(liveSnapshot);
+          setChainSnapshot((currentChainSnapshot) =>
+            shouldUpdateChainSnapshot(currentChainSnapshot, liveSnapshot) ? liveSnapshot : currentChainSnapshot
+          );
         }
       },
-      intervalMs: 1000,
+      intervalMs: LIVE_SNAPSHOT_INTERVAL_MS,
       onTransportStatus: setLiveTransportStatus
     });
   }, [isScenarioModeActive, isReplayModeActive, isReplayStreamActive]);
@@ -875,6 +922,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     scenarioModeRef.current = false;
     replayModeRef.current = true;
     setSnapshot(replaySnapshot);
+    setChainSnapshot(replaySnapshot);
     setIsScenarioModeActive(false);
     setIsReplayModeActive(true);
     setScenarioError(null);
@@ -974,6 +1022,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
     scenarioModeRef.current = true;
     replayModeRef.current = false;
     setSnapshot(scenarioSnapshot);
+    setChainSnapshot(scenarioSnapshot);
     setIsScenarioModeActive(true);
     setIsReplayModeActive(false);
     setReplayError(null);
@@ -1004,6 +1053,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
         latestRequestId: latestLiveRequestIdRef.current
       })) {
         setSnapshot(liveSnapshot);
+        setChainSnapshot(liveSnapshot);
       }
     });
   };
@@ -1214,6 +1264,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   return (
     <DashboardView
       snapshot={snapshot}
+      chainSnapshot={chainSnapshot}
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
       activeDashboard="realtime"

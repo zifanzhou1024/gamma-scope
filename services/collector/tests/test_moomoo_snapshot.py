@@ -890,7 +890,7 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
     def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
         captured_events.extend(events)
         return PublishSummary(
-            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
             accepted_count=len(captured_events),
             event_types=[
                 "CollectorHealth"
@@ -904,7 +904,7 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
             ],
         )
 
-    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
 
     main(
         [
@@ -924,6 +924,7 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
     )
 
     payload = json.loads(capsys.readouterr().out)
+    assert payload["publish"]["endpoint"] == "http://testserver/api/spx/0dte/collector/events/bulk"
     assert payload["publish"]["accepted_count"] == 6
     assert payload["publish"]["event_types"] == [
         "CollectorHealth",
@@ -959,12 +960,12 @@ def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
         batch = list(events)
         captured_batches.append(batch)
         return PublishSummary(
-            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
             accepted_count=len(batch),
             event_types=["CollectorHealth" if "collector_id" in event else "Other" for event in batch],
         )
 
-    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
     monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
 
     with pytest.raises(KeyboardInterrupt):
@@ -1024,7 +1025,7 @@ def test_main_publish_mode_publishes_each_snapshot_loop(
         batch = list(events)
         captured_batches.append(batch)
         return PublishSummary(
-            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
             accepted_count=len(batch),
             event_types=[
                 "CollectorHealth"
@@ -1038,7 +1039,7 @@ def test_main_publish_mode_publishes_each_snapshot_loop(
             ],
         )
 
-    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
     monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
 
     main(
@@ -1097,12 +1098,12 @@ def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
     def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
         captured_events.extend(events)
         return PublishSummary(
-            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
             accepted_count=len(captured_events),
             event_types=["CollectorHealth" if "collector_id" in event else "Unexpected" for event in captured_events],
         )
 
-    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
 
     main(
         [
@@ -1137,12 +1138,12 @@ def test_publish_spx_compatibility_snapshot_degrades_health_for_non_finite_spx_s
     def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
         captured_events.extend(events)
         return PublishSummary(
-            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
             accepted_count=len(captured_events),
             event_types=["CollectorHealth" if "collector_id" in event else "Unexpected" for event in captured_events],
         )
 
-    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
     result = MoomooSnapshotResult(
         status="connected",
         subscription={},

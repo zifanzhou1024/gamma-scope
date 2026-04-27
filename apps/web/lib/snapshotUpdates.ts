@@ -27,7 +27,7 @@ interface StartLiveSnapshotUpdatesOptions {
 export function startLiveSnapshotUpdates({
   applySnapshot,
   loadSnapshot = loadClientDashboardSnapshot,
-  intervalMs = 1000,
+  intervalMs = 2000,
   reconnectMs = 2500,
   websocketUrl,
   WebSocketImpl,
@@ -36,6 +36,7 @@ export function startLiveSnapshotUpdates({
   let stopPolling: (() => void) | null = null;
   let stopStream: (() => void) | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastAppliedSnapshotKey: string | null = null;
   let isStopped = false;
 
   const reportTransportStatus = (status: LiveTransportStatus) => {
@@ -50,11 +51,21 @@ export function startLiveSnapshotUpdates({
     stopPolling = startSnapshotPolling({
       loadSnapshot,
       applySnapshot: (snapshot) => {
-        reportTransportStatus("fallback_polling");
-        applySnapshot(snapshot, "polling");
+        applyChangedSnapshot(snapshot, "polling");
       },
       intervalMs
     });
+  };
+
+  const applyChangedSnapshot = (snapshot: AnalyticsSnapshot, source: LiveSnapshotUpdateSource) => {
+    const snapshotKey = liveSnapshotUpdateKey(snapshot);
+    if (snapshotKey === lastAppliedSnapshotKey) {
+      return;
+    }
+
+    lastAppliedSnapshotKey = snapshotKey;
+    reportTransportStatus(source === "stream" ? "streaming" : "fallback_polling");
+    applySnapshot(snapshot, source);
   };
 
   const stopPollingIfActive = () => {
@@ -93,9 +104,8 @@ export function startLiveSnapshotUpdates({
   const openStream = () => {
     stopStream = startSnapshotStream({
       applySnapshot: (snapshot) => {
-        reportTransportStatus("streaming");
         stopPollingIfActive();
-        applySnapshot(snapshot, "stream");
+        applyChangedSnapshot(snapshot, "stream");
       },
       onUnavailable: handleUnavailable,
       websocketUrl,
@@ -115,4 +125,23 @@ export function startLiveSnapshotUpdates({
     stopStreamIfActive();
     stopPolling?.();
   };
+}
+
+export function liveSnapshotUpdateKey(snapshot: AnalyticsSnapshot): string {
+  return [
+    snapshot.mode,
+    snapshot.session_id,
+    snapshot.expiry,
+    roundedSnapshotSecond(snapshot.snapshot_time),
+    snapshot.rows.length
+  ].join("|");
+}
+
+function roundedSnapshotSecond(snapshotTime: string): string {
+  const timestampMs = Date.parse(snapshotTime);
+  if (!Number.isFinite(timestampMs)) {
+    return snapshotTime;
+  }
+
+  return new Date(Math.floor(timestampMs / 1000) * 1000).toISOString();
 }

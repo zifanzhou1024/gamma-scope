@@ -47,6 +47,21 @@ describe("DashboardChart", () => {
     expect(markup).toContain('data-series="put-iv"');
   });
 
+  it("renders a custom strike count label when the parent filters the visible chart window", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="IV smile"
+        metricKey="custom_iv"
+        tone="blue"
+        valueKind="percent"
+        strikeCountLabel="41 of 61 strikes"
+      />
+    );
+
+    expect(markup).toContain("41 of 61 strikes");
+  });
+
   it("marks the lowest IV points on the smile and summarizes them in a fixed badge", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart rows={baseRows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />

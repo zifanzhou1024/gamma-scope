@@ -108,6 +108,22 @@ def test_moomoo_rows_to_spx_events_uses_cboe_exchange_for_contract_discovered() 
     assert contract_events[0]["exchange"] == "CBOE"
 
 
+def test_moomoo_rows_to_spx_events_uses_one_event_time_per_compat_snapshot() -> None:
+    events = moomoo_rows_to_spx_events(
+        session_id="session-1",
+        collector_id="collector-1",
+        spot=7050.25,
+        rows=[
+            _row("SPX", "US.SPXW260427C07050000", "CALL", 7050),
+            _row("SPX", "US.SPXW260427P07050000", "PUT", 7050),
+        ],
+        status="connected",
+        message="ok",
+    )
+
+    assert len({event["event_time"] for event in events}) == 1
+
+
 def test_moomoo_rows_to_spx_events_returns_expected_event_order() -> None:
     events = moomoo_rows_to_spx_events(
         session_id="session-1",

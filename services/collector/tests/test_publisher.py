@@ -4,7 +4,14 @@ import json
 import pytest
 
 from gammascope_collector.events import health_event, underlying_tick_event
-from gammascope_collector.publisher import PublishError, collector_event_endpoint, main, publish_events
+from gammascope_collector.publisher import (
+    PublishError,
+    collector_event_endpoint,
+    collector_events_bulk_endpoint,
+    main,
+    publish_events,
+    publish_events_bulk,
+)
 
 
 EVENT_TIME = datetime(2026, 4, 23, 15, 30, tzinfo=UTC)
@@ -16,6 +23,15 @@ def test_collector_event_endpoint_joins_api_base() -> None:
     )
     assert collector_event_endpoint("http://127.0.0.1:8000/") == (
         "http://127.0.0.1:8000/api/spx/0dte/collector/events"
+    )
+
+
+def test_collector_events_bulk_endpoint_joins_api_base() -> None:
+    assert collector_events_bulk_endpoint("http://127.0.0.1:8000") == (
+        "http://127.0.0.1:8000/api/spx/0dte/collector/events/bulk"
+    )
+    assert collector_events_bulk_endpoint("http://127.0.0.1:8000/") == (
+        "http://127.0.0.1:8000/api/spx/0dte/collector/events/bulk"
     )
 
 
@@ -51,6 +67,37 @@ def test_publish_events_posts_each_event_to_ingestion_endpoint() -> None:
         "http://testserver/api/spx/0dte/collector/events",
     ]
     assert [event for _, event in posts] == events
+    assert summary.accepted_count == 2
+    assert summary.event_types == ["CollectorHealth", "UnderlyingTick"]
+
+
+def test_publish_events_bulk_posts_one_batch_to_bulk_ingestion_endpoint() -> None:
+    events = [
+        health_event(
+            collector_id="local-dev",
+            status="connected",
+            ibkr_account_mode="paper",
+            message="ok",
+            event_time=EVENT_TIME,
+            received_time=EVENT_TIME,
+        ),
+        underlying_tick_event(
+            session_id="live-spx-local-mock",
+            bid=5199.75,
+            ask=5200.75,
+            last=5200.25,
+            event_time=EVENT_TIME,
+        ),
+    ]
+    posts: list[tuple[str, list[dict[str, object]]]] = []
+
+    def fake_post(endpoint: str, batch: list[dict[str, object]]) -> dict[str, object]:
+        posts.append((endpoint, batch))
+        return {"accepted": True, "accepted_count": 2, "event_types": ["CollectorHealth", "UnderlyingTick"]}
+
+    summary = publish_events_bulk(events, api_base="http://testserver", post_json=fake_post)
+
+    assert posts == [("http://testserver/api/spx/0dte/collector/events/bulk", events)]
     assert summary.accepted_count == 2
     assert summary.event_types == ["CollectorHealth", "UnderlyingTick"]
 

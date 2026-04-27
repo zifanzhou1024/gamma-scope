@@ -15,6 +15,7 @@ import {
   formatSnapshotTime,
   formatStatusLabel,
   deriveOperationalNotices,
+  filterRowsToSpotCenteredStrikeWindow,
   getRowOperationalStatusDisplays,
   getRowOperationalStatusDisplay,
   getAtmMetricValue,
@@ -73,6 +74,20 @@ describe("dashboard metrics", () => {
     expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
     expect(marketMap.vannaFlip?.strike).toBeCloseTo(5200.91, 2);
     expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
+  });
+
+  it("filters rows to a spot-centered strike window while keeping calls and puts", () => {
+    const rows = [80, 90, 100, 110, 120, 130, 140].flatMap((strike) => [
+      { ...seedSnapshot.rows[0]!, strike, right: "call" as const },
+      { ...seedSnapshot.rows[1]!, strike, right: "put" as const }
+    ]);
+
+    const filteredRows = filterRowsToSpotCenteredStrikeWindow(rows, 106, 2);
+
+    expect(Array.from(new Set(filteredRows.map((row) => row.strike)))).toEqual([90, 100, 110, 120, 130]);
+    expect(filteredRows).toHaveLength(10);
+    expect(filteredRows.filter((row) => row.right === "call")).toHaveLength(5);
+    expect(filteredRows.filter((row) => row.right === "put")).toHaveLength(5);
   });
 
   it("appends bounded level history and resets when session or expiry changes", () => {

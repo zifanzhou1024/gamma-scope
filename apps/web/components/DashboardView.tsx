@@ -21,6 +21,7 @@ import {
   deriveMarketIntelligence,
   deriveMarketMap,
   filterChainRowsBySide,
+  filterRowsToSpotCenteredStrikeWindow,
   formatGammaDiff,
   formatInteger,
   formatIvDiffBasisPoints,
@@ -43,6 +44,7 @@ import {
 
 interface DashboardViewProps {
   snapshot: AnalyticsSnapshot;
+  chainSnapshot?: AnalyticsSnapshot;
   collectorHealth?: CollectorHealth | null;
   transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
@@ -61,8 +63,11 @@ const chainFilterOptions: Array<{ side: ChainSide; label: string }> = [
   { side: "puts", label: "Puts" }
 ];
 
+const IV_CHART_STRIKE_LEVELS_EACH_SIDE = 20;
+
 export function DashboardView({
   snapshot,
+  chainSnapshot,
   collectorHealth,
   transportStatus,
   initialChainSide = "all",
@@ -74,26 +79,24 @@ export function DashboardView({
   savedViewsPanel,
   scenarioPanel
 }: DashboardViewProps) {
-  const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
   const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
   const [levelHistory, setLevelHistory] = useState(() => [deriveLevelHistoryEntry(snapshot, activeDashboard)]);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
   const sharedStrikeDomain = deriveSharedStrikeDomain(rows);
+  const ivRows = filterRowsToSpotCenteredStrikeWindow(rows, snapshot.spot, IV_CHART_STRIKE_LEVELS_EACH_SIDE);
+  const ivSharedStrikeDomain = deriveSharedStrikeDomain(ivRows);
+  const totalChartStrikeCount = countDistinctStrikes(rows);
+  const ivChartStrikeCount = countDistinctStrikes(ivRows);
+  const ivStrikeCountLabel =
+    ivChartStrikeCount < totalChartStrikeCount ? `${ivChartStrikeCount} of ${totalChartStrikeCount} strikes` : undefined;
   const inspection = deriveStrikeInspection(rows, inspectedStrike, snapshot.spot);
-  const chainRows = groupRowsByStrike(rows);
-  const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
-  const showCalls = chainSide === "all" || chainSide === "calls";
-  const showPuts = chainSide === "all" || chainSide === "puts";
-  const atmStrike = nearestStrike(snapshot);
   const marketMap = deriveMarketMap(snapshot);
   const marketIntelligence = deriveMarketIntelligence(snapshot);
   const levelMovements = deriveLevelMovements(levelHistory);
   const atmIv = getAtmMetricValue(snapshot, "custom_iv");
   const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
   const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
-  const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
-  const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
   const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
@@ -226,7 +229,7 @@ export function DashboardView({
 
       <section className="chartGrid" aria-label="Analytics charts">
         <DashboardChart
-          rows={rows}
+          rows={ivRows}
           title="IV BY STRIKE"
           metricKey="custom_iv"
           tone="blue"
@@ -234,7 +237,8 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmIv}
-          sharedStrikeDomain={sharedStrikeDomain}
+          sharedStrikeDomain={ivSharedStrikeDomain}
+          strikeCountLabel={ivStrikeCountLabel}
           inspectedStrike={inspectedStrike}
           inspection={inspection}
           onInspectStrike={handleInspectStrike}
@@ -275,95 +279,117 @@ export function DashboardView({
 
       {inspection ? <ChartInspectionBar inspection={inspection} onClear={handleClearInspection} /> : null}
 
-      <section className="chainSection" aria-label="Option chain">
-        <div className="chainToolbar">
-          <div className="chainTitle">
-            <h2>Option chain</h2>
-            <p>Gamma heat and OI are mirrored around the strike spine.</p>
-          </div>
-          <div className="chainFilters" aria-label="Chain filters">
-            {chainFilterOptions.map((option) => (
-              <button
-                key={option.side}
-                type="button"
-                className={`filterChip${chainSide === option.side ? " filter-active" : ""}`}
-                aria-pressed={chainSide === option.side}
-                onClick={() => setChainSide(option.side)}
-              >
-                <span aria-hidden="true" />
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="chainLegend" aria-label="Chain legend">
-            <span><i className="atmDot" />ATM</span>
-            <span><i className="gammaDot" />Gamma heat</span>
-            <strong>{chainRows.length} strikes</strong>
-          </div>
-        </div>
-        <div className="chainTableWrap">
-          <table className={`chainTable chainTable-${chainSide}`}>
-            <thead>
-              <tr>
-                {showCalls ? (
-                  <>
-                    <th className="callCol compactOptional">Call bid</th>
-                    <th className="callCol compactOptional">Call ask</th>
-                    <th className="callCol">Call mid</th>
-                    <th className="callCol smallOptional">Call IV</th>
-                    <th className="callCol">Call Γ</th>
-                    <th className="callCol">Call OI</th>
-                  </>
-                ) : null}
-                <th className="strikeCol">Strike</th>
-                {showPuts ? (
-                  <>
-                    <th className="putCol compactOptional">Put bid</th>
-                    <th className="putCol compactOptional">Put ask</th>
-                    <th className="putCol">Put mid</th>
-                    <th className="putCol smallOptional">Put IV</th>
-                    <th className="putCol">Put Γ</th>
-                    <th className="putCol">Put OI</th>
-                  </>
-                ) : null}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleChainRows.map((row) => (
-                <tr key={row.strike} className={row.strike === atmStrike ? "atmRow" : undefined}>
-                  {showCalls ? (
-                    <>
-                      <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
-                      <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
-                      <td>{formatPrice(row.call?.mid)}</td>
-                      <IvCell row={row.call} />
-                      <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
-                      <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
-                    </>
-                  ) : null}
-                  <td className="strikeCol">
-                    <strong>{formatPrice(row.strike)}</strong>
-                    <span>{formatStrikeDistance(row.strike, snapshot.spot, atmStrike)}</span>
-                  </td>
-                  {showPuts ? (
-                    <>
-                      <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
-                      <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
-                      <td>{formatPrice(row.put?.mid)}</td>
-                      <IvCell row={row.put} />
-                      <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
-                      <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
-                    </>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <OptionChainSection snapshot={chainSnapshot ?? snapshot} initialChainSide={initialChainSide} />
     </main>
   );
 }
+
+const OptionChainSection = React.memo(function OptionChainSection({
+  snapshot,
+  initialChainSide
+}: {
+  snapshot: AnalyticsSnapshot;
+  initialChainSide: ChainSide;
+}) {
+  const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
+  const rows = sortRowsByStrike(snapshot.rows);
+  const chainRows = groupRowsByStrike(rows);
+  const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
+  const showCalls = chainSide === "all" || chainSide === "calls";
+  const showPuts = chainSide === "all" || chainSide === "puts";
+  const atmStrike = nearestStrike(snapshot);
+  const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
+  const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
+
+  return (
+    <section className="chainSection" aria-label="Option chain">
+      <div className="chainToolbar">
+        <div className="chainTitle">
+          <h2>Option chain</h2>
+          <p>Gamma heat and OI are mirrored around the strike spine.</p>
+        </div>
+        <div className="chainFilters" aria-label="Chain filters">
+          {chainFilterOptions.map((option) => (
+            <button
+              key={option.side}
+              type="button"
+              className={`filterChip${chainSide === option.side ? " filter-active" : ""}`}
+              aria-pressed={chainSide === option.side}
+              onClick={() => setChainSide(option.side)}
+            >
+              <span aria-hidden="true" />
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="chainLegend" aria-label="Chain legend">
+          <span><i className="atmDot" />ATM</span>
+          <span><i className="gammaDot" />Gamma heat</span>
+          <strong>{chainRows.length} strikes</strong>
+        </div>
+      </div>
+      <div className="chainTableWrap">
+        <table className={`chainTable chainTable-${chainSide}`}>
+          <thead>
+            <tr>
+              {showCalls ? (
+                <>
+                  <th className="callCol compactOptional">Call bid</th>
+                  <th className="callCol compactOptional">Call ask</th>
+                  <th className="callCol">Call mid</th>
+                  <th className="callCol smallOptional">Call IV</th>
+                  <th className="callCol">Call Γ</th>
+                  <th className="callCol">Call OI</th>
+                </>
+              ) : null}
+              <th className="strikeCol">Strike</th>
+              {showPuts ? (
+                <>
+                  <th className="putCol compactOptional">Put bid</th>
+                  <th className="putCol compactOptional">Put ask</th>
+                  <th className="putCol">Put mid</th>
+                  <th className="putCol smallOptional">Put IV</th>
+                  <th className="putCol">Put Γ</th>
+                  <th className="putCol">Put OI</th>
+                </>
+              ) : null}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleChainRows.map((row) => (
+              <tr key={row.strike} className={row.strike === atmStrike ? "atmRow" : undefined}>
+                {showCalls ? (
+                  <>
+                    <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
+                    <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
+                    <td>{formatPrice(row.call?.mid)}</td>
+                    <IvCell row={row.call} />
+                    <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
+                    <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
+                  </>
+                ) : null}
+                <td className="strikeCol">
+                  <strong>{formatPrice(row.strike)}</strong>
+                  <span>{formatStrikeDistance(row.strike, snapshot.spot, atmStrike)}</span>
+                </td>
+                {showPuts ? (
+                  <>
+                    <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
+                    <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
+                    <td>{formatPrice(row.put?.mid)}</td>
+                    <IvCell row={row.put} />
+                    <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
+                    <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
+                  </>
+                ) : null}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+});
 
 function deriveSharedStrikeDomain(rows: AnalyticsSnapshot["rows"]): [number, number] | null {
   if (rows.length === 0) {
@@ -371,6 +397,10 @@ function deriveSharedStrikeDomain(rows: AnalyticsSnapshot["rows"]): [number, num
   }
   const strikes = rows.map((row) => row.strike);
   return [Math.min(...strikes), Math.max(...strikes)];
+}
+
+function countDistinctStrikes(rows: AnalyticsSnapshot["rows"]): number {
+  return new Set(rows.map((row) => row.strike)).size;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

@@ -42,6 +42,10 @@ def test_websocket_path_streams_valid_snapshot_on_connect() -> None:
     assert payload["rows"] != []
 
 
+def test_live_websocket_interval_matches_moomoo_snapshot_interval() -> None:
+    assert stream_routes.STREAM_INTERVAL_SECONDS == 2.0
+
+
 def test_websocket_first_message_prefers_live_collector_snapshot() -> None:
     session_id = "live-ws-test-session"
     for event in _live_events(session_id):

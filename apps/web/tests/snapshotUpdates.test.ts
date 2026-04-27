@@ -37,11 +37,12 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
-function liveSnapshot(sessionId: string): AnalyticsSnapshot {
+function liveSnapshot(sessionId: string, overrides: Partial<AnalyticsSnapshot> = {}): AnalyticsSnapshot {
   return {
     ...seedSnapshot,
     mode: "live",
-    session_id: sessionId
+    session_id: sessionId,
+    ...overrides
   };
 }
 
@@ -73,6 +74,28 @@ describe("startLiveSnapshotUpdates", () => {
 
     expect(loadSnapshot).not.toHaveBeenCalled();
     expect(applySnapshot).toHaveBeenCalledWith(expect.objectContaining({ session_id: "stream-session" }), "stream");
+  });
+
+  it("deduplicates live snapshots within the same rounded snapshot second", async () => {
+    FakeWebSocket.instances = [];
+    const applySnapshot = vi.fn();
+
+    startLiveSnapshotUpdates({
+      applySnapshot,
+      WebSocketImpl: FakeWebSocket
+    });
+    FakeWebSocket.instances[0]!.emitMessage(
+      liveSnapshot("stream-session", { snapshot_time: "2026-04-27T15:44:21.020241Z" })
+    );
+    FakeWebSocket.instances[0]!.emitMessage(
+      liveSnapshot("stream-session", { snapshot_time: "2026-04-27T15:44:21.020424Z" })
+    );
+    FakeWebSocket.instances[0]!.emitMessage(
+      liveSnapshot("stream-session", { snapshot_time: "2026-04-27T15:44:23.020241Z" })
+    );
+    await flushMicrotasks();
+
+    expect(applySnapshot).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to polling after websocket close", async () => {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime
 from typing import cast
 
 from gammascope_collector.events import (
@@ -13,6 +13,7 @@ from gammascope_collector.events import (
     health_event,
     option_tick_event,
     underlying_tick_event,
+    utc_now,
 )
 from gammascope_collector.moomoo_snapshot import MoomooOptionRow
 
@@ -34,24 +35,35 @@ def moomoo_rows_to_spx_events(
 ) -> list[dict[str, object]]:
     spx_rows = [row for row in rows if row.symbol == "SPX" and _positive_float_or_none(row.strike) is not None]
     spot = _finite_float_or_none(spot)
+    event_time = utc_now()
     events = [
         health_event(
             collector_id=collector_id,
             status=status,
             ibkr_account_mode="unknown",
             message=message,
+            event_time=event_time,
         )
     ]
     if spot is None or not spx_rows:
         return events
 
-    events.append(underlying_tick_event(session_id=session_id, symbol="SPX", bid=None, ask=None, last=spot))
-    events.extend(_contract_event(session_id, row) for row in spx_rows)
-    events.extend(_option_tick_event(session_id, row) for row in spx_rows)
+    events.append(
+        underlying_tick_event(
+            session_id=session_id,
+            symbol="SPX",
+            bid=None,
+            ask=None,
+            last=spot,
+            event_time=event_time,
+        )
+    )
+    events.extend(_contract_event(session_id, row, event_time) for row in spx_rows)
+    events.extend(_option_tick_event(session_id, row, event_time) for row in spx_rows)
     return events
 
 
-def _contract_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
+def _contract_event(session_id: str, row: MoomooOptionRow, event_time: datetime) -> dict[str, object]:
     expiry = _expiry_text(row.expiry)
     right = _right(row.option_type)
     strike = _positive_float_or_none(row.strike)
@@ -67,10 +79,11 @@ def _contract_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
         multiplier=_finite_float_or_none(row.contract_multiplier) or 100.0,
         exchange="CBOE",
         currency="USD",
+        event_time=event_time,
     )
 
 
-def _option_tick_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
+def _option_tick_event(session_id: str, row: MoomooOptionRow, event_time: datetime) -> dict[str, object]:
     expiry = _expiry_text(row.expiry)
     right = _right(row.option_type)
     strike = _positive_float_or_none(row.strike)
@@ -91,6 +104,7 @@ def _option_tick_event(session_id: str, row: MoomooOptionRow) -> dict[str, objec
         ibkr_gamma=_finite_float_or_none(row.gamma),
         ibkr_vega=_finite_float_or_none(row.vega),
         ibkr_theta=_finite_float_or_none(row.theta),
+        event_time=event_time,
     )
 
 

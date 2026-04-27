@@ -17,6 +17,8 @@ vi.mock("../components/DashboardChart", () => ({
     inspectedStrike,
     inspection,
     sharedStrikeDomain,
+    rows,
+    strikeCountLabel,
     onInspectStrike,
     onClearInspection
   }: {
@@ -28,6 +30,8 @@ vi.mock("../components/DashboardChart", () => ({
     inspectedStrike?: number | null;
     inspection?: { strike: number } | null;
     sharedStrikeDomain?: [number, number] | null;
+    rows: AnalyticsSnapshot["rows"];
+    strikeCountLabel?: string;
     onInspectStrike?: (strike: number) => void;
     onClearInspection?: () => void;
   }) => (
@@ -40,6 +44,8 @@ vi.mock("../components/DashboardChart", () => ({
       data-chart-inspected-strike={inspectedStrike ?? ""}
       data-chart-inspection-strike={inspection?.strike ?? ""}
       data-chart-shared-strike-domain={sharedStrikeDomain?.join(":") ?? ""}
+      data-chart-row-count={rows.length}
+      data-chart-strike-count-label={strikeCountLabel ?? ""}
       data-chart-can-inspect={typeof onInspectStrike === "function" ? "true" : "false"}
       data-chart-can-clear={typeof onClearInspection === "function" ? "true" : "false"}
     >
@@ -191,6 +197,29 @@ describe("DashboardView", () => {
     expect(markup.match(/data-chart-shared-strike-domain="5180:5220"/g) ?? []).toHaveLength(3);
   });
 
+  it("filters only the IV chart to a spot-centered strike presentation window", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const wideRows = Array.from({ length: 61 }, (_, index) => 7000 + index * 5).flatMap((strike) => [
+      { ...snapshot.rows[0]!, strike, right: "call" as const, custom_iv: 0.2 },
+      { ...snapshot.rows[1]!, strike, right: "put" as const, custom_iv: 0.21 }
+    ]);
+    const wideSnapshot = {
+      ...snapshot,
+      spot: 7150,
+      forward: 7151,
+      rows: wideRows
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={wideSnapshot} />);
+
+    expect(markup).toContain(
+      'data-chart-title="IV BY STRIKE" data-chart-spot="7150" data-chart-forward="7151" data-chart-atm-value="0.20500000000000002" data-chart-zero-line="false" data-chart-inspected-strike="" data-chart-inspection-strike="" data-chart-shared-strike-domain="7050:7250" data-chart-row-count="82" data-chart-strike-count-label="41 of 61 strikes"'
+    );
+    expect(markup).toContain('data-chart-title="GAMMA BY STRIKE"');
+    expect(markup).toContain('data-chart-title="VANNA BY STRIKE"');
+    expect(markup.match(/data-chart-row-count="122"/g) ?? []).toHaveLength(2);
+    expect(markup.match(/data-chart-shared-strike-domain="7000:7300"/g) ?? []).toHaveLength(2);
+  });
+
   it("renders option-chain filters as pressed-state buttons with All selected by default", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
@@ -199,6 +228,35 @@ describe("DashboardView", () => {
     expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>.*All<\/button>/);
     expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Calls<\/button>/);
     expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Puts<\/button>/);
+  });
+
+  it("renders charts from the latest snapshot while the option chain can use a slower snapshot", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const latestSnapshot = {
+      ...snapshot,
+      rows: [
+        { ...snapshot.rows[0]!, strike: 5200, right: "call" as const },
+        { ...snapshot.rows[1]!, strike: 5200, right: "put" as const },
+        { ...snapshot.rows[2]!, strike: 5210, right: "call" as const },
+        { ...snapshot.rows[3]!, strike: 5210, right: "put" as const },
+        { ...snapshot.rows[4]!, strike: 5220, right: "call" as const },
+        { ...snapshot.rows[5]!, strike: 5220, right: "put" as const }
+      ]
+    } satisfies AnalyticsSnapshot;
+    const slowerChainSnapshot = {
+      ...snapshot,
+      rows: [
+        { ...snapshot.rows[0]!, strike: 5190, right: "call" as const },
+        { ...snapshot.rows[1]!, strike: 5190, right: "put" as const },
+        { ...snapshot.rows[2]!, strike: 5200, right: "call" as const },
+        { ...snapshot.rows[3]!, strike: 5200, right: "put" as const }
+      ]
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={latestSnapshot} chainSnapshot={slowerChainSnapshot} />);
+
+    expect(markup.match(/data-chart-row-count="6"/g) ?? []).toHaveLength(3);
+    expect(markup).toContain("<strong>2 strikes</strong>");
+    expect(markup).not.toContain("<strong>3 strikes</strong></div></div><div class=\"chainTableWrap\"");
   });
 
   it("renders IBKR comparison context for IV and gamma in the default chain", async () => {

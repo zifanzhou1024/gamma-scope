@@ -12,7 +12,7 @@ from gammascope_api.routes.replay import replay_stream_snapshots, seed_replay_sn
 
 router = APIRouter()
 
-STREAM_INTERVAL_SECONDS = 1.0
+STREAM_INTERVAL_SECONDS = 2.0
 MIN_REPLAY_INTERVAL_MS = 50
 MAX_REPLAY_INTERVAL_MS = 2000
 DEFAULT_REPLAY_INTERVAL_MS = 250

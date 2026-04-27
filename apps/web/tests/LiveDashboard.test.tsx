@@ -196,6 +196,29 @@ describe("LiveDashboard scenario panel", () => {
     expect(LiveDashboardModule.shouldPollLiveSnapshot(true)).toBe(false);
   });
 
+  it("uses a two second live snapshot interval", () => {
+    expect(LiveDashboardModule.LIVE_SNAPSHOT_INTERVAL_MS).toBe(2000);
+  });
+
+  it("keeps the heavy option chain on a slower live snapshot cadence", () => {
+    expect(LiveDashboardModule.CHAIN_SNAPSHOT_INTERVAL_MS).toBeGreaterThan(LiveDashboardModule.LIVE_SNAPSHOT_INTERVAL_MS);
+  });
+
+  it("updates the heavy option chain only after the slower interval or a structure change", () => {
+    expect(LiveDashboardModule.shouldUpdateChainSnapshot(
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:00.000Z" },
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:02.000Z", spot: seedSnapshot.spot + 1 }
+    )).toBe(false);
+    expect(LiveDashboardModule.shouldUpdateChainSnapshot(
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:00.000Z" },
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:08.000Z", spot: seedSnapshot.spot + 1 }
+    )).toBe(true);
+    expect(LiveDashboardModule.shouldUpdateChainSnapshot(
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:00.000Z" },
+      { ...seedSnapshot, snapshot_time: "2026-04-27T15:00:02.000Z", rows: seedSnapshot.rows.slice(0, -2) }
+    )).toBe(true);
+  });
+
   it("disables live polling while replay mode is active", () => {
     expect(LiveDashboardModule.shouldPollLiveSnapshot).toBeTypeOf("function");
 

@@ -125,6 +125,81 @@ def test_collector_ingest_tracks_contract_underlying_and_option_events() -> None
     assert state["last_event_time"] == "2026-04-23T15:30:02Z"
 
 
+def test_collector_bulk_ingest_tracks_events_and_captures_once() -> None:
+    events = [
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "collector_id": "local-dev",
+            "status": "connected",
+            "ibkr_account_mode": "paper",
+            "message": "Bulk live cycle",
+            "event_time": "2026-04-24T15:30:00Z",
+            "received_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "bulk-spx-session",
+            "symbol": "SPX",
+            "spot": 5200.25,
+            "bid": 5199.75,
+            "ask": 5200.75,
+            "last": 5200.25,
+            "mark": 5200.25,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "bulk-spx-session",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "ibkr_con_id": 900000,
+            "symbol": "SPX",
+            "expiry": "2026-04-24",
+            "right": "call",
+            "strike": 5200,
+            "multiplier": 100,
+            "exchange": "CBOE",
+            "currency": "USD",
+            "event_time": "2026-04-24T15:30:00Z",
+        },
+        {
+            "schema_version": "1.0.0",
+            "source": "ibkr",
+            "session_id": "bulk-spx-session",
+            "contract_id": "SPX-2026-04-24-C-5200",
+            "bid": 12.1,
+            "ask": 12.25,
+            "last": 12.18,
+            "bid_size": 11,
+            "ask_size": 14,
+            "volume": 500,
+            "open_interest": 2500,
+            "ibkr_iv": 0.18,
+            "ibkr_delta": 0.51,
+            "ibkr_gamma": 0.012,
+            "ibkr_vega": 0.8,
+            "ibkr_theta": -1.2,
+            "event_time": "2026-04-24T15:30:00Z",
+            "quote_status": "valid",
+        },
+    ]
+
+    response = client.post("/api/spx/0dte/collector/events/bulk", json=events)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["accepted_count"] == 4
+    assert payload["event_types"] == ["CollectorHealth", "UnderlyingTick", "ContractDiscovered", "OptionTick"]
+    assert payload["state"]["contracts_count"] == 1
+    assert payload["state"]["underlying_ticks_count"] == 1
+    assert payload["state"]["option_ticks_count"] == 1
+    assert payload["replay_capture"]["captured"] is True
+
+
 def test_collector_ingest_rejects_invalid_payload() -> None:
     response = client.post(
         "/api/spx/0dte/collector/events",
