@@ -75,6 +75,48 @@ describe("DashboardChart", () => {
     expect(vannaMarkup).toContain("Max");
   });
 
+  it("renders SPX spot and forward reference lines", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5199}
+        forward={5202}
+        atmValue={0.018}
+      />
+    );
+
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toContain("SPX spot 5,199.00");
+    expect(markup).toContain('data-reference-line="forward"');
+    expect(markup).toContain("Forward 5,202.00");
+    expect(markup).toContain("ATM Gamma");
+    expect(markup).toContain("0.01800");
+  });
+
+  it("renders a zero line on vanna charts when zero is inside the domain", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Vanna by strike"
+        metricKey="custom_vanna"
+        tone="teal"
+        valueKind="decimal"
+        spot={5200}
+        forward={5200}
+        atmValue={0.0018}
+        showZeroLine
+      />
+    );
+
+    expect(markup).toContain('data-zero-line="vanna"');
+    expect(markup).toContain("Vanna 0");
+    expect(markup).toContain("ATM Vanna");
+  });
+
   it("uses green for call IV and red for put IV chart semantics", () => {
     expect(styles).toMatch(/--call-color:\s*var\(--green\)/);
     expect(styles).toMatch(/--put-color:\s*var\(--red\)/);

@@ -11,6 +11,10 @@ interface DashboardChartProps {
   metricKey: NumericRowKey;
   tone: ChartTone;
   valueKind: "percent" | "decimal";
+  spot?: number | null;
+  forward?: number | null;
+  atmValue?: number | null;
+  showZeroLine?: boolean;
 }
 
 interface RenderSeries {
@@ -22,17 +26,31 @@ interface RenderSeries {
 const FRAME = { width: 560, height: 300, padding: 42 };
 const GRID_LINES = 4;
 
-export function DashboardChart({ rows, title, metricKey, tone, valueKind }: DashboardChartProps) {
+export function DashboardChart({
+  rows,
+  title,
+  metricKey,
+  tone,
+  valueKind,
+  spot = null,
+  forward = null,
+  atmValue = null,
+  showZeroLine = false
+}: DashboardChartProps) {
   const renderSeries = buildRenderSeries(rows, metricKey);
   const domainPoints = renderSeries.flatMap((series) => series.points);
   const ivMinimumPoints = metricKey === "custom_iv" ? buildIvMinimumPoints(renderSeries) : [];
   const extent = valueExtent(domainPoints);
   const latest = domainPoints.at(-1)?.y ?? null;
+  const headlineValue = atmValue ?? latest;
+  const headlineLabel = headlineLabelFor(metricKey, atmValue);
   const xTicks = buildTicks(domainPoints.map((point) => point.x), 3);
   const yTicks = buildTicks(domainPoints.map((point) => point.y), GRID_LINES);
   const chartTitle = chartTitleFor(metricKey, title);
   const axisLabel = axisLabelFor(metricKey);
   const strikeCount = new Set(domainPoints.map((point) => point.x)).size;
+  const referenceLines = buildReferenceLines({ spot, forward }, domainPoints);
+  const showVannaZeroLine = metricKey === "custom_vanna" && showZeroLine && isInYDomain(0, domainPoints);
 
   return (
     <section className="chartPanel" aria-label={chartTitle}>
@@ -80,6 +98,10 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
             );
           })}
         </g>
+        {referenceLines.map((line) => (
+          <ReferenceLine key={line.key} line={line} domainPoints={domainPoints} />
+        ))}
+        {showVannaZeroLine ? <ZeroLine domainPoints={domainPoints} /> : null}
         <line
           className="chartAxis"
           data-axis="x"
@@ -132,7 +154,7 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
         ))}
       </svg>
       <div className="chartStats" aria-label={`${chartTitle} summary`}>
-        <ChartStat label="Current" value={formatValue(latest, valueKind)} />
+        <ChartStat label={headlineLabel} value={formatHeadlineValue(headlineValue, valueKind, atmValue != null)} />
         <ChartStat label="Min" value={formatValue(extent?.[0] ?? null, valueKind)} />
         <ChartStat label="Max" value={formatValue(extent?.[1] ?? null, valueKind)} />
       </div>
@@ -144,6 +166,39 @@ interface IvMinimumPoint {
   seriesKey: string;
   seriesLabel: string;
   point: ChartPoint;
+}
+
+interface ReferenceLineModel {
+  key: "spot" | "forward";
+  label: string;
+  value: number;
+}
+
+function ReferenceLine({ line, domainPoints }: { line: ReferenceLineModel; domainPoints: ChartPoint[] }) {
+  const x = projectX(line.value, domainPoints);
+  const y = line.key === "spot" ? FRAME.padding + 12 : FRAME.padding + 26;
+
+  return (
+    <g className={`chartReferenceLine chartReferenceLine-${line.key}`} data-reference-line={line.key} aria-label={line.label}>
+      <line x1={x} x2={x} y1={FRAME.padding} y2={FRAME.height - FRAME.padding} />
+      <text x={x + 6} y={y}>
+        {line.label}
+      </text>
+    </g>
+  );
+}
+
+function ZeroLine({ domainPoints }: { domainPoints: ChartPoint[] }) {
+  const y = projectY(0, domainPoints);
+
+  return (
+    <g className="chartZeroLine chartZeroLine-vanna" data-zero-line="vanna" aria-label="Vanna 0">
+      <line x1={FRAME.padding} x2={FRAME.width - FRAME.padding} y1={y} y2={y} />
+      <text x={FRAME.width - FRAME.padding - 48} y={y - 6}>
+        Vanna 0
+      </text>
+    </g>
+  );
 }
 
 function IvMinimumSummary({ minimumPoints }: { minimumPoints: IvMinimumPoint[] }) {
@@ -211,6 +266,22 @@ function buildIvMinimumPoints(renderSeries: RenderSeries[]): IvMinimumPoint[] {
   });
 }
 
+function buildReferenceLines(
+  values: { spot: number | null; forward: number | null },
+  domainPoints: ChartPoint[]
+): ReferenceLineModel[] {
+  const lines: ReferenceLineModel[] = [];
+
+  if (values.spot != null && isInXDomain(values.spot, domainPoints)) {
+    lines.push({ key: "spot", label: `SPX spot ${formatReferenceValue(values.spot)}`, value: values.spot });
+  }
+  if (values.forward != null && isInXDomain(values.forward, domainPoints)) {
+    lines.push({ key: "forward", label: `Forward ${formatReferenceValue(values.forward)}`, value: values.forward });
+  }
+
+  return lines;
+}
+
 function findMinimumPoint(points: ChartPoint[]): ChartPoint | null {
   return points.reduce<ChartPoint | null>((minimumPoint, point) => {
     if (!minimumPoint || point.y < minimumPoint.y) {
@@ -258,12 +329,58 @@ function axisLabelFor(metricKey: NumericRowKey): string {
   return "Value";
 }
 
+function headlineLabelFor(metricKey: NumericRowKey, atmValue: number | null): string {
+  if (atmValue == null) {
+    return "Current";
+  }
+  if (metricKey === "custom_iv") {
+    return "ATM IV";
+  }
+  if (metricKey === "custom_gamma") {
+    return "ATM Gamma";
+  }
+  if (metricKey === "custom_vanna") {
+    return "ATM Vanna";
+  }
+  return "Current";
+}
+
 function formatValue(value: number | null, valueKind: DashboardChartProps["valueKind"]): string {
   return valueKind === "percent" ? formatPercent(value) : formatNumber(value, 4);
 }
 
+function formatHeadlineValue(value: number | null, valueKind: DashboardChartProps["valueKind"], isAtmValue: boolean): string {
+  if (!isAtmValue) {
+    return formatValue(value, valueKind);
+  }
+  return valueKind === "percent" ? formatPercent(value) : formatNumber(value, 5);
+}
+
 function formatStrike(value: number): string {
   return Math.round(value).toLocaleString("en-US");
+}
+
+function formatReferenceValue(value: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function isInXDomain(value: number, domainPoints: ChartPoint[]): boolean {
+  const xValues = domainPoints.map((point) => point.x);
+  return isInExtent(value, xValues);
+}
+
+function isInYDomain(value: number, domainPoints: ChartPoint[]): boolean {
+  const yValues = domainPoints.map((point) => point.y);
+  return isInExtent(value, yValues);
+}
+
+function isInExtent(value: number, values: number[]): boolean {
+  if (values.length === 0) {
+    return false;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return value >= min && value <= max;
 }
 
 function projectX(value: number, domainPoints: ChartPoint[]): number {
