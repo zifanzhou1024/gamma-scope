@@ -18,6 +18,10 @@
   --put-color: var(--red);
   --call-color-rgb: 34, 197, 94;
   --put-color-rgb: 255, 91, 102;
+  --spot-reference-rgb: 14, 165, 233;
+  --forward-reference-rgb: 249, 115, 22;
+  --spot-reference-text: #bae6fd;
+  --forward-reference-text: #fed7aa;
 }
 
 * {
@@ -1347,11 +1351,11 @@ h1 {
 }
 
 .marketMapItem-spot {
-  border-top-color: rgba(56, 189, 248, 0.72);
+  border-top-color: rgba(var(--spot-reference-rgb), 0.76);
 }
 
 .marketMapItem-forward {
-  border-top-color: rgba(245, 158, 11, 0.72);
+  border-top-color: rgba(var(--forward-reference-rgb), 0.76);
 }
 
 .marketMapItem-gamma {
@@ -1760,8 +1764,8 @@ h1 {
 
 .chartReferenceLine-spot line,
 .chartReferenceLine-spot text {
-  stroke: rgba(56, 189, 248, 0.9);
-  fill: #bae6fd;
+  stroke: rgba(var(--spot-reference-rgb), 0.95);
+  fill: var(--spot-reference-text);
 }
 
 .chartReferenceLine-spot line {
@@ -1771,8 +1775,8 @@ h1 {
 
 .chartReferenceLine-forward line,
 .chartReferenceLine-forward text {
-  stroke: rgba(245, 158, 11, 0.86);
-  fill: #fde68a;
+  stroke: rgba(var(--forward-reference-rgb), 0.92);
+  fill: var(--forward-reference-text);
 }
 
 .chartReferenceLine-forward line {

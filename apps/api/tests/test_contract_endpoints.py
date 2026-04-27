@@ -8,6 +8,7 @@ from gammascope_api.ingestion.latest_state_cache import (
     reset_latest_state_cache_override,
     set_latest_state_cache_override,
 )
+from gammascope_api.ingestion.live_snapshot import reset_live_snapshot_memory
 from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import set_replay_repository_override
@@ -24,6 +25,7 @@ client = TestClient(app)
 
 def setup_function() -> None:
     collector_state.clear()
+    reset_live_snapshot_memory()
     set_latest_state_cache_override(InMemoryLatestStateCache())
     set_replay_repository_override(NullReplayRepository())
     set_saved_view_repository_override(InMemorySavedViewRepository())
@@ -250,6 +252,67 @@ def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
     assert all(row["custom_iv"] is not None for row in payload["rows"])
     assert all(row["custom_gamma"] is not None for row in payload["rows"])
     assert all(row["custom_vanna"] is not None for row in payload["rows"])
+
+
+def test_live_snapshot_reuses_last_good_custom_analytics_when_current_quote_is_unusable() -> None:
+    session_id = "live-spx-analytics-memory"
+    contract_id = "SPX-2026-04-24-C-5200"
+    events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event(session_id, "2026-04-24T15:30:00Z", 5200.25),
+        _contract_event(session_id, contract_id, "call", "2026-04-24T15:30:00Z"),
+        _option_event(session_id, contract_id, "2026-04-24T15:30:02Z", bid=9.9, ask=10.1),
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    valid_payload = client.get("/api/spx/0dte/snapshot/latest").json()
+    valid_row = valid_payload["rows"][0]
+    assert valid_row["calc_status"] == "ok"
+    assert valid_row["custom_iv"] is not None
+    assert valid_row["custom_gamma"] is not None
+    assert valid_row["custom_vanna"] is not None
+
+    for event in [
+        _underlying_event(session_id, "2026-04-24T15:31:00Z", 5210.25),
+        _option_event(session_id, contract_id, "2026-04-24T15:31:00Z", bid=1.0, ask=1.2),
+    ]:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    stale_payload = client.get("/api/spx/0dte/snapshot/latest").json()
+    stale_row = stale_payload["rows"][0]
+    AnalyticsSnapshot.model_validate(stale_payload)
+    assert stale_row["calc_status"] == "below_intrinsic"
+    assert stale_row["custom_iv"] == valid_row["custom_iv"]
+    assert stale_row["custom_gamma"] == valid_row["custom_gamma"]
+    assert stale_row["custom_vanna"] == valid_row["custom_vanna"]
+    assert stale_row["iv_diff"] == stale_row["custom_iv"] - stale_row["ibkr_iv"]
+    assert stale_row["gamma_diff"] == stale_row["custom_gamma"] - stale_row["ibkr_gamma"]
+
+
+def test_live_snapshot_uses_raw_iv_for_first_unusable_quote_without_memory() -> None:
+    session_id = "live-spx-raw-iv-fallback"
+    contract_id = "SPX-2026-04-24-C-5200"
+    events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event(session_id, "2026-04-24T15:30:00Z", 5210.25),
+        _contract_event(session_id, contract_id, "call", "2026-04-24T15:30:00Z"),
+        _option_event(session_id, contract_id, "2026-04-24T15:30:02Z", bid=1.0, ask=1.2),
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    payload = client.get("/api/spx/0dte/snapshot/latest").json()
+    row = payload["rows"][0]
+    AnalyticsSnapshot.model_validate(payload)
+    assert row["calc_status"] == "below_intrinsic"
+    assert row["custom_iv"] == row["ibkr_iv"]
+    assert row["custom_gamma"] is not None
+    assert row["custom_vanna"] is not None
+    assert row["iv_diff"] == 0
+    assert row["gamma_diff"] == row["custom_gamma"] - row["ibkr_gamma"]
 
 
 def test_latest_readers_prefer_cached_collector_state_after_process_memory_clear() -> None:

@@ -574,6 +574,10 @@ describe("DashboardChart", () => {
   });
 
   it("uses solid spot references and dashed forward references", () => {
+    expect(styles).toMatch(/--spot-reference-rgb:\s*14,\s*165,\s*233/);
+    expect(styles).toMatch(/--forward-reference-rgb:\s*249,\s*115,\s*22/);
+    expect(styles).toMatch(/\.chartReferenceLine-spot line,\s*\n\.chartReferenceLine-spot text\s*{[\s\S]*stroke:\s*rgba\(var\(--spot-reference-rgb\),\s*0\.95\)/);
+    expect(styles).toMatch(/\.chartReferenceLine-forward line,\s*\n\.chartReferenceLine-forward text\s*{[\s\S]*stroke:\s*rgba\(var\(--forward-reference-rgb\),\s*0\.92\)/);
     expect(styles).toMatch(/\.chartReferenceLine-spot line\s*{[\s\S]*stroke-dasharray:\s*none/);
     expect(styles).toMatch(/\.chartReferenceLine-forward line\s*{[\s\S]*stroke-dasharray:\s*4 5/);
   });

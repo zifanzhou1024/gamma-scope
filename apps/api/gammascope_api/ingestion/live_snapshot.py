@@ -4,13 +4,26 @@ from datetime import UTC, datetime, time
 from math import exp
 from typing import Any
 
-from gammascope_api.analytics.black_scholes import calculate_row_analytics, mid_price
+from gammascope_api.analytics.black_scholes import (
+    BlackScholesInputs,
+    calculate_row_analytics,
+    display_vanna_per_vol_point,
+    gamma as black_scholes_gamma,
+    mid_price,
+    raw_vanna,
+)
 from gammascope_api.ingestion.collector_state import CollectorState
 
 DEFAULT_RISK_FREE_RATE = 0.05
 DEFAULT_DIVIDEND_YIELD = 0.01
 DEFAULT_EXPIRY_CUTOFF_UTC = time(hour=20, minute=0, tzinfo=UTC)
 MIN_TAU_YEARS = 1 / (365 * 24 * 60 * 60)
+_ANALYTICS_MEMORY_FIELDS = ("custom_iv", "custom_gamma", "custom_vanna")
+_analytics_memory: dict[tuple[str, str], dict[str, float]] = {}
+
+
+def reset_live_snapshot_memory() -> None:
+    _analytics_memory.clear()
 
 
 def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
@@ -41,14 +54,20 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
     tau = _time_to_expiry_years(str(snapshot_time), expiry)
     forward = spot * exp((DEFAULT_RISK_FREE_RATE - DEFAULT_DIVIDEND_YIELD) * tau)
     discount_factor = exp(-DEFAULT_RISK_FREE_RATE * tau)
-    rows = [
-        _analytics_row(contract=contract, option_tick=option_ticks[contract["contract_id"]], spot=spot, tau=tau)
-        for contract in sorted(contracts, key=lambda item: (float(item["strike"]), str(item["right"])))
-        if contract["contract_id"] in option_ticks
-    ]
+    rows: list[dict[str, Any]] = []
+    active_contract_ids: set[str] = set()
+    for contract in sorted(contracts, key=lambda item: (float(item["strike"]), str(item["right"]))):
+        contract_id = str(contract["contract_id"])
+        if contract_id not in option_ticks:
+            continue
+        row = _analytics_row(contract=contract, option_tick=option_ticks[contract_id], spot=spot, tau=tau)
+        _apply_analytics_memory(session_id=session_id, row=row)
+        rows.append(row)
+        active_contract_ids.add(contract_id)
 
     if not rows:
         return None
+    _prune_analytics_memory(session_id=session_id, active_contract_ids=active_contract_ids)
 
     return {
         "schema_version": "1.0.0",
@@ -68,6 +87,48 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
         "scenario_params": None,
         "rows": rows,
     }
+
+
+def _apply_analytics_memory(*, session_id: str, row: dict[str, Any]) -> None:
+    memory_key = (session_id, str(row["contract_id"]))
+    previous_values = _analytics_memory.get(memory_key)
+    fallback_values = row.pop("_fallback_custom_analytics", {})
+
+    if previous_values is not None:
+        for field in _ANALYTICS_MEMORY_FIELDS:
+            if row.get(field) is None and field in previous_values:
+                row[field] = previous_values[field]
+
+    for field in _ANALYTICS_MEMORY_FIELDS:
+        if row.get(field) is None and field in fallback_values:
+            row[field] = fallback_values[field]
+
+    current_values = {
+        field: value
+        for field in _ANALYTICS_MEMORY_FIELDS
+        if (value := _float_or_none(row.get(field))) is not None
+    }
+    if current_values:
+        _analytics_memory[memory_key] = current_values
+
+    _refresh_comparison_diffs(row)
+
+
+def _refresh_comparison_diffs(row: dict[str, Any]) -> None:
+    custom_iv = _float_or_none(row.get("custom_iv"))
+    ibkr_iv = _float_or_none(row.get("ibkr_iv"))
+    row["iv_diff"] = custom_iv - ibkr_iv if custom_iv is not None and ibkr_iv is not None else None
+
+    custom_gamma = _float_or_none(row.get("custom_gamma"))
+    ibkr_gamma = _float_or_none(row.get("ibkr_gamma"))
+    row["gamma_diff"] = custom_gamma - ibkr_gamma if custom_gamma is not None and ibkr_gamma is not None else None
+
+
+def _prune_analytics_memory(*, session_id: str, active_contract_ids: set[str]) -> None:
+    for memory_key in list(_analytics_memory):
+        memory_session_id, contract_id = memory_key
+        if memory_session_id == session_id and contract_id not in active_contract_ids:
+            del _analytics_memory[memory_key]
 
 
 def _analytics_row(
@@ -93,6 +154,15 @@ def _analytics_row(
         ibkr_gamma=_float_or_none(option_tick.get("ibkr_gamma")),
     )
 
+    fallback_values = {}
+    if result.custom_iv is None or result.custom_gamma is None or result.custom_vanna is None:
+        fallback_values = _raw_iv_fallback_analytics(
+            spot=spot,
+            strike=float(contract["strike"]),
+            tau=tau,
+            ibkr_iv=_float_or_none(option_tick.get("ibkr_iv")),
+        )
+
     return {
         "contract_id": contract["contract_id"],
         "right": contract["right"],
@@ -111,7 +181,36 @@ def _analytics_row(
         "gamma_diff": result.gamma_diff,
         "calc_status": result.calc_status,
         "comparison_status": result.comparison_status,
+        "_fallback_custom_analytics": fallback_values,
     }
+
+
+def _raw_iv_fallback_analytics(
+    *,
+    spot: float,
+    strike: float,
+    tau: float,
+    ibkr_iv: float | None,
+) -> dict[str, float]:
+    if ibkr_iv is None or ibkr_iv <= 0:
+        return {}
+
+    inputs = BlackScholesInputs(
+        spot=spot,
+        strike=strike,
+        tau=tau,
+        rate=DEFAULT_RISK_FREE_RATE,
+        dividend_yield=DEFAULT_DIVIDEND_YIELD,
+        sigma=ibkr_iv,
+    )
+    try:
+        return {
+            "custom_iv": ibkr_iv,
+            "custom_gamma": black_scholes_gamma(inputs),
+            "custom_vanna": display_vanna_per_vol_point(raw_vanna(inputs)),
+        }
+    except (OverflowError, ValueError):
+        return {}
 
 
 def _spot_from_underlying(underlying: dict[str, Any]) -> float | None:
