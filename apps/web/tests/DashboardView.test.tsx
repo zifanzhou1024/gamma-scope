@@ -249,6 +249,62 @@ describe("DashboardView", () => {
     expect(markup).toContain("Crossed quote");
   });
 
+  it("renders a compact data quality panel with realtime trust details", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const degradedSnapshot = {
+      ...snapshot,
+      mode: "live",
+      snapshot_time: "2026-04-23T20:30:00Z",
+      expiry: "2026-04-23",
+      source_status: "stale",
+      coverage_status: "partial",
+      freshness_ms: 18_500,
+      rows: [
+        { ...snapshot.rows[0]!, strike: 5200, bid: 12, ask: 12.5, calc_status: "ok" as const },
+        { ...snapshot.rows[1]!, strike: 5200, bid: 13, ask: 12.5, calc_status: "solver_failed" as const },
+        { ...snapshot.rows[2]!, strike: 5210, bid: null, ask: 3.25, calc_status: "missing_quote" as const },
+        { ...snapshot.rows[3]!, strike: 5220, bid: 2.25, ask: null, calc_status: "ok" as const }
+      ]
+    } satisfies AnalyticsSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "IBKR market data delayed",
+      event_time: "2026-04-24T15:00:00Z",
+      received_time: "2026-04-24T15:00:01Z"
+    } satisfies CollectorHealth;
+    const markup = renderToStaticMarkup(
+      <DashboardView
+        snapshot={degradedSnapshot}
+        collectorHealth={collectorHealth}
+        transportStatus="fallback_polling"
+        activeDashboard="realtime"
+      />
+    );
+
+    expect(markup).toContain('aria-label="Data quality"');
+    expect(markup).toContain("04:30:00 PM EDT");
+    expect(markup).toContain("2026-04-23");
+    expect(markup).toContain("0DTE");
+    expect(markup).toContain("4 rows");
+    expect(markup).toContain("3 strikes");
+    expect(markup).toContain("18.5s stale");
+    expect(markup).toContain("Source stale");
+    expect(markup).toContain("Partial chain");
+    expect(markup).toContain("Transport Fallback polling");
+    expect(markup).toContain("Collector Degraded");
+    expect(markup).toContain("IBKR Paper");
+    expect(markup).toContain("Valid 1");
+    expect(markup).toContain("Crossed 1");
+    expect(markup).toContain("Missing bid/ask 2");
+    expect(markup).toContain("Calc issues 2");
+    expect(markup).toContain("Live mode");
+    expect(markup).toContain("Realtime dashboard");
+  });
+
   it("renders disconnected transport and both row chips when quote and calc issues coexist", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const degradedSnapshot = {
@@ -308,5 +364,12 @@ describe("DashboardView", () => {
     expect(styles).toMatch(/\.sharedInspectionTableWrap\s*{[\s\S]*overflow-x:\s*auto/);
     expect(styles).toMatch(/\.sharedInspectionTable\s*{[\s\S]*border-collapse:\s*collapse/);
     expect(styles).toMatch(/\.sharedInspectionClear\s*{[\s\S]*white-space:\s*nowrap/);
+  });
+
+  it("defines compact wrapping styles for the data quality panel", async () => {
+    expect(styles).toMatch(/\.dataQualityPanel\s*{[\s\S]*display:\s*grid/);
+    expect(styles).toMatch(/\.dataQualityGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(150px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.dataQualityItem\s*{[\s\S]*min-width:\s*0/);
+    expect(styles).toMatch(/\.dataQualityValue\s*{[\s\S]*overflow-wrap:\s*anywhere/);
   });
 });

@@ -11,6 +11,7 @@ type CollectorStatus = CollectorHealth["status"];
 export type ComparisonTone = "ok" | "warning" | "muted";
 export type OperationalTone = "ok" | "warning" | "error" | "muted";
 export type LiveTransportStatus = "connecting" | "streaming" | "disconnected" | "fallback_polling" | "reconnecting";
+export type DashboardSurface = "realtime" | "replay";
 
 export interface ComparisonStatusDisplay {
   label: string;
@@ -35,6 +36,27 @@ export interface SnapshotSummary {
   totalAbsGamma: number;
   totalNetVanna: number;
   totalAbsVanna: number;
+}
+
+export interface DataQualitySummary {
+  lastUpdated: string;
+  expiry: string;
+  isZeroDte: boolean;
+  zeroDteLabel: string;
+  rowCount: number;
+  distinctStrikeCount: number;
+  freshness: OperationalStatusDisplay;
+  source: OperationalStatusDisplay;
+  coverage: OperationalStatusDisplay;
+  transport: OperationalStatusDisplay | null;
+  collector: (OperationalStatusDisplay & { detail: string }) | null;
+  qualitySummary: {
+    validQuoteRows: number;
+    crossedQuoteRows: number;
+    missingBidAskRows: number;
+    nonOkCalcRows: number;
+  };
+  mode: OperationalStatusDisplay & { detail: string };
 }
 
 export interface MarketLevel {
@@ -254,6 +276,54 @@ export function deriveOperationalNotices(
   return dedupeNotices(notices);
 }
 
+export function deriveDataQuality(
+  snapshot: AnalyticsSnapshot,
+  collectorHealth?: CollectorHealth | null,
+  transportStatus?: LiveTransportStatus | null,
+  activeDashboard: DashboardSurface = "realtime"
+): DataQualitySummary {
+  const missingBidAskRows = snapshot.rows.filter((row) => row.bid == null || row.ask == null).length;
+  const crossedQuoteRows = snapshot.rows.filter(isCrossedQuote).length;
+  const snapshotMarketDate = marketDate(snapshot.snapshot_time);
+  const modeMatchesSurface =
+    (snapshot.mode === "live" && activeDashboard === "realtime") ||
+    (snapshot.mode === "replay" && activeDashboard === "replay");
+
+  return {
+    lastUpdated: formatSnapshotTime(snapshot.snapshot_time),
+    expiry: snapshot.expiry,
+    isZeroDte: snapshotMarketDate === snapshot.expiry,
+    zeroDteLabel: snapshotMarketDate === snapshot.expiry ? "0DTE" : "Not 0DTE",
+    rowCount: snapshot.rows.length,
+    distinctStrikeCount: new Set(snapshot.rows.map((row) => row.strike)).size,
+    freshness: getFreshnessDisplay(snapshot.freshness_ms),
+    source: {
+      label: `Source ${formatStatusLabel(snapshot.source_status).toLowerCase()}`,
+      tone: snapshot.source_status === "connected" ? "ok" : sourceStatusTone(snapshot.source_status)
+    },
+    coverage: getCoverageDisplay(snapshot.coverage_status),
+    transport: transportStatus ? prefixStatusDisplay("Transport", getTransportStatusDisplay(transportStatus)) : null,
+    collector: collectorHealth
+      ? {
+          label: `Collector ${formatStatusLabel(collectorHealth.status)}`,
+          detail: `IBKR ${formatCollectorAccountMode(collectorHealth.ibkr_account_mode)}`,
+          tone: collectorHealth.status === "connected" ? "ok" : collectorStatusTone(collectorHealth.status)
+        }
+      : null,
+    qualitySummary: {
+      validQuoteRows: snapshot.rows.length - missingBidAskRows - crossedQuoteRows,
+      crossedQuoteRows,
+      missingBidAskRows,
+      nonOkCalcRows: snapshot.rows.filter((row) => row.calc_status !== "ok").length
+    },
+    mode: {
+      label: `${formatStatusLabel(snapshot.mode)} mode`,
+      detail: `${formatStatusLabel(activeDashboard)} dashboard`,
+      tone: modeMatchesSurface ? "ok" : "warning"
+    }
+  };
+}
+
 export function formatStrikeRange(range: [number, number] | null): string {
   if (range == null) {
     return "—";
@@ -284,6 +354,63 @@ export function formatSnapshotTime(value: string): string {
     timeZone: "America/New_York",
     timeZoneName: "short"
   }).format(new Date(value));
+}
+
+function marketDate(value: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/New_York",
+    year: "numeric"
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value;
+
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function getFreshnessDisplay(freshnessMs: number): OperationalStatusDisplay {
+  const label = `${formatFreshnessDuration(freshnessMs)} ${freshnessMs <= 5_000 ? "fresh" : "stale"}`;
+  if (freshnessMs <= 5_000) {
+    return { label, tone: "ok" };
+  }
+  if (freshnessMs <= 30_000) {
+    return { label, tone: "warning" };
+  }
+  return { label, tone: "error" };
+}
+
+function formatFreshnessDuration(freshnessMs: number): string {
+  if (freshnessMs < 1_000) {
+    return `${freshnessMs}ms`;
+  }
+  if (freshnessMs < 60_000) {
+    return `${Number((freshnessMs / 1_000).toFixed(1))}s`;
+  }
+  return `${Number((freshnessMs / 60_000).toFixed(1))}m`;
+}
+
+function getCoverageDisplay(status: CoverageStatus): OperationalStatusDisplay {
+  if (status === "full") {
+    return { label: "Full chain", tone: "ok" };
+  }
+  return {
+    label: coverageStatusLabel(status),
+    tone: status === "empty" ? "error" : "warning"
+  };
+}
+
+function prefixStatusDisplay(prefix: string, display: OperationalStatusDisplay): OperationalStatusDisplay {
+  return {
+    label: `${prefix} ${display.label}`,
+    tone: display.tone
+  };
+}
+
+function formatCollectorAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {
+  if (accountMode === "unknown") {
+    return "Unknown";
+  }
+  return formatStatusLabel(accountMode);
 }
 
 export function sortRowsByStrike(rows: AnalyticsRow[]): AnalyticsRow[] {

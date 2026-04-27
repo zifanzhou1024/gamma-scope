@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveMarketMap,
+  deriveDataQuality,
   filterChainRowsBySide,
   formatBasisPointDiff,
   formatGammaDiff,
@@ -207,6 +208,100 @@ describe("dashboard metrics", () => {
         tone: "error"
       }
     ]);
+  });
+
+  it("derives compact data quality details for degraded realtime snapshots", () => {
+    const degradedSnapshot = {
+      ...seedSnapshot,
+      mode: "live",
+      snapshot_time: "2026-04-23T20:30:00Z",
+      expiry: "2026-04-23",
+      source_status: "stale",
+      coverage_status: "partial",
+      freshness_ms: 18_500,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5200, bid: 12, ask: 12.5, calc_status: "ok" as const },
+        { ...seedSnapshot.rows[1]!, strike: 5200, bid: 13, ask: 12.5, calc_status: "solver_failed" as const },
+        { ...seedSnapshot.rows[2]!, strike: 5210, bid: null, ask: 3.25, calc_status: "missing_quote" as const },
+        { ...seedSnapshot.rows[3]!, strike: 5220, bid: 2.25, ask: null, calc_status: "ok" as const }
+      ]
+    } satisfies typeof seedSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "Market data delayed",
+      event_time: "2026-04-23T20:30:00Z",
+      received_time: "2026-04-23T20:30:01Z"
+    } as const;
+
+    expect(deriveDataQuality(degradedSnapshot, collectorHealth, "fallback_polling", "realtime")).toEqual({
+      lastUpdated: "04:30:00 PM EDT",
+      expiry: "2026-04-23",
+      isZeroDte: true,
+      zeroDteLabel: "0DTE",
+      rowCount: 4,
+      distinctStrikeCount: 3,
+      freshness: {
+        label: "18.5s stale",
+        tone: "warning"
+      },
+      source: {
+        label: "Source stale",
+        tone: "warning"
+      },
+      coverage: {
+        label: "Partial chain",
+        tone: "warning"
+      },
+      transport: {
+        label: "Transport Fallback polling",
+        tone: "warning"
+      },
+      collector: {
+        label: "Collector Degraded",
+        detail: "IBKR Paper",
+        tone: "warning"
+      },
+      qualitySummary: {
+        validQuoteRows: 1,
+        crossedQuoteRows: 1,
+        missingBidAskRows: 2,
+        nonOkCalcRows: 2
+      },
+      mode: {
+        label: "Live mode",
+        detail: "Realtime dashboard",
+        tone: "ok"
+      }
+    });
+  });
+
+  it("compares 0DTE status against the New York market date", () => {
+    const snapshotNearUtcMidnight = {
+      ...seedSnapshot,
+      snapshot_time: "2026-04-24T01:30:00Z",
+      expiry: "2026-04-23"
+    } satisfies typeof seedSnapshot;
+    const nextExpirySnapshot = {
+      ...snapshotNearUtcMidnight,
+      expiry: "2026-04-24"
+    } satisfies typeof seedSnapshot;
+
+    expect(deriveDataQuality(snapshotNearUtcMidnight).zeroDteLabel).toBe("0DTE");
+    expect(deriveDataQuality(nextExpirySnapshot).zeroDteLabel).toBe("Not 0DTE");
+  });
+
+  it("treats replay snapshots on the replay dashboard as a matched mode", () => {
+    const replayQuality = deriveDataQuality({ ...seedSnapshot, mode: "replay" }, null, null, "replay");
+
+    expect(replayQuality.mode).toEqual({
+      label: "Replay mode",
+      detail: "Replay dashboard",
+      tone: "ok"
+    });
   });
 
   it("maps row operational statuses including crossed quotes", () => {

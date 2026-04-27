@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import type { CSSProperties } from "react";
 import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
+import { DataQualityPanel } from "./DataQualityPanel";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import { deriveStrikeInspection } from "../lib/chartInspection";
@@ -158,6 +159,13 @@ export function DashboardView({
           <strong>{snapshot.expiry}</strong>
         </div>
       </section>
+
+      <DataQualityPanel
+        snapshot={snapshot}
+        collectorHealth={collectorHealth}
+        transportStatus={transportStatus}
+        activeDashboard={activeDashboard}
+      />
 
       {operationalNotices.length > 0 ? (
         <section className="operationalNotices" aria-label="Operational notices">
