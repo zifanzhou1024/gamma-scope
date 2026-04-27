@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveMarketMap,
   filterChainRowsBySide,
   formatBasisPointDiff,
   formatGammaDiff,
@@ -12,6 +13,7 @@ import {
   deriveOperationalNotices,
   getRowOperationalStatusDisplays,
   getRowOperationalStatusDisplay,
+  getAtmMetricValue,
   getTransportStatusDisplay,
   getComparisonStatusDisplay,
   groupRowsByStrike,
@@ -22,6 +24,20 @@ import { buildPath, buildSeries } from "../lib/chartGeometry";
 import { seedSnapshot } from "../lib/seedSnapshot";
 
 describe("dashboard metrics", () => {
+  const marketMapSnapshot = {
+    ...seedSnapshot,
+    spot: 5206,
+    forward: 5207.5,
+    rows: [
+      { ...seedSnapshot.rows[0]!, strike: 5190, right: "call" as const, custom_iv: 0.22, custom_gamma: -0.01, custom_vanna: -0.04 },
+      { ...seedSnapshot.rows[1]!, strike: 5190, right: "put" as const, custom_iv: 0.24, custom_gamma: -0.02, custom_vanna: -0.03 },
+      { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.03, custom_vanna: -0.01 },
+      { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.02, custom_vanna: 0.005 },
+      { ...seedSnapshot.rows[4]!, strike: 5210, right: "call" as const, custom_iv: 0.21, custom_gamma: 0.04, custom_vanna: 0.03 },
+      { ...seedSnapshot.rows[5]!, strike: 5210, right: "put" as const, custom_iv: 0.17, custom_gamma: 0.01, custom_vanna: 0.02 }
+    ]
+  };
+
   it("summarizes the seeded analytics snapshot", () => {
     const summary = summarizeSnapshot(seedSnapshot);
 
@@ -30,6 +46,34 @@ describe("dashboard metrics", () => {
     expect(summary.averageIv).toBeCloseTo(0.1907);
     expect(summary.totalAbsGamma).toBeCloseTo(0.20565);
     expect(summary.totalAbsVanna).toBeCloseTo(0.181896);
+  });
+
+  it("summarizes net and absolute exposures", () => {
+    const summary = summarizeSnapshot(marketMapSnapshot);
+
+    expect(summary.totalNetGamma).toBeCloseTo(0.07);
+    expect(summary.totalAbsGamma).toBeCloseTo(0.13);
+    expect(summary.totalNetVanna).toBeCloseTo(-0.025);
+    expect(summary.totalAbsVanna).toBeCloseTo(0.135);
+  });
+
+  it("derives spot-relative market map levels", () => {
+    const marketMap = deriveMarketMap(marketMapSnapshot);
+
+    expect(marketMap.spot).toBe(5206);
+    expect(marketMap.forward).toBe(5207.5);
+    expect(marketMap.atmStrike).toBe(5210);
+    expect(marketMap.callIvLow).toMatchObject({ strike: 5200, value: 0.18 });
+    expect(marketMap.putIvLow).toMatchObject({ strike: 5210, value: 0.17 });
+    expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
+    expect(marketMap.vannaFlip?.strike).toBeCloseTo(5202);
+    expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
+  });
+
+  it("returns ATM aggregate values for chart headers", () => {
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_iv")).toBeCloseTo(0.19);
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_gamma")).toBeCloseTo(0.05);
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_vanna")).toBeCloseTo(0.05);
   });
 
   it("formats dashboard values consistently", () => {

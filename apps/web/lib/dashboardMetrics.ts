@@ -31,8 +31,27 @@ export interface SnapshotSummary {
   rowCount: number;
   strikeRange: [number, number] | null;
   averageIv: number | null;
+  totalNetGamma: number;
   totalAbsGamma: number;
+  totalNetVanna: number;
   totalAbsVanna: number;
+}
+
+export interface MarketLevel {
+  strike: number;
+  value: number;
+  source?: "crossing" | "nearest_zero";
+}
+
+export interface MarketMap {
+  spot: number;
+  forward: number;
+  atmStrike: number | null;
+  callIvLow: MarketLevel | null;
+  putIvLow: MarketLevel | null;
+  gammaPeak: MarketLevel | null;
+  vannaFlip: MarketLevel | null;
+  vannaMax: MarketLevel | null;
 }
 
 export interface ChainStrikeRow {
@@ -53,7 +72,9 @@ export function summarizeSnapshot(snapshot: AnalyticsSnapshot): SnapshotSummary 
     rowCount: snapshot.rows.length,
     strikeRange: strikes.length > 0 ? [Math.min(...strikes), Math.max(...strikes)] : null,
     averageIv: average(ivValues),
+    totalNetGamma: sum(gammaValues),
     totalAbsGamma: sumAbs(gammaValues),
+    totalNetVanna: sum(vannaValues),
     totalAbsVanna: sumAbs(vannaValues)
   };
 }
@@ -308,6 +329,38 @@ export function nearestStrike(snapshot: AnalyticsSnapshot): number | null {
   }, snapshot.rows[0].strike);
 }
 
+export function deriveMarketMap(snapshot: AnalyticsSnapshot): MarketMap {
+  const gammaLevels = aggregateByStrike(snapshot.rows, "custom_gamma");
+  const vannaLevels = aggregateByStrike(snapshot.rows, "custom_vanna");
+
+  return {
+    spot: snapshot.spot,
+    forward: snapshot.forward,
+    atmStrike: nearestStrike(snapshot),
+    callIvLow: findSideMinimum(snapshot.rows, "call", "custom_iv"),
+    putIvLow: findSideMinimum(snapshot.rows, "put", "custom_iv"),
+    gammaPeak: findLargestAbsLevel(gammaLevels),
+    vannaFlip: findZeroCrossing(aggregateDominantByStrike(snapshot.rows, "custom_vanna")),
+    vannaMax: findLargestValueLevel(vannaLevels)
+  };
+}
+
+export function getAtmMetricValue(
+  snapshot: AnalyticsSnapshot,
+  metricKey: "custom_iv" | "custom_gamma" | "custom_vanna"
+): number | null {
+  const atmStrike = nearestStrike(snapshot);
+  if (atmStrike == null) {
+    return null;
+  }
+
+  const values = compactNumbers(snapshot.rows.filter((row) => row.strike === atmStrike).map((row) => row[metricKey]));
+  if (metricKey === "custom_iv") {
+    return average(values);
+  }
+  return sum(values);
+}
+
 function compactNumbers(values: Array<number | null>): number[] {
   return values.filter((value): value is number => value != null);
 }
@@ -319,8 +372,112 @@ function average(values: number[]): number | null {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
 function sumAbs(values: number[]): number {
   return values.reduce((total, value) => total + Math.abs(value), 0);
+}
+
+function aggregateByStrike(rows: AnalyticsRow[], key: "custom_gamma" | "custom_vanna"): MarketLevel[] {
+  const levels = new Map<number, number>();
+
+  for (const row of rows) {
+    const value = row[key];
+    if (value == null) {
+      continue;
+    }
+    levels.set(row.strike, (levels.get(row.strike) ?? 0) + value);
+  }
+
+  return [...levels.entries()]
+    .map(([strike, value]) => ({ strike, value }))
+    .sort((a, b) => a.strike - b.strike);
+}
+
+function aggregateDominantByStrike(rows: AnalyticsRow[], key: "custom_vanna"): MarketLevel[] {
+  const levels = new Map<number, number>();
+
+  for (const row of rows) {
+    const value = row[key];
+    if (value == null) {
+      continue;
+    }
+    const existing = levels.get(row.strike);
+    if (existing == null || Math.abs(value) > Math.abs(existing)) {
+      levels.set(row.strike, value);
+    }
+  }
+
+  return [...levels.entries()]
+    .map(([strike, value]) => ({ strike, value }))
+    .sort((a, b) => a.strike - b.strike);
+}
+
+function findSideMinimum(
+  rows: AnalyticsRow[],
+  right: AnalyticsRow["right"],
+  key: "custom_iv" | "custom_gamma" | "custom_vanna"
+): MarketLevel | null {
+  const levels = rows
+    .filter((row) => row.right === right && row[key] != null)
+    .map((row) => ({ strike: row.strike, value: row[key] as number }));
+
+  if (levels.length === 0) {
+    return null;
+  }
+
+  return levels.reduce((minimum, level) => (level.value < minimum.value ? level : minimum));
+}
+
+function findLargestAbsLevel(levels: MarketLevel[]): MarketLevel | null {
+  if (levels.length === 0) {
+    return null;
+  }
+  return levels.reduce((largest, level) => (Math.abs(level.value) >= Math.abs(largest.value) ? level : largest));
+}
+
+function findLargestValueLevel(levels: MarketLevel[]): MarketLevel | null {
+  if (levels.length === 0) {
+    return null;
+  }
+  return levels.reduce((largest, level) => (level.value >= largest.value ? level : largest));
+}
+
+function findZeroCrossing(levels: MarketLevel[]): MarketLevel | null {
+  if (levels.length === 0) {
+    return null;
+  }
+
+  const sortedLevels = [...levels].sort((a, b) => a.strike - b.strike);
+  for (let index = 0; index < sortedLevels.length; index += 1) {
+    const current = sortedLevels[index]!;
+    if (current.value === 0) {
+      return { strike: current.strike, value: 0, source: "crossing" };
+    }
+
+    const next = sortedLevels[index + 1];
+    if (next == null || Math.sign(current.value) === Math.sign(next.value)) {
+      continue;
+    }
+
+    const ratio = Math.abs(current.value) / (Math.abs(current.value) + Math.abs(next.value));
+    return {
+      strike: Math.floor(current.strike + (next.strike - current.strike) * ratio),
+      value: 0,
+      source: "crossing"
+    };
+  }
+
+  const nearest = sortedLevels.reduce((closest, level) =>
+    Math.abs(level.value) < Math.abs(closest.value) ? level : closest
+  );
+  return {
+    strike: nearest.strike,
+    value: nearest.value,
+    source: "nearest_zero"
+  };
 }
 
 function formatSignedFixed(value: number, digits: number): string {
