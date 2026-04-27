@@ -292,6 +292,38 @@ def test_publish_import_stores_normalized_source_records_and_query_methods(
     assert [snapshot.header.source_snapshot_id for snapshot in streamed] == ["src-2"]
 
 
+def test_nearest_snapshot_without_timestamp_returns_latest_imported_snapshot(
+    import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
+) -> None:
+    repo, import_ids, session_ids = import_repository
+    record = _create_import(repo, import_ids)
+    session_id = f"pytest-latest-import-session-{uuid4()}"
+    session_ids.append(session_id)
+    repo.mark_validating(record.import_id)
+    repo.mark_awaiting_confirmation(record.import_id, session_id=session_id)
+    repo.mark_publishing(record.import_id)
+    repo.publish_import(
+        import_id=record.import_id,
+        session_id=session_id,
+        symbol="SPX",
+        expiry="2026-04-24",
+        start_time="2026-04-24T15:30:00Z",
+        end_time="2026-04-24T15:40:00Z",
+        snapshots=_snapshots(session_id),
+        quotes=[
+            _quote(session_id, "src-1", 0, "SPX-C-5200"),
+            _quote(session_id, "src-2", 1, "SPX-C-5210"),
+        ],
+    )
+
+    latest = repo.nearest_snapshot(session_id, None)
+
+    assert latest is not None
+    assert latest.header.source_snapshot_id == "src-2"
+    assert latest.header.snapshot_time == "2026-04-24T15:40:00Z"
+    assert [quote.contract_id for quote in latest.quotes] == ["SPX-C-5210"]
+
+
 def test_stream_snapshots_fetches_quotes_for_all_selected_snapshots_without_per_snapshot_lookup(
     import_repository: tuple[PostgresReplayImportRepository, list[str], list[str]],
     monkeypatch: pytest.MonkeyPatch,

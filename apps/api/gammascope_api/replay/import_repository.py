@@ -720,6 +720,7 @@ class PostgresReplayImportRepository:
                         """,
                         (session_id,),
                     )
+                    snapshot_record = cursor.fetchone()
                 else:
                     cursor.execute(
                         """
