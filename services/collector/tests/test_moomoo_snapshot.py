@@ -8,9 +8,13 @@ from datetime import date
 
 import pytest
 
-from gammascope_collector.moomoo_config import MoomooCollectorConfig, MoomooSymbolConfig
+from gammascope_collector.moomoo_config import MoomooCollectorConfig, MoomooSymbolConfig, SnapshotRateEstimate
 from gammascope_collector.moomoo_snapshot import (
     MoomooContract,
+    MoomooOptionRow,
+    MoomooSnapshotResult,
+    MoomooSymbolDiscoveryResult,
+    _publish_spx_compatibility_snapshot,
     collect_moomoo_snapshot_once,
     discover_symbol_contracts,
     main,
@@ -168,6 +172,26 @@ def test_missing_required_manual_spot_skips_symbol_without_fetching_option_chain
         strike_window_down=1,
         strike_window_up=1,
         requires_manual_spot=True,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert result.contracts == []
+    assert result.spot is None
+    assert result.warnings == ["SPX requires manual spot and none was supplied"]
+    assert client.option_chain_calls == []
+
+
+@pytest.mark.parametrize("manual_spot", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_manual_spot_skips_symbol_without_fetching_option_chain(manual_spot: float) -> None:
+    client = FakeQuoteClient()
+    symbol = MoomooSymbolConfig(
+        symbol="SPX",
+        owner_code="US.SPX",
+        strike_window_down=1,
+        strike_window_up=1,
+        requires_manual_spot=True,
+        manual_spot=manual_spot,
     )
 
     result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
@@ -497,6 +521,45 @@ def test_collect_moomoo_snapshot_once_degrades_when_snapshot_returns_fewer_known
     assert result.warnings == ["Snapshot row count mismatch: expected 2, returned 1, missing 1"]
 
 
+def test_collect_moomoo_snapshot_once_degrades_when_snapshot_returns_duplicate_known_codes() -> None:
+    class DuplicateSnapshotClient(FakeQuoteClient):
+        def get_market_snapshot(self, code_list: list[str]) -> tuple[int, list[dict[str, object]]]:
+            self.snapshot_calls.append(list(code_list))
+            rows = [self.snapshots[code] for code in code_list if code in self.snapshots]
+            return 0, rows + [rows[0]]
+
+    client = DuplicateSnapshotClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240427C00500000", strike=500, option_type="CALL"),
+                _option("US.SPY240427P00500000", strike=500, option_type="PUT"),
+            ]
+        },
+        snapshots={
+            "US.SPY240427C00500000": {"code": "US.SPY240427C00500000", "last_price": 1.0},
+            "US.SPY240427P00500000": {"code": "US.SPY240427P00500000", "last_price": 1.1},
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=2,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=0,
+                strike_window_up=0,
+                manual_spot=500,
+            )
+        ],
+    )
+
+    result = collect_moomoo_snapshot_once(client, config, expiry=date(2026, 4, 27))
+
+    assert result.status == "degraded"
+    assert result.snapshot_rows_count == 2
+    assert result.warnings == ["Snapshot row count mismatch: expected 2, returned 3, duplicates 1"]
+
+
 def test_collect_moomoo_snapshot_once_skips_snapshot_polling_when_rate_preflight_is_unsafe() -> None:
     contracts = [
         _option(f"US.SPY240427C{i:05d}", strike=200 + i, option_type="CALL", name=f"SPY {200 + i}C")
@@ -671,5 +734,55 @@ def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
     assert payload["status"] == "connected"
     assert payload["publish"]["accepted_count"] == 1
     assert payload["publish"]["event_types"] == ["CollectorHealth"]
+    assert len(captured_events) == 1
+    assert captured_events[0]["status"] == "degraded"
+
+
+def test_publish_spx_compatibility_snapshot_degrades_health_for_non_finite_spx_spot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_events: list[dict[str, object]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        captured_events.extend(events)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            accepted_count=len(captured_events),
+            event_types=["CollectorHealth" if "collector_id" in event else "Unexpected" for event in captured_events],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    result = MoomooSnapshotResult(
+        status="connected",
+        subscription={},
+        discoveries=[
+            MoomooSymbolDiscoveryResult(
+                symbol="SPX",
+                owner_code="US..SPX",
+                spot=float("nan"),
+                contracts=[],
+                warnings=[],
+            )
+        ],
+        rows=[
+            MoomooOptionRow(
+                symbol="SPX",
+                owner_code="US..SPX",
+                option_code="US.SPXW260427C07050000",
+                option_type="CALL",
+                strike=7050,
+                expiry=date(2026, 4, 27),
+                name="SPXW 7050C",
+                bid_price=1.1,
+                ask_price=1.3,
+            )
+        ],
+        total_selected_codes=1,
+        rate_estimate=SnapshotRateEstimate(codes=1, requests_per_refresh=1, requests_per_30_seconds=15, within_limit=True),
+        warnings=[],
+    )
+
+    _publish_spx_compatibility_snapshot(result, MoomooCollectorConfig(api_base="http://testserver"))
+
     assert len(captured_events) == 1
     assert captured_events[0]["status"] == "degraded"

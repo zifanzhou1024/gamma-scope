@@ -62,7 +62,10 @@ def test_manual_spots_parse_symbol_value_pairs() -> None:
     }
 
 
-@pytest.mark.parametrize("value", ["SPX", "SPX=", "=7050", "SPX=abc", "SPX=-1", "SPX=0"])
+@pytest.mark.parametrize(
+    "value",
+    ["SPX", "SPX=", "=7050", "SPX=abc", "SPX=-1", "SPX=0", "SPX=nan", "SPX=inf", "SPX=-inf"],
+)
 def test_manual_spots_reject_invalid_values(value: str) -> None:
     with pytest.raises(ValueError):
         parse_manual_spots([value])

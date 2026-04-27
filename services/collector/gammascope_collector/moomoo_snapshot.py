@@ -182,7 +182,7 @@ def discover_symbol_contracts(
     expiry: date,
 ) -> MoomooSymbolDiscoveryResult:
     warnings: list[str] = []
-    spot = symbol_config.manual_spot
+    spot = _positive_float_or_none(symbol_config.manual_spot)
     if symbol_config.requires_manual_spot and spot is None:
         return MoomooSymbolDiscoveryResult(
             symbol=symbol_config.symbol,
@@ -314,6 +314,8 @@ def _collect_snapshot_from_context(
 
     rows: list[MoomooOptionRow] = []
     returned_known_codes: set[str] = set()
+    returned_known_rows_count = 0
+    duplicate_known_rows_count = 0
     for code_chunk in chunked(snapshot_context.codes, SNAPSHOT_CODE_LIMIT):
         return_code, snapshot_data = client.get_market_snapshot(code_chunk)
         if return_code != RET_OK:
@@ -324,18 +326,28 @@ def _collect_snapshot_from_context(
             code = str(normalized.get("code", ""))
             contract = snapshot_context.contract_by_code.get(code)
             if contract is not None:
+                returned_known_rows_count += 1
+                if code in returned_known_codes:
+                    duplicate_known_rows_count += 1
+                    continue
                 returned_known_codes.add(code)
                 rows.append(normalize_snapshot_record(contract, normalized))
 
     missing_count = len(snapshot_context.codes) - len(returned_known_codes)
-    if missing_count > 0:
-        warnings.append(
-            "Snapshot row count mismatch: "
-            f"expected {len(snapshot_context.codes)}, returned {len(returned_known_codes)}, missing {missing_count}"
-        )
+    has_row_count_mismatch = missing_count > 0 or duplicate_known_rows_count > 0
+    if has_row_count_mismatch:
+        mismatch_parts = [
+            f"expected {len(snapshot_context.codes)}",
+            f"returned {returned_known_rows_count}",
+        ]
+        if missing_count > 0:
+            mismatch_parts.append(f"missing {missing_count}")
+        if duplicate_known_rows_count > 0:
+            mismatch_parts.append(f"duplicates {duplicate_known_rows_count}")
+        warnings.append(f"Snapshot row count mismatch: {', '.join(mismatch_parts)}")
 
     return MoomooSnapshotResult(
-        status="connected" if rows and missing_count == 0 else "degraded",
+        status="connected" if rows and not has_row_count_mismatch else "degraded",
         subscription=snapshot_context.subscription,
         discoveries=snapshot_context.discoveries,
         rows=rows,
@@ -474,7 +486,7 @@ def _spx_spot(result: MoomooSnapshotResult) -> float | None:
 def _spx_publish_status(result: MoomooSnapshotResult) -> str:
     if result.status != "connected":
         return result.status
-    if _spx_spot(result) is None:
+    if _positive_float_or_none(_spx_spot(result)) is None:
         return "degraded"
     if not any(row.symbol == "SPX" for row in result.rows):
         return "degraded"
@@ -572,6 +584,13 @@ def _float_or_none(value: object) -> float | None:
     except (TypeError, ValueError):
         return None
     if not math.isfinite(result):
+        return None
+    return result
+
+
+def _positive_float_or_none(value: object) -> float | None:
+    result = _float_or_none(value)
+    if result is None or result <= 0:
         return None
     return result
 

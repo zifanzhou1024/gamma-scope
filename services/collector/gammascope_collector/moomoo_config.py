@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
-from math import ceil
+from math import ceil, isfinite
 
 DEFAULT_MOOMOO_HOST = "127.0.0.1"
 DEFAULT_MOOMOO_PORT = 11111
@@ -128,7 +128,7 @@ def parse_manual_spots(values: Iterable[str]) -> dict[str, float]:
             spot = float(raw_spot.strip())
         except ValueError as exc:
             raise ValueError(f"Manual spot for {symbol} must be numeric") from exc
-        if spot <= 0:
+        if not isfinite(spot) or spot <= 0:
             raise ValueError(f"Manual spot for {symbol} must be greater than zero")
         spots[symbol] = spot
     return spots
