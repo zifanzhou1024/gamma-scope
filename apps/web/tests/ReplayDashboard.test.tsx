@@ -37,7 +37,7 @@ function replaySession(sessionId: string): ReplaySession {
 }
 
 describe("ReplayDashboard", () => {
-  it("renders archive transport, admin session, and import review controls", () => {
+  it("renders replay dashboard with shared navigation, archive transport, and import review controls", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "replay-dashboard-session",
@@ -57,19 +57,21 @@ describe("ReplayDashboard", () => {
     );
 
     expect(markup).toContain("ARCHIVE TRANSPORT");
+    expect(markup).toMatch(/<a[^>]*href="\/"[^>]*>Realtime<\/a>/);
+    expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*aria-current="page"[^>]*>Replay<\/a>/);
+    expect(markup).toMatch(/aria-disabled="true"[^>]*>Heatmap<\/span>/);
     expect(markup).toContain("Replay session");
     expect(markup).not.toContain("Previous replay timestamp");
     expect(markup).toContain("LOAD");
-    expect(markup).toContain("Admin");
+    expect(markup).toMatch(/class="adminUtility"[\s\S]*Authenticated[\s\S]*Log out/);
     expect(markup).toContain("Replay import");
     expect(markup).toContain("snapshots.parquet");
     expect(markup).toContain("quotes.parquet");
     expect(markup).toContain("Confirm import");
     expect(markup).toContain("href=\"/\"");
-    expect(markup).toContain("Live dashboard");
   });
 
-  it("lays out replay controls as a workstation with transport full-width above secondary tools", () => {
+  it("keeps admin utility outside the replay control grid while import remains with replay tools", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "replay-dashboard-session",
@@ -88,11 +90,21 @@ describe("ReplayDashboard", () => {
       />
     );
 
-    expect(markup).toMatch(
-      /class="replayWorkstationControls"[\s\S]*class="archiveTransport"[\s\S]*class="replaySecondaryTools"[\s\S]*class="adminPanel"[\s\S]*class="replayImportPanel"/
-    );
-    expect(markup.indexOf("class=\"archiveTransport\"")).toBeLessThan(
-      markup.indexOf("class=\"replaySecondaryTools\"")
+    const topBarStart = markup.indexOf("class=\"topBar\"");
+    const adminUtilityIndex = markup.indexOf("class=\"adminUtility\"");
+    const controlsStart = markup.indexOf("class=\"dashboardControls\"");
+    const controlsEnd = markup.indexOf("class=\"kpiGrid\"");
+    const controlsMarkup = markup.slice(controlsStart, controlsEnd);
+
+    expect(topBarStart).toBeGreaterThanOrEqual(0);
+    expect(adminUtilityIndex).toBeGreaterThan(topBarStart);
+    expect(adminUtilityIndex).toBeLessThan(controlsStart);
+    expect(controlsMarkup).toContain("class=\"archiveTransport\"");
+    expect(controlsMarkup).toContain("class=\"replayImportPanel\"");
+    expect(controlsMarkup).not.toContain("class=\"adminPanel\"");
+    expect(controlsMarkup).not.toContain("class=\"adminUtility\"");
+    expect(controlsMarkup.indexOf("class=\"archiveTransport\"")).toBeLessThan(
+      controlsMarkup.indexOf("class=\"replayImportPanel\"")
     );
   });
 

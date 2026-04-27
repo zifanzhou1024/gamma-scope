@@ -43,7 +43,7 @@ function replaySession(overrides: {
 }
 
 describe("LiveDashboard scenario panel", () => {
-  it("renders the live dashboard without replay, import, or admin controls", () => {
+  it("renders the live dashboard with shared navigation and without replay or import controls", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -53,19 +53,23 @@ describe("LiveDashboard scenario panel", () => {
     const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
 
     expect(markup).toContain("SPX 0DTE analytics");
+    expect(markup).toMatch(/<a[^>]*href="\/"[^>]*aria-current="page"[^>]*>Realtime<\/a>/);
+    expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*>Replay<\/a>/);
+    expect(markup).toMatch(/aria-disabled="true"[^>]*>Heatmap<\/span>/);
+    expect(markup).toMatch(/class="adminUtility"[\s\S]*<button[^>]*aria-expanded="false"[^>]*>Admin<\/button>/);
     expect(markup).toContain("Spot shift");
     expect(markup).toContain("Saved views");
+    expect(markup).not.toContain("ARCHIVE TRANSPORT");
     expect(markup).not.toContain("Replay session");
     expect(markup).not.toContain("Previous replay timestamp");
     expect(markup).not.toContain("Load replay");
-    expect(markup).not.toContain("Admin");
     expect(markup).not.toContain("Username");
     expect(markup).not.toContain("Password");
     expect(markup).not.toContain("Replay import");
     expect(markup).not.toContain("Upload import");
   });
 
-  it("ignores replay admin props on the live dashboard route", () => {
+  it("keeps replay import hidden while showing top-bar admin status on the live route", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -87,7 +91,7 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).not.toContain("Replay import");
     expect(markup).not.toContain("snapshots.parquet");
     expect(markup).not.toContain("quotes.parquet");
-    expect(markup).not.toContain("Admin");
+    expect(markup).toMatch(/class="adminUtility"[\s\S]*Authenticated[\s\S]*Log out/);
   });
 
   it("renders compact scenario controls with the live dashboard", () => {
@@ -105,7 +109,7 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toContain("Apply scenario");
   });
 
-  it("links to the replay workstation from the live dashboard", () => {
+  it("marks replay as an inactive nav tab on the live dashboard", () => {
     const snapshot = {
       ...seedSnapshot,
       session_id: "live-dashboard-session",
@@ -115,7 +119,8 @@ describe("LiveDashboard scenario panel", () => {
     const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
 
     expect(markup).toContain("href=\"/replay\"");
-    expect(markup).toContain("Replay workstation");
+    expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*>Replay<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/replay"[^>]*aria-current="page"[^>]*>Replay<\/a>/);
   });
 
   it("renders saved view controls with the live dashboard", () => {

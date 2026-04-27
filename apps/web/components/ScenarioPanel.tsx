@@ -30,44 +30,48 @@ export function ScenarioPanel({
   return (
     <section className="scenarioPanel" aria-label="Scenario controls">
       <form className="scenarioForm" onSubmit={onApplyScenario}>
-        <label>
-          <span>Spot shift</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.25"
-            value={spotShift}
-            onChange={(event) => onSpotShiftChange(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          <span>Vol shift</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.25"
-            value={volShift}
-            onChange={(event) => onVolShiftChange(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          <span>Time shift</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            step="1"
-            value={timeShift}
-            onChange={(event) => onTimeShiftChange(event.currentTarget.value)}
-          />
-        </label>
-        <button type="submit" disabled={isApplying}>
-          Apply scenario
-        </button>
-        {isScenarioModeActive ? (
-          <button type="button" className="secondaryButton" onClick={onReturnToLive}>
-            Return to live
+        <div className="scenarioInputGroup">
+          <label>
+            <span>Spot shift</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.25"
+              value={spotShift}
+              onChange={(event) => onSpotShiftChange(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            <span>Vol shift</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.25"
+              value={volShift}
+              onChange={(event) => onVolShiftChange(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            <span>Time shift</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              step="1"
+              value={timeShift}
+              onChange={(event) => onTimeShiftChange(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        <div className="scenarioActionGroup">
+          <button type="submit" disabled={isApplying}>
+            Apply scenario
           </button>
-        ) : null}
+          {isScenarioModeActive ? (
+            <button type="button" className="secondaryButton" onClick={onReturnToLive}>
+              Return to live
+            </button>
+          ) : null}
+        </div>
         {errorMessage ? <p role="status">{errorMessage}</p> : null}
       </form>
     </section>

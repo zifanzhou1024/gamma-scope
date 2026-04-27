@@ -33,10 +33,8 @@ interface DashboardViewProps {
   collectorHealth?: CollectorHealth | null;
   transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
-  navigationLink?: {
-    href: string;
-    label: string;
-  };
+  activeDashboard?: "realtime" | "replay";
+  adminUtility?: React.ReactNode;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
@@ -53,7 +51,8 @@ export function DashboardView({
   collectorHealth,
   transportStatus,
   initialChainSide = "all",
-  navigationLink,
+  activeDashboard = "realtime",
+  adminUtility,
   replayPanel,
   savedViewsPanel,
   scenarioPanel
@@ -74,38 +73,57 @@ export function DashboardView({
   return (
     <main className="dashboardShell">
       <header className="topBar">
-        <div className="brandLockup">
-          <div className="scopeMark" aria-hidden="true" />
-          <div>
-            <h1>GammaScope</h1>
-            <p>SPX 0DTE analytics</p>
+        <div className="topBarPrimary">
+          <div className="brandLockup">
+            <div className="scopeMark" aria-hidden="true" />
+            <div>
+              <h1>GammaScope</h1>
+              <p>SPX 0DTE analytics</p>
+            </div>
           </div>
-        </div>
-        <div className="statusRail" aria-label="Session status">
-          <span>{formatStatusLabel(snapshot.mode)}</span>
-          <span>{formatStatusLabel(snapshot.source_status)}</span>
-          <span>{snapshot.freshness_ms} ms</span>
-          {transportDisplay ? (
-            <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
-              Transport {transportDisplay.label}
-            </span>
-          ) : null}
-          {collectorHealth ? (
-            <>
-              <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
-                Collector {formatStatusLabel(collectorHealth.status)}
-              </span>
-              <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
-              <span className="collectorMessage" title={collectorHealth.message}>
-                {collectorHealth.message}
-              </span>
-            </>
-          ) : null}
-          {navigationLink ? (
-            <a className="dashboardNavLink" href={navigationLink.href}>
-              {navigationLink.label}
+          <nav className="topNavTabs" aria-label="Dashboard views">
+            <a
+              className={`topNavTab${activeDashboard === "realtime" ? " topNavTab-active" : ""}`}
+              href="/"
+              aria-current={activeDashboard === "realtime" ? "page" : undefined}
+            >
+              Realtime
             </a>
-          ) : null}
+            <a
+              className={`topNavTab${activeDashboard === "replay" ? " topNavTab-active" : ""}`}
+              href="/replay"
+              aria-current={activeDashboard === "replay" ? "page" : undefined}
+            >
+              Replay
+            </a>
+            <span className="topNavTab topNavTab-disabled" aria-disabled="true">
+              Heatmap
+            </span>
+          </nav>
+        </div>
+        <div className="topBarUtility">
+          <div className="statusRail" aria-label="Session status">
+            <span>{formatStatusLabel(snapshot.mode)}</span>
+            <span>{formatStatusLabel(snapshot.source_status)}</span>
+            <span>{snapshot.freshness_ms} ms</span>
+            {transportDisplay ? (
+              <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
+                Transport {transportDisplay.label}
+              </span>
+            ) : null}
+            {collectorHealth ? (
+              <>
+                <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
+                  Collector {formatStatusLabel(collectorHealth.status)}
+                </span>
+                <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
+                <span className="collectorMessage" title={collectorHealth.message}>
+                  {collectorHealth.message}
+                </span>
+              </>
+            ) : null}
+          </div>
+          {adminUtility}
         </div>
       </header>
 

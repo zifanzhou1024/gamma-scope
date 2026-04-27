@@ -637,9 +637,24 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   };
 
   useEffect(() => {
-    applyDashboardAdminState(createLoggedOutAdminState(isAdminAvailable));
-    nextAdminSessionRequestId();
-    return undefined;
+    let isCanceled = false;
+    const responseRequestId = nextAdminSessionRequestId();
+
+    loadDashboardAdminSession(isAdminAvailable).then((adminState) => {
+      if (!canApplyDashboardAsyncResult({
+        responseRequestId,
+        latestRequestId: adminSessionRequestIdRef.current,
+        isCanceled
+      })) {
+        return;
+      }
+
+      applyDashboardAdminState(adminState);
+    });
+
+    return () => {
+      isCanceled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1184,7 +1199,17 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
       snapshot={snapshot}
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
-      navigationLink={{ href: "/replay", label: "Replay workstation" }}
+      activeDashboard="realtime"
+      adminUtility={
+        <AdminLoginPanel
+          isAuthenticated={isAdminAuthenticated}
+          isAvailable={isAdminAvailable}
+          isSubmitting={isAdminSubmitting}
+          errorMessage={adminErrorMessage}
+          onLogin={loginAdmin}
+          onLogout={logoutAdmin}
+        />
+      }
       savedViewsPanel={
         <SavedViewsPanel
           savedViews={savedViews}

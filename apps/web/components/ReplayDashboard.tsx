@@ -1259,7 +1259,17 @@ export function ReplayDashboard({
       snapshot={snapshot}
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
-      navigationLink={{ href: "/", label: "Live dashboard" }}
+      activeDashboard="replay"
+      adminUtility={
+        <AdminLoginPanel
+          isAuthenticated={isAdminAuthenticated}
+          isAvailable={isAdminAvailable}
+          isSubmitting={isAdminSubmitting}
+          errorMessage={adminErrorMessage}
+          onLogin={loginAdmin}
+          onLogout={logoutAdmin}
+        />
+      }
       replayPanel={
         <div className="replayWorkstationControls">
           <ArchiveTransport
@@ -1303,14 +1313,6 @@ export function ReplayDashboard({
             onReturnToLive={returnToLive}
           />
           <div className="replaySecondaryTools">
-            <AdminLoginPanel
-              isAuthenticated={isAdminAuthenticated}
-              isAvailable={isAdminAvailable}
-              isSubmitting={isAdminSubmitting}
-              errorMessage={adminErrorMessage}
-              onLogin={loginAdmin}
-              onLogout={logoutAdmin}
-            />
             <ReplayImportPanel
               isAdminAuthenticated={shouldShowReplayImportControls(isAdminAuthenticated)}
               csrfToken={adminCsrfToken}
