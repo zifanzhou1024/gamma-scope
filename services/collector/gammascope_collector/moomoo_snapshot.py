@@ -210,8 +210,12 @@ def discover_symbol_contracts(
         warnings.append(f"{symbol_config.symbol} option chain request failed with code {return_code}")
         return MoomooSymbolDiscoveryResult(symbol_config.symbol, symbol_config.owner_code, float(spot), [], warnings)
 
-    target_rows = [_normalize_record(row) for row in _records(chain_data)]
-    target_rows = [row for row in target_rows if _record_expiry(row) == expiry]
+    chain_rows = [_normalize_record(row) for row in _records(chain_data)]
+    if not chain_rows:
+        warnings.append(f"{symbol_config.symbol} option chain returned zero rows")
+    target_rows = [row for row in chain_rows if _record_expiry(row) == expiry]
+    if chain_rows and not target_rows:
+        warnings.append(f"{symbol_config.symbol} option chain returned zero rows for expiry {expiry_text}")
     filtered_rows = target_rows
     family_filter = symbol_config.family_filter
     if family_filter:

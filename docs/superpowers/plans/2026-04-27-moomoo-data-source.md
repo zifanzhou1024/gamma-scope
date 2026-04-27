@@ -63,7 +63,7 @@ The plan does not generalize collector schemas, does not add a multi-symbol dash
 - Create: `services/collector/gammascope_collector/moomoo_config.py`
 - Create: `services/collector/tests/test_moomoo_config.py`
 
-- [ ] **Step 1: Write failing tests for config defaults, manual spots, chunking, and rate math**
+- [x] **Step 1: Write failing tests for config defaults, manual spots, chunking, and rate math**
 
 Create `services/collector/tests/test_moomoo_config.py`:
 
@@ -164,7 +164,7 @@ def test_snapshot_rate_math_rejects_zero_interval() -> None:
         estimate_snapshot_request_rate(code_count=1, refresh_interval_seconds=0)
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -174,7 +174,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: fail with `ModuleNotFoundError: No module named 'gammascope_collector.moomoo_config'`.
 
-- [ ] **Step 3: Implement config module**
+- [x] **Step 3: Implement config module**
 
 Create `services/collector/gammascope_collector/moomoo_config.py`:
 
@@ -350,7 +350,7 @@ def estimate_snapshot_request_rate(
     )
 ```
 
-- [ ] **Step 4: Run tests to verify GREEN**
+- [x] **Step 4: Run tests to verify GREEN**
 
 Run:
 
@@ -360,7 +360,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: pass with `7 passed`.
 
-- [ ] **Step 5: Commit config helpers**
+- [x] **Step 5: Commit config helpers**
 
 Run:
 
@@ -377,7 +377,7 @@ git commit -m "feat: add moomoo collector config"
 - Create: `services/collector/tests/test_moomoo_snapshot.py`
 - Modify: `services/collector/gammascope_collector/moomoo_config.py`
 
-- [ ] **Step 1: Write failing tests for discovery, fallback, normalization, and one snapshot cycle**
+- [x] **Step 1: Write failing tests for discovery, fallback, normalization, and one snapshot cycle**
 
 Create `services/collector/tests/test_moomoo_snapshot.py`:
 
@@ -629,7 +629,7 @@ def test_main_prints_error_json_when_real_client_cannot_be_created(capsys: pytes
     assert "moomoo-api package is not installed" in payload
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -639,7 +639,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: fail with `ModuleNotFoundError: No module named 'gammascope_collector.moomoo_snapshot'`.
 
-- [ ] **Step 3: Implement snapshot module and any required config helper refinements**
+- [x] **Step 3: Implement snapshot module and any required config helper refinements**
 
 Create `services/collector/gammascope_collector/moomoo_snapshot.py` with these public dataclasses and functions:
 
@@ -1073,7 +1073,7 @@ def _print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 ```
 
-- [ ] **Step 4: Run focused tests to verify GREEN**
+- [x] **Step 4: Run focused tests to verify GREEN**
 
 Run:
 
@@ -1083,7 +1083,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: all focused Moomoo tests pass.
 
-- [ ] **Step 5: Commit snapshot collector core**
+- [x] **Step 5: Commit snapshot collector core**
 
 Run:
 
@@ -1100,7 +1100,7 @@ git commit -m "feat: add moomoo snapshot collector core"
 - Create: `services/collector/tests/test_moomoo_compat.py`
 - Modify: `services/collector/gammascope_collector/moomoo_snapshot.py`
 
-- [ ] **Step 1: Write failing tests for compatibility event translation**
+- [x] **Step 1: Write failing tests for compatibility event translation**
 
 Create `services/collector/tests/test_moomoo_compat.py`:
 
@@ -1195,7 +1195,7 @@ def test_moomoo_rows_to_spx_events_returns_health_only_when_no_spx_rows() -> Non
     assert events[0]["status"] == "degraded"
 ```
 
-- [ ] **Step 2: Run tests to verify RED**
+- [x] **Step 2: Run tests to verify RED**
 
 Run:
 
@@ -1205,7 +1205,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: fail with `ModuleNotFoundError: No module named 'gammascope_collector.moomoo_compat'`.
 
-- [ ] **Step 3: Implement compatibility translator**
+- [x] **Step 3: Implement compatibility translator**
 
 Create `services/collector/gammascope_collector/moomoo_compat.py`:
 
@@ -1309,7 +1309,7 @@ def _snapshot_event_time(rows: Sequence[MoomooOptionRow]) -> datetime:
     return datetime.now(UTC)
 ```
 
-- [ ] **Step 4: Extend CLI publish mode**
+- [x] **Step 4: Extend CLI publish mode**
 
 Modify `services/collector/gammascope_collector/moomoo_snapshot.py`:
 
@@ -1360,7 +1360,7 @@ def _health_message(result: MoomooSnapshotResult) -> str:
     return "Moomoo compatibility snapshot emitted"
 ```
 
-- [ ] **Step 5: Add CLI publish test**
+- [x] **Step 5: Add CLI publish test**
 
 Append to `services/collector/tests/test_moomoo_snapshot.py`:
 
@@ -1398,7 +1398,7 @@ def test_main_publish_mode_adds_publish_summary(monkeypatch: pytest.MonkeyPatch,
     assert len(published) == 6
 ```
 
-- [ ] **Step 6: Run focused tests to verify GREEN**
+- [x] **Step 6: Run focused tests to verify GREEN**
 
 Run:
 
@@ -1408,7 +1408,7 @@ PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests
 
 Expected: all focused tests pass.
 
-- [ ] **Step 7: Commit compatibility translation**
+- [x] **Step 7: Commit compatibility translation**
 
 Run:
 
@@ -1424,7 +1424,7 @@ git commit -m "feat: publish moomoo spx compatibility events"
 - Modify: `package.json`
 - Modify: `README.md`
 
-- [ ] **Step 1: Add package script**
+- [x] **Step 1: Add package script**
 
 Modify the root `package.json` scripts section to include:
 
@@ -1434,7 +1434,7 @@ Modify the root `package.json` scripts section to include:
 
 Keep the existing IBKR scripts unchanged.
 
-- [ ] **Step 2: Add README section**
+- [x] **Step 2: Add README section**
 
 Add this section after the current "Local IBKR Delayed Snapshot" section in `README.md`:
 
@@ -1464,7 +1464,7 @@ Publish SPX compatibility events into the local FastAPI ingestion path:
 The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds when running multiple loops and chunks requests to at most 400 option codes. It uses `get_option_chain()` only for startup contract discovery.
 ```
 
-- [ ] **Step 3: Run script and collector tests**
+- [x] **Step 3: Run script and collector tests**
 
 Run:
 
@@ -1480,7 +1480,7 @@ Expected:
 - Focused Moomoo collector tests pass.
 - Help output includes `Collect Moomoo 0DTE option snapshots`.
 
-- [ ] **Step 4: Commit script and docs**
+- [x] **Step 4: Commit script and docs**
 
 Run:
 
@@ -1498,7 +1498,7 @@ git commit -m "docs: add moomoo collector usage"
 - Create: `apps/web/tests/sourcePreference.test.ts`
 - Create: `apps/web/tests/SourceSelector.test.tsx`
 
-- [ ] **Step 1: Write failing source preference tests**
+- [x] **Step 1: Write failing source preference tests**
 
 Create `apps/web/tests/sourcePreference.test.ts`:
 
@@ -1563,7 +1563,7 @@ describe("sourcePreference", () => {
 });
 ```
 
-- [ ] **Step 2: Write failing selector component tests**
+- [x] **Step 2: Write failing selector component tests**
 
 Create `apps/web/tests/SourceSelector.test.tsx`:
 
@@ -1585,7 +1585,7 @@ describe("SourceSelector", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify RED**
+- [x] **Step 3: Run tests to verify RED**
 
 Run:
 
@@ -1595,7 +1595,7 @@ pnpm --filter @gammascope/web test -- sourcePreference.test.ts SourceSelector.te
 
 Expected: fail with missing module errors for `sourcePreference` and `SourceSelector`.
 
-- [ ] **Step 4: Implement source preference helpers**
+- [x] **Step 4: Implement source preference helpers**
 
 Create `apps/web/lib/sourcePreference.ts`:
 
@@ -1627,7 +1627,7 @@ export function formatDataSourcePreference(value: DataSourcePreference): string 
 }
 ```
 
-- [ ] **Step 5: Implement source selector component**
+- [x] **Step 5: Implement source selector component**
 
 Create `apps/web/components/SourceSelector.tsx`:
 
@@ -1661,7 +1661,7 @@ export function SourceSelector({ value, onChange }: SourceSelectorProps) {
 }
 ```
 
-- [ ] **Step 6: Run focused web tests to verify GREEN**
+- [x] **Step 6: Run focused web tests to verify GREEN**
 
 Run:
 
@@ -1671,7 +1671,7 @@ pnpm --filter @gammascope/web test -- sourcePreference.test.ts SourceSelector.te
 
 Expected: both focused test files pass.
 
-- [ ] **Step 7: Commit web selector foundations**
+- [x] **Step 7: Commit web selector foundations**
 
 Run:
 
@@ -1689,7 +1689,7 @@ git commit -m "feat: add dashboard source selector foundation"
 - Modify: `apps/web/app/styles.css`
 - Modify: `apps/web/tests/LiveDashboard.test.tsx`
 
-- [ ] **Step 1: Write failing dashboard render test**
+- [x] **Step 1: Write failing dashboard render test**
 
 Append to `apps/web/tests/LiveDashboard.test.tsx`:
 
@@ -1709,7 +1709,7 @@ Append to `apps/web/tests/LiveDashboard.test.tsx`:
   });
 ```
 
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 
 Run:
 
@@ -1719,7 +1719,7 @@ pnpm --filter @gammascope/web test -- LiveDashboard.test.tsx
 
 Expected: fail because the dashboard does not render the source selector yet.
 
-- [ ] **Step 3: Add source preference state to LiveDashboard**
+- [x] **Step 3: Add source preference state to LiveDashboard**
 
 Modify imports in `apps/web/components/LiveDashboard.tsx`:
 
@@ -1762,7 +1762,7 @@ Where `DashboardView` is rendered, pass:
         onSelectedDataSourceChange={handleSelectedDataSourceChange}
 ```
 
-- [ ] **Step 4: Render selector in DashboardView**
+- [x] **Step 4: Render selector in DashboardView**
 
 Modify imports in `apps/web/components/DashboardView.tsx`:
 
@@ -1788,7 +1788,7 @@ Destructure those props in the component parameters. In the top bar utility, ren
           </div>
 ```
 
-- [ ] **Step 5: Add compact styles**
+- [x] **Step 5: Add compact styles**
 
 Append to `apps/web/app/styles.css` near the top-bar/status styles:
 
@@ -1821,7 +1821,7 @@ Append to `apps/web/app/styles.css` near the top-bar/status styles:
 }
 ```
 
-- [ ] **Step 6: Run focused dashboard tests**
+- [x] **Step 6: Run focused dashboard tests**
 
 Run:
 
@@ -1832,7 +1832,7 @@ pnpm --filter @gammascope/web typecheck
 
 Expected: focused tests and typecheck pass.
 
-- [ ] **Step 7: Commit dashboard wiring**
+- [x] **Step 7: Commit dashboard wiring**
 
 Run:
 
@@ -1847,7 +1847,7 @@ git commit -m "feat: default dashboard source to moomoo"
 
 - Modify: `docs/superpowers/plans/2026-04-27-moomoo-data-source.md`
 
-- [ ] **Step 1: Run collector verification**
+- [x] **Step 1: Run collector verification**
 
 Run:
 
@@ -1858,7 +1858,7 @@ pnpm test:collector
 
 Expected: Moomoo focused tests pass, then the full collector suite passes.
 
-- [ ] **Step 2: Run web verification**
+- [x] **Step 2: Run web verification**
 
 Run:
 
@@ -1869,7 +1869,7 @@ pnpm --filter @gammascope/web test
 
 Expected: web typecheck and all web tests pass.
 
-- [ ] **Step 3: Run contract, API, and script verification**
+- [x] **Step 3: Run contract, API, and script verification**
 
 Run:
 
@@ -1881,7 +1881,7 @@ PYTHONPATH=apps/api .venv/bin/pytest apps/api/tests -q
 
 Expected: package script validation, shared contract tests, and API tests pass.
 
-- [ ] **Step 4: Run lint and whitespace checks**
+- [x] **Step 4: Run lint and whitespace checks**
 
 Run:
 
@@ -1892,7 +1892,7 @@ git diff --check
 
 Expected: ruff reports `All checks passed!`; `git diff --check` exits with no output.
 
-- [ ] **Step 5: Optional local Moomoo smoke with OpenD**
+- [x] **Step 5: Optional local Moomoo smoke with OpenD**
 
 Run only when local OpenD is running and `moomoo-api` is installed:
 
@@ -1911,7 +1911,7 @@ Expected JSON characteristics:
 
 If OpenD is unavailable, record that this smoke was skipped and keep the automated fake-client tests as verification.
 
-- [ ] **Step 6: Optional local publish smoke**
+- [x] **Step 6: Optional local publish smoke**
 
 Run only when FastAPI and OpenD are both running:
 
@@ -1928,7 +1928,7 @@ Expected:
 - Collector state has `latest_health.collector_id` equal to `local-moomoo`.
 - Latest snapshot remains `symbol: "SPX"` and `mode: "live"` when enough SPX rows were published.
 
-- [ ] **Step 7: Update this plan with evidence**
+- [x] **Step 7: Update this plan with evidence**
 
 Append an `## Evidence` section to this file with exact commands run and pass/fail results. Use this format:
 
@@ -1947,7 +1947,7 @@ Append an `## Evidence` section to this file with exact commands run and pass/fa
 - Local Moomoo OpenD smoke was run or skipped because OpenD was unavailable.
 ```
 
-- [ ] **Step 8: Commit final verification evidence**
+- [x] **Step 8: Commit final verification evidence**
 
 Run:
 
@@ -1958,18 +1958,18 @@ git commit -m "docs: record moomoo data source verification"
 
 ## Evidence
 
-- `PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests/test_moomoo_config.py services/collector/tests/test_moomoo_snapshot.py services/collector/tests/test_moomoo_compat.py -q` passed with `35 passed in 0.41s`.
-- `pnpm test:collector` passed with `135 passed in 1.21s`.
+- `PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests/test_moomoo_config.py services/collector/tests/test_moomoo_snapshot.py services/collector/tests/test_moomoo_compat.py -q` passed with `52 passed in 0.28s`.
+- `pnpm test:collector` passed with `152 passed in 0.51s`.
 - `pnpm --filter @gammascope/web typecheck` passed.
 - `pnpm --filter @gammascope/web test` passed with `40 passed` test files and `341 passed` tests.
 - `pnpm test:scripts` passed with `3` tests.
 - `pnpm test:contracts` passed with `6` tests.
-- `PYTHONPATH=apps/api .venv/bin/pytest apps/api/tests -q` passed with `179 passed, 1 skipped in 22.86s`.
+- `PYTHONPATH=apps/api .venv/bin/pytest apps/api/tests -q` passed with `179 passed, 1 skipped in 16.09s`.
 - `.venv/bin/ruff check apps/api/gammascope_api apps/api/tests services/collector` passed with `All checks passed!`.
 - `git diff --check` passed with no output.
 - `.venv/bin/python -m pip install --upgrade moomoo-api pandas` passed in the local worktree venv to enable the OpenD smoke.
 - `pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1` passed against local OpenD with `status: connected`, `total_selected_codes: 448`, `snapshot_rows_count: 448`, and `rate_estimate: {"requests_per_refresh": 2, "requests_per_30_seconds": 30, "within_limit": true}`.
 - `pnpm dev:api` started FastAPI locally for the publish smoke and was shut down cleanly afterward.
-- `pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1 --publish` passed with `status: connected`, `snapshot_rows_count: 448`, and `publish.accepted_count: 246`.
-- `curl -s http://127.0.0.1:8000/api/spx/0dte/collector/state | .venv/bin/python -m json.tool` passed and returned `latest_health.collector_id: "local-moomoo"`, `contracts_count: 122`, and `option_ticks_count: 122`.
+- `pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1 --publish` passed with `status: connected`, `snapshot_rows_count: 288`, `publish.accepted_count: 246`, and warnings for transient RUT/NDX option-chain failures. SPX, SPY, QQQ, and IWM were still collected, and SPX was published.
+- `curl -s http://127.0.0.1:8000/api/spx/0dte/collector/state | .venv/bin/python -m json.tool` passed and returned `latest_health.collector_id: "local-moomoo"`, `latest_health.message: "Moomoo compatibility snapshot emitted with 2 warnings"`, `contracts_count: 122`, and `option_ticks_count: 122`.
 - `curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | .venv/bin/python -m json.tool` passed and returned `symbol: "SPX"` and `mode: "live"`.

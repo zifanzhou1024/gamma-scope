@@ -164,6 +164,44 @@ def test_family_filter_fallback_warns_and_uses_unfiltered_chain_when_filter_matc
     assert result.warnings == ["RUT family filter RUTW matched zero rows; using unfiltered chain"]
 
 
+def test_discover_symbol_contracts_warns_when_option_chain_returns_no_rows() -> None:
+    client = FakeQuoteClient(chains={"US.SPY": []})
+    symbol = MoomooSymbolConfig(
+        symbol="SPY",
+        owner_code="US.SPY",
+        strike_window_down=0,
+        strike_window_up=0,
+        manual_spot=500,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert result.contracts == []
+    assert result.warnings == ["SPY option chain returned zero rows"]
+
+
+def test_discover_symbol_contracts_warns_when_chain_has_no_rows_for_target_expiry() -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240428C00500000", strike=500, option_type="CALL", expiry="2026-04-28"),
+            ]
+        }
+    )
+    symbol = MoomooSymbolConfig(
+        symbol="SPY",
+        owner_code="US.SPY",
+        strike_window_down=0,
+        strike_window_up=0,
+        manual_spot=500,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert result.contracts == []
+    assert result.warnings == ["SPY option chain returned zero rows for expiry 2026-04-27"]
+
+
 def test_missing_required_manual_spot_skips_symbol_without_fetching_option_chain() -> None:
     client = FakeQuoteClient()
     symbol = MoomooSymbolConfig(
