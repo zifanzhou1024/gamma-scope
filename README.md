@@ -204,10 +204,10 @@ Run one snapshot loop. Manual spot is required for index symbols where direct Mo
 
     pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1
 
-Publish SPX compatibility events into the local FastAPI ingestion path:
+Publish SPX compatibility events into the local FastAPI ingestion path. By default, the collector runs continuously and publishes each 2-second snapshot loop; pass `--max-loops 1` only for a bounded smoke test:
 
     pnpm dev:api
-    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1 --publish
+    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --publish
 
 The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds when running multiple loops and chunks requests to at most 400 option codes. It uses `get_option_chain()` only for startup contract discovery.
 

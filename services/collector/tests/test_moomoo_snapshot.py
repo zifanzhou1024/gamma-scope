@@ -53,6 +53,17 @@ class FakeQuoteClient:
         self.closed = True
 
 
+class InterruptingQuoteClient(FakeQuoteClient):
+    def __init__(self, *, interrupt_after_snapshots: int, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self.interrupt_after_snapshots = interrupt_after_snapshots
+
+    def get_market_snapshot(self, code_list: list[str]) -> tuple[int, list[dict[str, object]]]:
+        if len(self.snapshot_calls) >= self.interrupt_after_snapshots:
+            raise KeyboardInterrupt
+        return super().get_market_snapshot(code_list)
+
+
 def _option(
     code: str,
     *,
@@ -626,6 +637,49 @@ def test_collect_moomoo_snapshot_once_skips_snapshot_polling_when_rate_preflight
     assert result.warnings == ["Snapshot preflight exceeds limit: 90 requests per 30 seconds"]
 
 
+def test_run_moomoo_snapshot_loop_invokes_callback_for_each_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
+                _option("US.SPXW260427P07050000", strike=7050, option_type="PUT", name="SPXW 7050P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07050000": {"code": "US.SPXW260427C07050000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.SPXW260427P07050000": {"code": "US.SPXW260427P07050000", "bid_price": 1.2, "ask_price": 1.6},
+        },
+    )
+    results: list[MoomooSnapshotResult] = []
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
+
+    final_result = run_moomoo_snapshot_loop(
+        client,
+        MoomooCollectorConfig(
+            refresh_interval_seconds=1,
+            manual_spots={"SPX": 7050},
+            universe=[
+                MoomooSymbolConfig(
+                    symbol="SPX",
+                    owner_code="US..SPX",
+                    strike_window_down=0,
+                    strike_window_up=0,
+                    family_filter="SPXW",
+                    requires_manual_spot=True,
+                    publish_to_spx_dashboard=True,
+                )
+            ],
+        ),
+        expiry=date(2026, 4, 27),
+        max_loops=2,
+        on_result=results.append,
+    )
+
+    assert len(results) == 2
+    assert results[-1] is final_result
+    assert len(client.snapshot_calls) == 2
+
+
 def test_main_help_describes_moomoo_0dte_snapshot(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["--help"])
@@ -705,6 +759,8 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
             "2026-04-27",
             "--spot",
             "SPX=7050",
+            "--max-loops",
+            "1",
         ],
         client_factory=lambda _host, _port: client,
     )
@@ -720,6 +776,135 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
         "OptionTick",
     ]
     assert len(captured_events) == 6
+
+
+def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = InterruptingQuoteClient(
+        interrupt_after_snapshots=2,
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
+                _option("US.SPXW260427P07050000", strike=7050, option_type="PUT", name="SPXW 7050P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07050000": {"code": "US.SPXW260427C07050000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.SPXW260427P07050000": {"code": "US.SPXW260427P07050000", "bid_price": 1.2, "ask_price": 1.6},
+        },
+    )
+    captured_batches: list[list[dict[str, object]]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        batch = list(events)
+        captured_batches.append(batch)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            accepted_count=len(batch),
+            event_types=["CollectorHealth" if "collector_id" in event else "Other" for event in batch],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
+
+    with pytest.raises(KeyboardInterrupt):
+        main(
+            [
+                "--publish",
+                "--api",
+                "http://testserver",
+                "--collector-id",
+                "test-moomoo",
+                "--expiry",
+                "2026-04-27",
+                "--spot",
+                "SPX=7050",
+                "--spot",
+                "SPY=500",
+                "--spot",
+                "QQQ=450",
+                "--spot",
+                "IWM=200",
+                "--spot",
+                "RUT=2050",
+                "--spot",
+                "NDX=18300",
+                "--interval-seconds",
+                "1",
+                "--max-loops",
+                "0",
+            ],
+            client_factory=lambda _host, _port: client,
+        )
+
+    assert len(captured_batches) == 2
+    assert all(len(batch) == 6 for batch in captured_batches)
+    assert client.closed is True
+
+
+def test_main_publish_mode_publishes_each_snapshot_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
+                _option("US.SPXW260427P07050000", strike=7050, option_type="PUT", name="SPXW 7050P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07050000": {"code": "US.SPXW260427C07050000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.SPXW260427P07050000": {"code": "US.SPXW260427P07050000", "bid_price": 1.2, "ask_price": 1.6},
+        },
+    )
+    captured_batches: list[list[dict[str, object]]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        batch = list(events)
+        captured_batches.append(batch)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            accepted_count=len(batch),
+            event_types=[
+                "CollectorHealth"
+                if "collector_id" in event
+                else "ContractDiscovered"
+                if "ibkr_con_id" in event
+                else "UnderlyingTick"
+                if "spot" in event
+                else "OptionTick"
+                for event in batch
+            ],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
+
+    main(
+        [
+            "--publish",
+            "--api",
+            "http://testserver",
+            "--collector-id",
+            "test-moomoo",
+            "--expiry",
+            "2026-04-27",
+            "--spot",
+            "SPX=7050",
+            "--interval-seconds",
+            "1",
+            "--max-loops",
+            "2",
+        ],
+        client_factory=lambda _host, _port: client,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert len(captured_batches) == 2
+    assert all(len(batch) == 6 for batch in captured_batches)
+    assert payload["publish"]["accepted_count"] == 6
 
 
 def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
@@ -764,6 +949,8 @@ def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
             "2026-04-27",
             "--spot",
             "SPY=500",
+            "--max-loops",
+            "1",
         ],
         client_factory=lambda _host, _port: client,
     )

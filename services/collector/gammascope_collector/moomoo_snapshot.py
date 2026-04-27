@@ -41,6 +41,7 @@ class MoomooQuoteClient(Protocol):
 
 
 ClientFactory = Callable[[str, int], MoomooQuoteClient]
+SnapshotResultHandler = Callable[["MoomooSnapshotResult"], None]
 
 
 @dataclass(frozen=True)
@@ -367,6 +368,7 @@ def run_moomoo_snapshot_loop(
     *,
     expiry: date,
     max_loops: int | None = None,
+    on_result: SnapshotResultHandler | None = None,
 ) -> MoomooSnapshotResult:
     result: MoomooSnapshotResult | None = None
     snapshot_context = _discover_snapshot_context(client, config, expiry=expiry)
@@ -374,6 +376,8 @@ def run_moomoo_snapshot_loop(
     while max_loops is None or loops < max_loops:
         started_at = time.perf_counter()
         result = _collect_snapshot_from_context(client, snapshot_context)
+        if on_result is not None:
+            on_result(result)
         elapsed = time.perf_counter() - started_at
         loops += 1
         if max_loops is None or loops < max_loops:
@@ -423,7 +427,7 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     parser.add_argument("--expiry", type=_parse_date, required=True)
     parser.add_argument("--spot", action="append", default=[])
     parser.add_argument("--interval-seconds", type=float, default=2.0)
-    parser.add_argument("--max-loops", type=int, default=1)
+    parser.add_argument("--max-loops", type=int, default=0, help="Number of loops to run; 0 runs continuously.")
     parser.add_argument("--publish", action="store_true")
     raw_args = list(argv if argv is not None else sys.argv[1:])
     if raw_args[:1] == ["--"]:
@@ -440,13 +444,27 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
             api_base=args.api,
             manual_spots=parse_manual_spots(args.spot),
         )
+        loop_limit = _normalize_max_loops(args.max_loops)
         make_client = client_factory or _create_real_client
         client = make_client(args.host, args.port)
-        result = run_moomoo_snapshot_loop(client, config, expiry=args.expiry, max_loops=args.max_loops)
-        output = result.as_dict()
-        if args.publish:
-            output["publish"] = _publish_spx_compatibility_snapshot(result, config).as_dict()
-        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+        publish_summary: PublishSummary | None = None
+
+        def handle_result(loop_result: MoomooSnapshotResult) -> None:
+            nonlocal publish_summary
+            if args.publish:
+                publish_summary = _publish_spx_compatibility_snapshot(loop_result, config)
+            if loop_limit is None:
+                _print_result(loop_result, publish_summary, flush=True)
+
+        result = run_moomoo_snapshot_loop(
+            client,
+            config,
+            expiry=args.expiry,
+            max_loops=loop_limit,
+            on_result=handle_result if args.publish or loop_limit is None else None,
+        )
+        if loop_limit is not None:
+            _print_result(result, publish_summary)
     except Exception as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, sort_keys=True, separators=(",", ":")))
         raise SystemExit(1) from exc
@@ -461,6 +479,26 @@ def _create_real_client(host: str, port: int) -> MoomooQuoteClient:
     except ImportError as exc:
         raise RuntimeError("moomoo-api package is not installed") from exc
     return OpenQuoteContext(host=host, port=port)
+
+
+def _normalize_max_loops(value: int) -> int | None:
+    if value < 0:
+        raise ValueError("--max-loops must be greater than or equal to 0")
+    if value == 0:
+        return None
+    return value
+
+
+def _print_result(
+    result: MoomooSnapshotResult,
+    publish_summary: PublishSummary | None = None,
+    *,
+    flush: bool = False,
+) -> None:
+    output = result.as_dict()
+    if publish_summary is not None:
+        output["publish"] = publish_summary.as_dict()
+    print(json.dumps(output, sort_keys=True, separators=(",", ":")), flush=flush)
 
 
 def _publish_spx_compatibility_snapshot(
