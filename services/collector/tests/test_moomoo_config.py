@@ -39,7 +39,10 @@ def test_default_universe_matches_moomoo_design() -> None:
     }
     assert next(item for item in universe if item.symbol == "SPX").publish_to_spx_dashboard is True
     assert next(item for item in universe if item.symbol == "SPY").publish_to_spx_dashboard is False
-    assert [item.symbol for item in universe if item.requires_manual_spot] == ["SPX", "RUT", "NDX"]
+    spx = next(item for item in universe if item.symbol == "SPX")
+    assert spx.spot_proxy_code == "US.SPY"
+    assert spx.spot_proxy_multiplier == 10.0
+    assert [item.symbol for item in universe if item.requires_manual_spot] == ["RUT", "NDX"]
 
 
 def test_collector_config_defaults_populate_moomoo_universe() -> None:
@@ -101,6 +104,20 @@ def test_snapshot_rate_math_for_default_universe_at_two_seconds() -> None:
     assert estimate.codes == 572
     assert estimate.requests_per_refresh == 2
     assert estimate.requests_per_30_seconds == 30
+    assert estimate.within_limit is True
+
+
+def test_snapshot_rate_math_counts_live_spot_proxy_request() -> None:
+    estimate = estimate_snapshot_request_rate(
+        code_count=572,
+        refresh_interval_seconds=2.0,
+        extra_requests_per_refresh=1,
+    )
+
+    assert estimate.codes == 572
+    assert estimate.extra_requests_per_refresh == 1
+    assert estimate.requests_per_refresh == 3
+    assert estimate.requests_per_30_seconds == 45
     assert estimate.within_limit is True
 
 

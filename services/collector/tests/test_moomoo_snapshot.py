@@ -64,6 +64,31 @@ class InterruptingQuoteClient(FakeQuoteClient):
         return super().get_market_snapshot(code_list)
 
 
+class SequencedSnapshotQuoteClient(FakeQuoteClient):
+    def __init__(
+        self,
+        *,
+        snapshot_sequences: dict[str, list[dict[str, object]]],
+        **kwargs: object,
+    ) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self.snapshot_sequences = snapshot_sequences
+        self.snapshot_indexes: dict[str, int] = {}
+
+    def get_market_snapshot(self, code_list: list[str]) -> tuple[int, list[dict[str, object]]]:
+        self.snapshot_calls.append(list(code_list))
+        rows: list[dict[str, object]] = []
+        for code in code_list:
+            sequence = self.snapshot_sequences.get(code)
+            if sequence:
+                index = self.snapshot_indexes.get(code, 0)
+                rows.append(sequence[min(index, len(sequence) - 1)])
+                self.snapshot_indexes[code] = index + 1
+            elif code in self.snapshots:
+                rows.append(self.snapshots[code])
+        return 0, rows
+
+
 def _option(
     code: str,
     *,
@@ -211,6 +236,43 @@ def test_discover_symbol_contracts_warns_when_chain_has_no_rows_for_target_expir
 
     assert result.contracts == []
     assert result.warnings == ["SPY option chain returned zero rows for expiry 2026-04-27"]
+
+
+def test_discover_symbol_contracts_uses_live_spot_proxy_for_index_options() -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07130000", strike=7130, option_type="CALL", name="SPXW 7130C"),
+                _option("US.SPXW260427P07130000", strike=7130, option_type="PUT", name="SPXW 7130P"),
+                _option("US.SPXW260427C07140000", strike=7140, option_type="CALL", name="SPXW 7140C"),
+                _option("US.SPXW260427P07140000", strike=7140, option_type="PUT", name="SPXW 7140P"),
+            ]
+        },
+        snapshots={
+            "US.SPY": {
+                "code": "US.SPY",
+                "last_price": 713.84,
+            }
+        },
+    )
+    symbol = MoomooSymbolConfig(
+        symbol="SPX",
+        owner_code="US..SPX",
+        strike_window_down=0,
+        strike_window_up=0,
+        family_filter="SPXW",
+        spot_proxy_code="US.SPY",
+        spot_proxy_multiplier=10.0,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert client.snapshot_calls == [["US.SPY"]]
+    assert result.spot == pytest.approx(7138.4)
+    assert [contract.option_code for contract in result.contracts] == [
+        "US.SPXW260427C07140000",
+        "US.SPXW260427P07140000",
+    ]
 
 
 def test_missing_required_manual_spot_skips_symbol_without_fetching_option_chain() -> None:
@@ -452,6 +514,53 @@ def test_collect_moomoo_snapshot_once_chunks_normalizes_and_reports_rate_estimat
     assert result.rate_estimate.requests_per_refresh == 2
     assert result.rate_estimate.requests_per_30_seconds == 60
     assert result.as_dict()["per_symbol"][0]["selected_contracts"] == 401
+
+
+def test_collect_moomoo_snapshot_once_refreshes_live_spx_spot_proxy() -> None:
+    client = SequencedSnapshotQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07130000", strike=7130, option_type="CALL", name="SPXW 7130C"),
+                _option("US.SPXW260427P07130000", strike=7130, option_type="PUT", name="SPXW 7130P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07130000": {"code": "US.SPXW260427C07130000", "bid_price": 12.0, "ask_price": 12.5},
+            "US.SPXW260427P07130000": {"code": "US.SPXW260427P07130000", "bid_price": 11.5, "ask_price": 12.0},
+        },
+        snapshot_sequences={
+            "US.SPY": [
+                {"code": "US.SPY", "last_price": 713.0},
+                {"code": "US.SPY", "last_price": 714.25},
+            ]
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=2,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPX",
+                owner_code="US..SPX",
+                strike_window_down=0,
+                strike_window_up=0,
+                family_filter="SPXW",
+                spot_proxy_code="US.SPY",
+                spot_proxy_multiplier=10.0,
+                publish_to_spx_dashboard=True,
+            )
+        ],
+    )
+
+    result = collect_moomoo_snapshot_once(client, config, expiry=date(2026, 4, 27))
+
+    assert client.snapshot_calls == [
+        ["US.SPY"],
+        ["US.SPY"],
+        ["US.SPXW260427C07130000", "US.SPXW260427P07130000"],
+    ]
+    assert result.discoveries[0].spot == pytest.approx(7142.5)
+    assert result.rate_estimate.extra_requests_per_refresh == 1
+    assert result.rate_estimate.requests_per_refresh == 2
 
 
 def test_run_moomoo_snapshot_loop_discovers_once_and_snapshots_each_loop(
@@ -782,7 +891,7 @@ def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = InterruptingQuoteClient(
-        interrupt_after_snapshots=2,
+        interrupt_after_snapshots=5,
         chains={
             "US..SPX": [
                 _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
@@ -790,6 +899,7 @@ def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
             ]
         },
         snapshots={
+            "US.SPY": {"code": "US.SPY", "last_price": 705.0},
             "US.SPXW260427C07050000": {"code": "US.SPXW260427C07050000", "bid_price": 1.1, "ask_price": 1.3},
             "US.SPXW260427P07050000": {"code": "US.SPXW260427P07050000", "bid_price": 1.2, "ask_price": 1.6},
         },

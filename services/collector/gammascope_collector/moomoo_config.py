@@ -22,6 +22,8 @@ class MoomooSymbolConfig:
     family_filter: str | None = None
     requires_manual_spot: bool = False
     manual_spot: float | None = None
+    spot_proxy_code: str | None = None
+    spot_proxy_multiplier: float = 1.0
     priority: int = 100
 
     @property
@@ -42,6 +44,7 @@ class SnapshotRateEstimate:
     requests_per_refresh: int
     requests_per_30_seconds: int
     within_limit: bool
+    extra_requests_per_refresh: int = 0
 
 
 @dataclass(frozen=True)
@@ -70,7 +73,8 @@ def default_moomoo_universe() -> list[MoomooSymbolConfig]:
             strike_window_up=30,
             publish_to_spx_dashboard=True,
             family_filter="SPXW",
-            requires_manual_spot=True,
+            spot_proxy_code="US.SPY",
+            spot_proxy_multiplier=10.0,
             priority=10,
         ),
         MoomooSymbolConfig(
@@ -156,14 +160,18 @@ def estimate_snapshot_request_rate(
     *,
     code_limit: int = SNAPSHOT_CODE_LIMIT,
     request_limit_per_30_seconds: int = SNAPSHOT_REQUEST_LIMIT_PER_30_SECONDS,
+    extra_requests_per_refresh: int = 0,
 ) -> SnapshotRateEstimate:
     if refresh_interval_seconds <= 0:
         raise ValueError("refresh_interval_seconds must be greater than zero")
-    requests_per_refresh = ceil(code_count / code_limit) if code_count > 0 else 0
+    if extra_requests_per_refresh < 0:
+        raise ValueError("extra_requests_per_refresh must be greater than or equal to zero")
+    requests_per_refresh = (ceil(code_count / code_limit) if code_count > 0 else 0) + extra_requests_per_refresh
     requests_per_30_seconds = ceil(requests_per_refresh * (30 / refresh_interval_seconds))
     return SnapshotRateEstimate(
         codes=code_count,
         requests_per_refresh=requests_per_refresh,
         requests_per_30_seconds=requests_per_30_seconds,
         within_limit=requests_per_30_seconds <= request_limit_per_30_seconds,
+        extra_requests_per_refresh=extra_requests_per_refresh,
     )

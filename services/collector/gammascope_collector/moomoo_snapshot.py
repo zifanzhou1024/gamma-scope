@@ -158,6 +158,7 @@ class MoomooSnapshotResult:
 
 @dataclass(frozen=True)
 class _SnapshotContext:
+    symbols: list[MoomooSymbolConfig]
     subscription: object
     discoveries: list[MoomooSymbolDiscoveryResult]
     contract_by_code: dict[str, MoomooContract]
@@ -183,7 +184,7 @@ def discover_symbol_contracts(
     expiry: date,
 ) -> MoomooSymbolDiscoveryResult:
     warnings: list[str] = []
-    spot = _positive_float_or_none(symbol_config.manual_spot)
+    spot = _resolve_symbol_spot(client, symbol_config)
     if symbol_config.requires_manual_spot and spot is None:
         return MoomooSymbolDiscoveryResult(
             symbol=symbol_config.symbol,
@@ -194,16 +195,14 @@ def discover_symbol_contracts(
         )
 
     if spot is None:
-        spot = _snapshot_underlying_spot(client, symbol_config.owner_code)
-        if spot is None:
-            warnings.append(f"{symbol_config.symbol} spot unavailable; skipping")
-            return MoomooSymbolDiscoveryResult(
-                symbol=symbol_config.symbol,
-                owner_code=symbol_config.owner_code,
-                spot=None,
-                contracts=[],
-                warnings=warnings,
-            )
+        warnings.append(f"{symbol_config.symbol} spot unavailable; skipping")
+        return MoomooSymbolDiscoveryResult(
+            symbol=symbol_config.symbol,
+            owner_code=symbol_config.owner_code,
+            spot=None,
+            contracts=[],
+            warnings=warnings,
+        )
 
     expiry_text = expiry.isoformat()
     return_code, chain_data = client.get_option_chain(code=symbol_config.owner_code, start=expiry_text, end=expiry_text)
@@ -278,20 +277,26 @@ def _discover_snapshot_context(
     if subscription_code != RET_OK:
         subscription = {"return_code": subscription_code, "data": subscription}
 
-    discoveries = [discover_symbol_contracts(client, symbol, expiry=expiry) for symbol in selected_symbols(config)]
+    symbols = selected_symbols(config)
+    discoveries = [discover_symbol_contracts(client, symbol, expiry=expiry) for symbol in symbols]
     contract_by_code: dict[str, MoomooContract] = {}
     for discovery in discoveries:
         for contract in discovery.contracts:
             contract_by_code[contract.option_code] = contract
 
     codes = sorted(contract_by_code)
-    rate_estimate = estimate_snapshot_request_rate(len(codes), config.refresh_interval_seconds)
+    rate_estimate = estimate_snapshot_request_rate(
+        len(codes),
+        config.refresh_interval_seconds,
+        extra_requests_per_refresh=_spot_proxy_requests_per_refresh(symbols),
+    )
     warnings = [warning for discovery in discoveries for warning in discovery.warnings]
     if not rate_estimate.within_limit:
         warnings.append(
             f"Snapshot preflight exceeds limit: {rate_estimate.requests_per_30_seconds} requests per 30 seconds"
         )
     return _SnapshotContext(
+        symbols=symbols,
         subscription=subscription,
         discoveries=discoveries,
         contract_by_code=contract_by_code,
@@ -306,11 +311,12 @@ def _collect_snapshot_from_context(
     snapshot_context: _SnapshotContext,
 ) -> MoomooSnapshotResult:
     warnings = list(snapshot_context.warnings)
+    discoveries = _discoveries_with_latest_proxy_spots(client, snapshot_context, warnings)
     if not snapshot_context.rate_estimate.within_limit:
         return MoomooSnapshotResult(
             status="degraded",
             subscription=snapshot_context.subscription,
-            discoveries=snapshot_context.discoveries,
+            discoveries=discoveries,
             rows=[],
             total_selected_codes=len(snapshot_context.codes),
             rate_estimate=snapshot_context.rate_estimate,
@@ -354,7 +360,7 @@ def _collect_snapshot_from_context(
     return MoomooSnapshotResult(
         status="connected" if rows and not has_row_count_mismatch else "degraded",
         subscription=snapshot_context.subscription,
-        discoveries=snapshot_context.discoveries,
+        discoveries=discoveries,
         rows=rows,
         total_selected_codes=len(snapshot_context.codes),
         rate_estimate=snapshot_context.rate_estimate,
@@ -560,15 +566,106 @@ def _normalize_record(row: object) -> dict[str, object]:
     return dict(row)  # type: ignore[arg-type]
 
 
+def _resolve_symbol_spot(client: MoomooQuoteClient, symbol_config: MoomooSymbolConfig) -> float | None:
+    if symbol_config.spot_proxy_code:
+        spot = _snapshot_proxy_spot(client, symbol_config)
+        if spot is not None:
+            return spot
+
+    manual_spot = _positive_float_or_none(symbol_config.manual_spot)
+    if manual_spot is not None:
+        return manual_spot
+    if symbol_config.requires_manual_spot:
+        return None
+    return _snapshot_underlying_spot(client, symbol_config.owner_code)
+
+
+def _snapshot_proxy_spot(client: MoomooQuoteClient, symbol_config: MoomooSymbolConfig) -> float | None:
+    if not symbol_config.spot_proxy_code:
+        return None
+    spot = _snapshot_underlying_spot(client, symbol_config.spot_proxy_code)
+    if spot is None:
+        return None
+    return spot * symbol_config.spot_proxy_multiplier
+
+
+def _spot_proxy_requests_per_refresh(symbols: Sequence[MoomooSymbolConfig]) -> int:
+    proxy_codes = sorted({symbol.spot_proxy_code for symbol in symbols if symbol.spot_proxy_code})
+    return len(list(chunked(proxy_codes, SNAPSHOT_CODE_LIMIT))) if proxy_codes else 0
+
+
+def _discoveries_with_latest_proxy_spots(
+    client: MoomooQuoteClient,
+    snapshot_context: _SnapshotContext,
+    warnings: list[str],
+) -> list[MoomooSymbolDiscoveryResult]:
+    live_spots = _snapshot_proxy_spots(client, snapshot_context.symbols, warnings)
+    if not live_spots:
+        return snapshot_context.discoveries
+    return [
+        MoomooSymbolDiscoveryResult(
+            symbol=discovery.symbol,
+            owner_code=discovery.owner_code,
+            spot=live_spots.get(discovery.symbol, discovery.spot),
+            contracts=discovery.contracts,
+            warnings=discovery.warnings,
+        )
+        for discovery in snapshot_context.discoveries
+    ]
+
+
+def _snapshot_proxy_spots(
+    client: MoomooQuoteClient,
+    symbols: Sequence[MoomooSymbolConfig],
+    warnings: list[str],
+) -> dict[str, float]:
+    proxy_symbols = [symbol for symbol in symbols if symbol.spot_proxy_code]
+    if not proxy_symbols:
+        return {}
+
+    codes = sorted({symbol.spot_proxy_code for symbol in proxy_symbols if symbol.spot_proxy_code})
+    records_by_code: dict[str, dict[str, object]] = {}
+    for code_chunk in chunked(codes, SNAPSHOT_CODE_LIMIT):
+        return_code, data = client.get_market_snapshot(code_chunk)
+        if return_code != RET_OK:
+            warnings.append(f"Spot proxy snapshot request failed with code {return_code}")
+            continue
+        for record in _records(data):
+            normalized = _normalize_record(record)
+            code = str(normalized.get("code") or "")
+            if code:
+                records_by_code[code] = normalized
+
+    spots: dict[str, float] = {}
+    for symbol in proxy_symbols:
+        proxy_code = symbol.spot_proxy_code
+        if proxy_code is None:
+            continue
+        record = records_by_code.get(proxy_code)
+        spot = _spot_from_record(record) if record is not None else None
+        if spot is None:
+            warnings.append(f"{symbol.symbol} spot proxy {proxy_code} unavailable; using discovery spot")
+            continue
+        spots[symbol.symbol] = spot * symbol.spot_proxy_multiplier
+    return spots
+
+
 def _snapshot_underlying_spot(client: MoomooQuoteClient, owner_code: str) -> float | None:
     return_code, data = client.get_market_snapshot([owner_code])
     if return_code != RET_OK:
         return None
     for record in _records(data):
-        for key in ("last_price", "close_price", "prev_close_price"):
-            spot = _float_or_none(record.get(key))
-            if spot is not None:
-                return spot
+        spot = _spot_from_record(record)
+        if spot is not None:
+            return spot
+    return None
+
+
+def _spot_from_record(record: dict[str, object]) -> float | None:
+    for key in ("last_price", "close_price", "prev_close_price"):
+        spot = _float_or_none(record.get(key))
+        if spot is not None:
+            return spot
     return None
 
 
