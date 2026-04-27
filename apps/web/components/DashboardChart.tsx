@@ -1,5 +1,6 @@
 import React from "react";
 import { buildPath, buildSeries, projectPoint, valueExtent, type ChartPoint, type NumericRowKey } from "../lib/chartGeometry";
+import type { StrikeInspection } from "../lib/chartInspection";
 import { formatNumber, formatPercent } from "../lib/dashboardMetrics";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 
@@ -15,6 +16,10 @@ interface DashboardChartProps {
   forward?: number | null;
   atmValue?: number | null;
   showZeroLine?: boolean;
+  inspectedStrike?: number | null;
+  inspection?: StrikeInspection | null;
+  onInspectStrike?: (strike: number) => void;
+  onClearInspection?: () => void;
 }
 
 interface RenderSeries {
@@ -35,10 +40,15 @@ export function DashboardChart({
   spot = null,
   forward = null,
   atmValue = null,
-  showZeroLine = false
+  showZeroLine = false,
+  inspectedStrike = null,
+  inspection = null,
+  onInspectStrike,
+  onClearInspection
 }: DashboardChartProps) {
   const renderSeries = buildRenderSeries(rows, metricKey);
   const domainPoints = renderSeries.flatMap((series) => series.points);
+  const strikeHitZones = buildStrikeHitZones(domainPoints);
   const ivMinimumPoints = metricKey === "custom_iv" ? buildIvMinimumPoints(renderSeries) : [];
   const extent = valueExtent(domainPoints);
   const latest = domainPoints.at(-1)?.y ?? null;
@@ -51,6 +61,7 @@ export function DashboardChart({
   const strikeCount = new Set(domainPoints.map((point) => point.x)).size;
   const referenceLines = buildReferenceLines({ spot, forward }, domainPoints);
   const showVannaZeroLine = metricKey === "custom_vanna" && showZeroLine && isInYDomain(0, domainPoints);
+  const inspectedStrikeInDomain = inspectedStrike != null && isInStrikeDomain(inspectedStrike, strikeHitZones);
 
   return (
     <section className="chartPanel" aria-label={chartTitle}>
@@ -70,7 +81,12 @@ export function DashboardChart({
         ))}
       </div>
       {ivMinimumPoints.length > 0 ? <IvMinimumSummary minimumPoints={ivMinimumPoints} /> : null}
-      <svg className={`chart chart-${tone}`} viewBox={`0 0 ${FRAME.width} ${FRAME.height}`} role="img">
+      <svg
+        className={`chart chart-${tone}`}
+        viewBox={`0 0 ${FRAME.width} ${FRAME.height}`}
+        role="img"
+        onMouseLeave={onClearInspection}
+      >
         <title>{chartTitle}</title>
         <g data-chart-grid="market-ops" className="chartGridLines" aria-hidden="true">
           {yTicks.map((tick) => {
@@ -102,6 +118,7 @@ export function DashboardChart({
           <ReferenceLine key={line.key} line={line} domainPoints={domainPoints} />
         ))}
         {showVannaZeroLine ? <ZeroLine domainPoints={domainPoints} /> : null}
+        {inspectedStrikeInDomain ? <InspectionCrosshair strike={inspectedStrike} domainPoints={domainPoints} /> : null}
         <line
           className="chartAxis"
           data-axis="x"
@@ -152,7 +169,27 @@ export function DashboardChart({
             {metricKey === "custom_iv" ? <IvMinimumMarker series={series} domainPoints={domainPoints} /> : null}
           </g>
         ))}
+        <g className="chartHitZones" aria-hidden={onInspectStrike ? undefined : true}>
+          {strikeHitZones.map((zone) => (
+            <rect
+              key={`hit-zone-${zone.strike}`}
+              className="chartHitZone"
+              data-chart-hit-strike={zone.strike}
+              x={zone.x}
+              y={FRAME.padding}
+              width={zone.width}
+              height={FRAME.height - FRAME.padding * 2}
+              tabIndex={onInspectStrike ? 0 : undefined}
+              role={onInspectStrike ? "button" : undefined}
+              aria-label={`Inspect ${formatStrike(zone.strike)}`}
+              onMouseEnter={() => onInspectStrike?.(zone.strike)}
+              onFocus={() => onInspectStrike?.(zone.strike)}
+              onBlur={onClearInspection}
+            />
+          ))}
+        </g>
       </svg>
+      {inspection ? <InspectionTooltip inspection={inspection} /> : null}
       <div className="chartStats" aria-label={`${chartTitle} summary`}>
         <ChartStat label={headlineLabel} value={formatHeadlineValue(headlineValue, valueKind, atmValue != null)} />
         <ChartStat label="Min" value={formatValue(extent?.[0] ?? null, valueKind)} />
@@ -160,6 +197,12 @@ export function DashboardChart({
       </div>
     </section>
   );
+}
+
+interface StrikeHitZone {
+  strike: number;
+  x: number;
+  width: number;
 }
 
 interface IvMinimumPoint {
@@ -201,6 +244,56 @@ function ZeroLine({ domainPoints }: { domainPoints: ChartPoint[] }) {
         Vanna 0
       </text>
     </g>
+  );
+}
+
+function InspectionCrosshair({ strike, domainPoints }: { strike: number; domainPoints: ChartPoint[] }) {
+  const x = projectX(strike, domainPoints);
+
+  return (
+    <line
+      className="chartInspectionCrosshair"
+      data-inspection-crosshair={strike}
+      x1={x}
+      x2={x}
+      y1={FRAME.padding}
+      y2={FRAME.height - FRAME.padding}
+      aria-hidden="true"
+    />
+  );
+}
+
+function InspectionTooltip({ inspection }: { inspection: StrikeInspection }) {
+  return (
+    <div className="chartInspectionTooltip" data-inspection-tooltip={inspection.strike} aria-label={`Strike ${formatStrike(inspection.strike)} inspection`}>
+      <div className="chartInspectionTooltipHeader">
+        <span>Strike</span>
+        <strong>{formatStrike(inspection.strike)}</strong>
+        <small>{inspection.distanceLabel}</small>
+      </div>
+      <div className="chartInspectionTooltipGrid" role="table" aria-label="Call and put inspection values">
+        <span />
+        <strong>Call</strong>
+        <strong>Put</strong>
+        <InspectionTooltipRow label="Bid" callValue={inspection.call.bid} putValue={inspection.put.bid} />
+        <InspectionTooltipRow label="Ask" callValue={inspection.call.ask} putValue={inspection.put.ask} />
+        <InspectionTooltipRow label="Mid" callValue={inspection.call.mid} putValue={inspection.put.mid} />
+        <InspectionTooltipRow label="IV" callValue={inspection.call.iv} putValue={inspection.put.iv} />
+        <InspectionTooltipRow label="Gamma" callValue={inspection.call.gamma} putValue={inspection.put.gamma} />
+        <InspectionTooltipRow label="Vanna" callValue={inspection.call.vanna} putValue={inspection.put.vanna} />
+        <InspectionTooltipRow label="OI" callValue={inspection.call.openInterest} putValue={inspection.put.openInterest} />
+      </div>
+    </div>
+  );
+}
+
+function InspectionTooltipRow({ label, callValue, putValue }: { label: string; callValue: string; putValue: string }) {
+  return (
+    <>
+      <span>{label}</span>
+      <span>{callValue}</span>
+      <span>{putValue}</span>
+    </>
   );
 }
 
@@ -283,6 +376,31 @@ function buildReferenceLines(
   }
 
   return lines;
+}
+
+function buildStrikeHitZones(domainPoints: ChartPoint[]): StrikeHitZone[] {
+  const strikes = Array.from(new Set(domainPoints.map((point) => point.x))).sort((a, b) => a - b);
+  if (strikes.length === 0) {
+    return [];
+  }
+
+  return strikes.map((strike, index) => {
+    const x = projectX(strike, domainPoints);
+    const previousX = index > 0 ? projectX(strikes[index - 1], domainPoints) : FRAME.padding;
+    const nextX = index < strikes.length - 1 ? projectX(strikes[index + 1], domainPoints) : FRAME.width - FRAME.padding;
+    const left = index > 0 ? (previousX + x) / 2 : FRAME.padding;
+    const right = index < strikes.length - 1 ? (x + nextX) / 2 : FRAME.width - FRAME.padding;
+
+    return {
+      strike,
+      x: left,
+      width: Math.max(right - left, 1)
+    };
+  });
+}
+
+function isInStrikeDomain(strike: number, strikeHitZones: StrikeHitZone[]): boolean {
+  return strikeHitZones.some((zone) => zone.strike === strike);
 }
 
 function findMinimumPoint(points: ChartPoint[]): ChartPoint | null {

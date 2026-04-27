@@ -219,6 +219,79 @@ describe("DashboardChart", () => {
     expect(nullMarkup).not.toContain("ATM Gamma");
   });
 
+  it("renders strike hit zones for chart inspection", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain('data-chart-hit-strike="5190"');
+    expect(markup).toContain('data-chart-hit-strike="5200"');
+    expect(markup).toContain('data-chart-hit-strike="5210"');
+    expect(markup).toContain("Inspect 5,200");
+  });
+
+  it("renders synchronized crosshair and tooltip for the inspected strike", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        inspectedStrike={5200}
+        inspection={{
+          strike: 5200,
+          distanceLabel: "+1 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+      />
+    );
+
+    expect(markup).toContain('data-inspection-crosshair="5200"');
+    expect(markup).toContain('data-inspection-tooltip="5200"');
+    expect(markup).toContain("Strike");
+    expect(markup).toContain("5,200");
+    expect(markup).toContain("+1 pts from spot");
+    expect(markup).toContain("Call");
+    expect(markup).toContain("Put");
+    expect(markup).toContain("Bid");
+    expect(markup).toContain("Ask");
+    expect(markup).toContain("Mid");
+    expect(markup).toContain("IV");
+    expect(markup).toContain("Gamma");
+    expect(markup).toContain("Vanna");
+    expect(markup).toContain("OI");
+    expect(markup).toContain("18.80%");
+    expect(markup).toContain("20.50%");
+    expect(markup).toContain("0.01850");
+    expect(markup).toContain("0.00100");
+  });
+
   it("uses green for call IV and red for put IV chart semantics", () => {
     expect(styles).toMatch(/--call-color:\s*var\(--green\)/);
     expect(styles).toMatch(/--put-color:\s*var\(--red\)/);
