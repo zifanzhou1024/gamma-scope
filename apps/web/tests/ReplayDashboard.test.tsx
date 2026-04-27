@@ -1,11 +1,19 @@
+// @vitest-environment happy-dom
+
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { act } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { seedSnapshot } from "../lib/seedSnapshot";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { ReplaySession, ReplayTimelineEntry } from "../lib/clientReplaySource";
 import type { ReplayImportResult } from "../lib/replayImportSource";
+import { DATA_SOURCE_STORAGE_KEY } from "../lib/sourcePreference";
 import * as ReplayDashboardModule from "../components/ReplayDashboard";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("../components/DashboardChart", () => ({
   DashboardChart: ({ title }: { title: string }) => <section>{title}</section>
@@ -37,6 +45,16 @@ function replaySession(sessionId: string): ReplaySession {
 }
 
 describe("ReplayDashboard", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 503 })));
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
   it("renders replay dashboard with shared navigation, archive transport, and import review controls", () => {
     const snapshot = {
       ...seedSnapshot,
@@ -69,6 +87,41 @@ describe("ReplayDashboard", () => {
     expect(markup).toContain("quotes.parquet");
     expect(markup).toContain("Confirm import");
     expect(markup).toContain("href=\"/\"");
+  });
+
+  it("defaults the replay dashboard source selector to Moomoo", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "replay-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<ReplayDashboardModule.ReplayDashboard initialSnapshot={snapshot} />);
+
+    expect(markup).toContain("Data source");
+    expect(markup).toContain("Moomoo");
+    expect(markup).toMatch(/option[^>]*value="moomoo"[^>]*selected=""/);
+  });
+
+  it("loads persisted source preference on the replay dashboard", async () => {
+    window.localStorage.setItem(DATA_SOURCE_STORAGE_KEY, "ibkr");
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "replay-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const { container, root } = renderReplayDashboard(
+      <ReplayDashboardModule.ReplayDashboard initialSnapshot={snapshot} />
+    );
+
+    await act(async () => undefined);
+
+    const selector = container.querySelector<HTMLSelectElement>("select[aria-label=\"Data source\"]");
+    expect(selector?.value).toBe("ibkr");
+    expect(container.textContent).toContain("Preferred IBKR");
+
+    cleanupRenderedReplayDashboard(root, container);
   });
 
   it("keeps admin utility outside the replay control grid while import remains with replay tools", () => {
@@ -172,3 +225,22 @@ describe("ReplayDashboard", () => {
     expect(ReplayDashboardModule.selectInitialReplaySessionId([], "import-session-ready")).toBeNull();
   });
 });
+
+function renderReplayDashboard(element: React.ReactElement) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  act(() => {
+    root.render(element);
+  });
+
+  return { container, root };
+}
+
+function cleanupRenderedReplayDashboard(root: Root, container: HTMLElement) {
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
+}

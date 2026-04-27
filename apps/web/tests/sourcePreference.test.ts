@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  browserDataSourcePreferenceStorage,
   DEFAULT_DATA_SOURCE,
   DATA_SOURCE_STORAGE_KEY,
   isDataSourcePreference,
@@ -74,5 +75,15 @@ describe("sourcePreference", () => {
     };
 
     expect(() => saveDataSourcePreference("ibkr", storage)).not.toThrow();
+  });
+
+  it("returns null when browser localStorage property access throws", () => {
+    const browser = {
+      get localStorage(): Storage {
+        throw new Error("localStorage unavailable");
+      }
+    };
+
+    expect(browserDataSourcePreferenceStorage(browser)).toBeNull();
   });
 });

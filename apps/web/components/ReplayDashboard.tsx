@@ -42,6 +42,13 @@ import {
   REPLAY_PLAYBACK_TICK_MS
 } from "../lib/replayPlayback";
 import type { ReplayPlaybackSpeed } from "../lib/replayPlayback";
+import type { DataSourcePreference } from "../lib/sourcePreference";
+import {
+  browserDataSourcePreferenceStorage,
+  DEFAULT_DATA_SOURCE,
+  loadDataSourcePreference,
+  saveDataSourcePreference
+} from "../lib/sourcePreference";
 import { AdminLoginPanel } from "./AdminLoginPanel";
 import { ArchiveTransport } from "./ArchiveTransport";
 import { DashboardView } from "./DashboardView";
@@ -631,6 +638,7 @@ export function ReplayDashboard({
   const [isUploadingReplayImport, setIsUploadingReplayImport] = useState(false);
   const [isConfirmingReplayImport, setIsConfirmingReplayImport] = useState(false);
   const [replayImportError, setReplayImportError] = useState<string | null>(null);
+  const [selectedDataSource, setSelectedDataSource] = useState<DataSourcePreference>(DEFAULT_DATA_SOURCE);
   const scenarioModeRef = useRef(false);
   const replayModeRef = useRef(false);
   const latestLiveRequestIdRef = useRef(0);
@@ -659,6 +667,10 @@ export function ReplayDashboard({
   const clampedReplayIndex = clampReplayTimelineIndex(selectedReplayIndex, replayTimelineEntries);
   const selectedReplayEntry = replayTimelineEntries[clampedReplayIndex] ?? null;
   const selectedReplayTime = selectedReplayEntry?.snapshot_time ?? null;
+
+  useEffect(() => {
+    setSelectedDataSource(loadDataSourcePreference(browserDataSourcePreferenceStorage()));
+  }, []);
 
   const applyDashboardAdminState = (adminState: DashboardAdminState) => {
     setIsAdminAuthenticated(adminState.isAdminAuthenticated);
@@ -1254,12 +1266,19 @@ export function ReplayDashboard({
     ]);
   };
 
+  const handleSelectedDataSourceChange = (value: DataSourcePreference) => {
+    setSelectedDataSource(value);
+    saveDataSourcePreference(value, browserDataSourcePreferenceStorage());
+  };
+
   return (
     <DashboardView
       snapshot={snapshot}
       collectorHealth={collectorHealth}
       transportStatus={liveTransportStatus}
       activeDashboard="replay"
+      selectedDataSource={selectedDataSource}
+      onSelectedDataSourceChange={handleSelectedDataSourceChange}
       adminUtility={
         <AdminLoginPanel
           isAuthenticated={isAdminAuthenticated}

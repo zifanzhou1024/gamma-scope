@@ -44,6 +44,7 @@ import {
 import type { ReplayPlaybackSpeed } from "../lib/replayPlayback";
 import type { DataSourcePreference } from "../lib/sourcePreference";
 import {
+  browserDataSourcePreferenceStorage,
   DEFAULT_DATA_SOURCE,
   loadDataSourcePreference,
   saveDataSourcePreference
@@ -622,7 +623,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
   const selectedReplayTime = selectedReplayEntry?.snapshot_time ?? null;
 
   useEffect(() => {
-    setSelectedDataSource(loadDataSourcePreference(typeof window === "undefined" ? null : window.localStorage));
+    setSelectedDataSource(loadDataSourcePreference(browserDataSourcePreferenceStorage()));
   }, []);
 
   const applyDashboardAdminState = (adminState: DashboardAdminState) => {
@@ -1207,7 +1208,7 @@ export function LiveDashboard({ initialSnapshot, initialAdminSession, initialRep
 
   const handleSelectedDataSourceChange = (value: DataSourcePreference) => {
     setSelectedDataSource(value);
-    saveDataSourcePreference(value, typeof window === "undefined" ? null : window.localStorage);
+    saveDataSourcePreference(value, browserDataSourcePreferenceStorage());
   };
 
   return (

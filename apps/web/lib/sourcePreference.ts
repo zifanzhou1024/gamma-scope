@@ -3,6 +3,10 @@ export const DATA_SOURCE_OPTIONS = ["moomoo", "ibkr"] as const;
 export const DEFAULT_DATA_SOURCE = "moomoo" satisfies DataSourcePreference;
 
 export type DataSourcePreference = (typeof DATA_SOURCE_OPTIONS)[number];
+type DataSourcePreferenceStorage = Pick<Storage, "getItem" | "setItem">;
+type DataSourcePreferenceBrowser = {
+  readonly localStorage: DataSourcePreferenceStorage;
+};
 
 export function isDataSourcePreference(value: unknown): value is DataSourcePreference {
   return typeof value === "string" && DATA_SOURCE_OPTIONS.includes(value as DataSourcePreference);
@@ -25,6 +29,16 @@ export function saveDataSourcePreference(
     storage?.setItem(DATA_SOURCE_STORAGE_KEY, value);
   } catch {
     // Storage can be unavailable in private browsing or restricted environments.
+  }
+}
+
+export function browserDataSourcePreferenceStorage(
+  browser: DataSourcePreferenceBrowser | null | undefined = typeof window === "undefined" ? null : window
+): DataSourcePreferenceStorage | null {
+  try {
+    return browser?.localStorage ?? null;
+  } catch {
+    return null;
   }
 }
 
