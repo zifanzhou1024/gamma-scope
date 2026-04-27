@@ -25,6 +25,7 @@ const GRID_LINES = 4;
 export function DashboardChart({ rows, title, metricKey, tone, valueKind }: DashboardChartProps) {
   const renderSeries = buildRenderSeries(rows, metricKey);
   const domainPoints = renderSeries.flatMap((series) => series.points);
+  const ivMinimumPoints = metricKey === "custom_iv" ? buildIvMinimumPoints(renderSeries) : [];
   const extent = valueExtent(domainPoints);
   const latest = domainPoints.at(-1)?.y ?? null;
   const xTicks = buildTicks(domainPoints.map((point) => point.x), 3);
@@ -50,6 +51,7 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
           </span>
         ))}
       </div>
+      {ivMinimumPoints.length > 0 ? <IvMinimumSummary minimumPoints={ivMinimumPoints} /> : null}
       <svg className={`chart chart-${tone}`} viewBox={`0 0 ${FRAME.width} ${FRAME.height}`} role="img">
         <title>{chartTitle}</title>
         <g data-chart-grid="market-ops" className="chartGridLines" aria-hidden="true">
@@ -125,6 +127,7 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
               const projected = projectPoint(point, domainPoints, FRAME);
               return <circle key={`${series.key}-${point.x}-${point.y}-${index}`} cx={projected.x} cy={projected.y} r="3.5" />;
             })}
+            {metricKey === "custom_iv" ? <IvMinimumMarker series={series} domainPoints={domainPoints} /> : null}
           </g>
         ))}
       </svg>
@@ -134,6 +137,45 @@ export function DashboardChart({ rows, title, metricKey, tone, valueKind }: Dash
         <ChartStat label="Max" value={formatValue(extent?.[1] ?? null, valueKind)} />
       </div>
     </section>
+  );
+}
+
+interface IvMinimumPoint {
+  seriesKey: string;
+  seriesLabel: string;
+  point: ChartPoint;
+}
+
+function IvMinimumSummary({ minimumPoints }: { minimumPoints: IvMinimumPoint[] }) {
+  return (
+    <div className="ivMinSummary" data-iv-min-summary="true" aria-label="IV low points">
+      <span className="ivMinSummaryTitle">IV LOW POINTS</span>
+      <div className="ivMinSummaryItems">
+        {minimumPoints.map((minimumPoint) => (
+          <span key={minimumPoint.seriesKey} className={`ivMinSummaryItem ivMinSummaryItem-${minimumPoint.seriesKey}`}>
+            <i aria-hidden="true" />
+            {minimumPoint.seriesLabel.replace(" IV", "")} {formatPercent(minimumPoint.point.y, 1)} @{" "}
+            {formatStrike(minimumPoint.point.x)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IvMinimumMarker({ series, domainPoints }: { series: RenderSeries; domainPoints: ChartPoint[] }) {
+  const minimumPoint = findMinimumPoint(series.points);
+  if (!minimumPoint) {
+    return null;
+  }
+
+  const projected = projectPoint(minimumPoint, domainPoints, FRAME);
+  const label = `${series.label.replace(" IV", "")} min ${formatPercent(minimumPoint.y, 1)} @ ${formatStrike(minimumPoint.x)}`;
+
+  return (
+    <g className="chartIvMinMarker" data-iv-min-marker={series.key} aria-label={label}>
+      <circle cx={projected.x} cy={projected.y} r="7" />
+    </g>
   );
 }
 
@@ -160,6 +202,22 @@ function buildRenderSeries(rows: DashboardChartProps["rows"], metricKey: Numeric
   }
 
   return [{ key: "primary", label: axisLabelFor(metricKey), points: buildSeries(rows, metricKey) }];
+}
+
+function buildIvMinimumPoints(renderSeries: RenderSeries[]): IvMinimumPoint[] {
+  return renderSeries.flatMap((series) => {
+    const point = findMinimumPoint(series.points);
+    return point ? [{ seriesKey: series.key, seriesLabel: series.label, point }] : [];
+  });
+}
+
+function findMinimumPoint(points: ChartPoint[]): ChartPoint | null {
+  return points.reduce<ChartPoint | null>((minimumPoint, point) => {
+    if (!minimumPoint || point.y < minimumPoint.y) {
+      return point;
+    }
+    return minimumPoint;
+  }, null);
 }
 
 function buildTicks(values: number[], count: number): number[] {

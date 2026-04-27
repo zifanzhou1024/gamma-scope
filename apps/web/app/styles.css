@@ -13,6 +13,11 @@
   --teal: #2dd4bf;
   --amber: #f59e0b;
   --green: #22c55e;
+  --red: #ff5b66;
+  --call-color: var(--green);
+  --put-color: var(--red);
+  --call-color-rgb: 34, 197, 94;
+  --put-color-rgb: 255, 91, 102;
 }
 
 * {
@@ -1235,6 +1240,59 @@ h1 {
   width: 20px;
 }
 
+.ivMinSummary {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.ivMinSummaryTitle {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ivMinSummaryItems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.ivMinSummaryItem {
+  align-items: center;
+  color: var(--soft);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 850;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.ivMinSummaryItem i {
+  border-radius: 999px;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.ivMinSummaryItem-call-iv i {
+  background: var(--call-color);
+}
+
+.ivMinSummaryItem-put-iv i {
+  background: var(--put-color);
+}
+
 .chart {
   display: block;
   width: 100%;
@@ -1313,20 +1371,25 @@ h1 {
 
 .chartSeries-call-iv path,
 .chartSeries-call-iv circle {
-  stroke: var(--blue);
+  stroke: var(--call-color);
 }
 
 .chartSeries-put-iv path,
 .chartSeries-put-iv circle {
-  stroke: var(--amber);
+  stroke: var(--put-color);
+}
+
+.chartIvMinMarker circle {
+  fill: rgba(248, 250, 252, 0.95);
+  stroke-width: 2.4;
 }
 
 .chartLegend-call-iv i {
-  background: var(--blue);
+  background: var(--call-color);
 }
 
 .chartLegend-put-iv i {
-  background: var(--amber);
+  background: var(--put-color);
 }
 
 .chartStats {
@@ -1431,7 +1494,7 @@ h1 {
 }
 
 .gammaDot {
-  background: linear-gradient(90deg, #ff5b66, #4ade80);
+  background: linear-gradient(90deg, var(--call-color), var(--put-color));
 }
 
 .chainFilters {
@@ -1577,11 +1640,11 @@ tbody tr:last-child td {
 }
 
 .chainTable .callCol {
-  color: #ff5b66;
+  color: var(--call-color);
 }
 
 .chainTable .putCol {
-  color: #4ade80;
+  color: var(--put-color);
 }
 
 .chainTable .strikeCol {
@@ -1733,13 +1796,13 @@ tbody tr:last-child td {
 }
 
 .callRisk .heatFill {
-  background: linear-gradient(90deg, rgba(255, 91, 102, 0.12), rgba(255, 91, 102, 0.78));
+  background: linear-gradient(90deg, rgba(var(--call-color-rgb), 0.12), rgba(var(--call-color-rgb), 0.78));
   right: 0;
   transform-origin: right center;
 }
 
 .putRisk .heatFill {
-  background: linear-gradient(90deg, rgba(74, 222, 128, 0.78), rgba(74, 222, 128, 0.12));
+  background: linear-gradient(90deg, rgba(var(--put-color-rgb), 0.78), rgba(var(--put-color-rgb), 0.12));
   left: 0;
   transform-origin: left center;
 }
@@ -1765,12 +1828,12 @@ tbody tr:last-child td {
 }
 
 .callInterest .oiBar {
-  background: linear-gradient(90deg, rgba(255, 91, 102, 0), rgba(255, 91, 102, 0.72));
+  background: linear-gradient(90deg, rgba(var(--call-color-rgb), 0), rgba(var(--call-color-rgb), 0.72));
   transform-origin: right center;
 }
 
 .putInterest .oiBar {
-  background: linear-gradient(90deg, rgba(74, 222, 128, 0.72), rgba(74, 222, 128, 0));
+  background: linear-gradient(90deg, rgba(var(--put-color-rgb), 0.72), rgba(var(--put-color-rgb), 0));
   transform-origin: left center;
 }
 

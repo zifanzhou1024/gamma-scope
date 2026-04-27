@@ -1,4 +1,6 @@
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { seedSnapshot } from "../lib/seedSnapshot";
@@ -8,6 +10,8 @@ import type { CollectorHealth } from "@gammascope/contracts/collector-events";
 vi.mock("../components/DashboardChart", () => ({
   DashboardChart: ({ title }: { title: string }) => <section>{title}</section>
 }));
+
+const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
 
 describe("DashboardView", () => {
   const snapshot = {
@@ -176,5 +180,14 @@ describe("DashboardView", () => {
     expect(markup).not.toContain("-15.0 bp");
     expect(markup).toContain("IBKR 17.70%");
     expect(markup).toContain("+10.0 bp");
+  });
+
+  it("uses green for call columns and red for put columns in option-chain styling", async () => {
+    expect(styles).toMatch(/\.chainTable \.callCol\s*{[\s\S]*color:\s*var\(--call-color\)/);
+    expect(styles).toMatch(/\.chainTable \.putCol\s*{[\s\S]*color:\s*var\(--put-color\)/);
+    expect(styles).toMatch(/\.callRisk \.heatFill\s*{[\s\S]*var\(--call-color-rgb\)/);
+    expect(styles).toMatch(/\.putRisk \.heatFill\s*{[\s\S]*var\(--put-color-rgb\)/);
+    expect(styles).toMatch(/\.callInterest \.oiBar\s*{[\s\S]*var\(--call-color-rgb\)/);
+    expect(styles).toMatch(/\.putInterest \.oiBar\s*{[\s\S]*var\(--put-color-rgb\)/);
   });
 });
