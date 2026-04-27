@@ -1955,3 +1955,21 @@ Run:
 git add docs/superpowers/plans/2026-04-27-moomoo-data-source.md
 git commit -m "docs: record moomoo data source verification"
 ```
+
+## Evidence
+
+- `PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests/test_moomoo_config.py services/collector/tests/test_moomoo_snapshot.py services/collector/tests/test_moomoo_compat.py -q` passed with `35 passed in 0.41s`.
+- `pnpm test:collector` passed with `135 passed in 1.21s`.
+- `pnpm --filter @gammascope/web typecheck` passed.
+- `pnpm --filter @gammascope/web test` passed with `40 passed` test files and `341 passed` tests.
+- `pnpm test:scripts` passed with `3` tests.
+- `pnpm test:contracts` passed with `6` tests.
+- `PYTHONPATH=apps/api .venv/bin/pytest apps/api/tests -q` passed with `179 passed, 1 skipped in 22.86s`.
+- `.venv/bin/ruff check apps/api/gammascope_api apps/api/tests services/collector` passed with `All checks passed!`.
+- `git diff --check` passed with no output.
+- `.venv/bin/python -m pip install --upgrade moomoo-api pandas` passed in the local worktree venv to enable the OpenD smoke.
+- `pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1` passed against local OpenD with `status: connected`, `total_selected_codes: 448`, `snapshot_rows_count: 448`, and `rate_estimate: {"requests_per_refresh": 2, "requests_per_30_seconds": 30, "within_limit": true}`.
+- `pnpm dev:api` started FastAPI locally for the publish smoke and was shut down cleanly afterward.
+- `pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot SPX=7050 --spot RUT=2050 --spot NDX=18300 --max-loops 1 --publish` passed with `status: connected`, `snapshot_rows_count: 448`, and `publish.accepted_count: 246`.
+- `curl -s http://127.0.0.1:8000/api/spx/0dte/collector/state | .venv/bin/python -m json.tool` passed and returned `latest_health.collector_id: "local-moomoo"`, `contracts_count: 122`, and `option_ticks_count: 122`.
+- `curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | .venv/bin/python -m json.tool` passed and returned `symbol: "SPX"` and `mode: "live"`.
