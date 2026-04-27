@@ -122,6 +122,66 @@ describe("dashboard metrics", () => {
     expect(intelligence.expectedMove.halfSigma.range).toEqual([5000, 5000]);
   });
 
+  it("uses the 21:00Z SPX close during standard time", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-01-15",
+      snapshot_time: "2026-01-15T20:00:00Z",
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 4990, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[1]!, strike: 4990, right: "put" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[2]!, strike: 5000, right: "call" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[3]!, strike: 5000, right: "put" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[4]!, strike: 5010, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[5]!, strike: 5010, right: "put" as const, custom_iv: 0.32 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.timeToCloseYears).toBeCloseTo(1 / (365 * 24));
+    expect(intelligence.expectedMove.oneSigma.move).toBeCloseTo(8.55, 2);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([
+      expect.closeTo(4991.45, 2),
+      expect.closeTo(5008.55, 2)
+    ]);
+  });
+
+  it("returns zero-time expected moves for malformed snapshot dates", () => {
+    const badSnapshotTime = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "not-a-date"
+    };
+    const badExpiry = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "not-an-expiry",
+      snapshot_time: "2026-04-23T18:00:00Z"
+    };
+    const badCalendarExpiry = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-02-31",
+      snapshot_time: "2026-02-27T18:00:00Z"
+    };
+
+    expect(() => deriveMarketIntelligence(badSnapshotTime)).not.toThrow();
+    expect(() => deriveMarketIntelligence(badExpiry)).not.toThrow();
+    expect(() => deriveMarketIntelligence(badCalendarExpiry)).not.toThrow();
+
+    for (const snapshot of [badSnapshotTime, badExpiry, badCalendarExpiry]) {
+      const intelligence = deriveMarketIntelligence(snapshot);
+
+      expect(intelligence.expectedMove.timeToCloseYears).toBe(0);
+      expect(intelligence.expectedMove.oneSigma.move).toBe(0);
+      expect(intelligence.expectedMove.oneSigma.range).toEqual([5000, 5000]);
+      expect(Number.isFinite(intelligence.expectedMove.oneSigma.move)).toBe(true);
+    }
+  });
+
   it("derives wall levels and deterministic regime labels", () => {
     const snapshot = {
       ...marketMapSnapshot,

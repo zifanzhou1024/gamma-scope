@@ -8,6 +8,10 @@ type SourceStatus = AnalyticsSnapshot["source_status"];
 type CoverageStatus = AnalyticsSnapshot["coverage_status"];
 type CollectorStatus = CollectorHealth["status"];
 
+const REGIME_RATIO_THRESHOLD = 0.2;
+const IV_SMILE_BIAS_THRESHOLD = 0.01;
+const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
+
 export type ComparisonTone = "ok" | "warning" | "muted";
 export type OperationalTone = "ok" | "warning" | "error" | "muted";
 export type LiveTransportStatus = "connecting" | "streaming" | "disconnected" | "fallback_polling" | "reconnecting";
@@ -631,7 +635,8 @@ function expectedMoveBand(spot: number, iv: number | null, timeToCloseYears: num
     return { move: null, range: null };
   }
 
-  const move = spot * iv * Math.sqrt(timeToCloseYears) * sigma;
+  const clampedTimeToCloseYears = Number.isFinite(timeToCloseYears) ? Math.max(0, timeToCloseYears) : 0;
+  const move = spot * iv * Math.sqrt(clampedTimeToCloseYears) * sigma;
   return {
     move,
     range: [spot - move, spot + move]
@@ -639,24 +644,63 @@ function expectedMoveBand(spot: number, iv: number | null, timeToCloseYears: num
 }
 
 function timeToSpxCloseYears(snapshotTime: string, expiry: string): number {
+  const snapshotDate = new Date(snapshotTime);
+  if (!isValidDate(snapshotDate)) {
+    return 0;
+  }
+
   const closeTime = marketCloseUtc(expiry);
-  const remainingMs = Math.max(0, closeTime.getTime() - new Date(snapshotTime).getTime());
-  return remainingMs / (365 * 24 * 60 * 60 * 1000);
+  if (closeTime == null) {
+    return 0;
+  }
+
+  const remainingMs = Math.max(0, closeTime.getTime() - snapshotDate.getTime());
+  return remainingMs / MS_PER_YEAR;
 }
 
-function marketCloseUtc(expiry: string): Date {
+function marketCloseUtc(expiry: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    return null;
+  }
+
   const [year, month, day] = expiry.split("-").map(Number);
+  if (year == null || month == null || day == null) {
+    return null;
+  }
+
   const localCloseAsUtc = Date.UTC(year!, month! - 1, day!, 16, 0, 0, 0);
+  if (!Number.isFinite(localCloseAsUtc)) {
+    return null;
+  }
+
+  const expiryDate = new Date(localCloseAsUtc);
+  if (
+    expiryDate.getUTCFullYear() !== year ||
+    expiryDate.getUTCMonth() !== month - 1 ||
+    expiryDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
   let utcGuess = localCloseAsUtc;
 
   for (let iteration = 0; iteration < 2; iteration += 1) {
-    utcGuess = localCloseAsUtc - getTimeZoneOffsetMs(new Date(utcGuess), "America/New_York");
+    const offsetMs = getTimeZoneOffsetMs(new Date(utcGuess), "America/New_York");
+    if (offsetMs == null) {
+      return null;
+    }
+    utcGuess = localCloseAsUtc - offsetMs;
   }
 
-  return new Date(utcGuess);
+  const closeDate = new Date(utcGuess);
+  return isValidDate(closeDate) ? closeDate : null;
 }
 
-function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
+function getTimeZoneOffsetMs(date: Date, timeZone: string): number | null {
+  if (!isValidDate(date)) {
+    return null;
+  }
+
   const parts = new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
     hour: "2-digit",
@@ -668,16 +712,32 @@ function getTimeZoneOffsetMs(date: Date, timeZone: string): number {
     year: "numeric"
   }).formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value;
-  const localAsUtc = Date.UTC(
+  const localAsUtcParts = [
     Number(part("year")),
     Number(part("month")) - 1,
     Number(part("day")),
     Number(part("hour")),
     Number(part("minute")),
     Number(part("second"))
+  ];
+  if (localAsUtcParts.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+
+  const localAsUtc = Date.UTC(
+    localAsUtcParts[0]!,
+    localAsUtcParts[1]!,
+    localAsUtcParts[2]!,
+    localAsUtcParts[3]!,
+    localAsUtcParts[4]!,
+    localAsUtcParts[5]!
   );
 
   return localAsUtc - date.getTime();
+}
+
+function isValidDate(date: Date): boolean {
+  return Number.isFinite(date.getTime());
 }
 
 function deriveGammaRegime(values: number[]): GammaRegime {
@@ -687,10 +747,10 @@ function deriveGammaRegime(values: number[]): GammaRegime {
   }
 
   const ratio = sum(values) / absGamma;
-  if (ratio > 0.2) {
+  if (ratio > REGIME_RATIO_THRESHOLD) {
     return "Pinning";
   }
-  if (ratio < -0.2) {
+  if (ratio < -REGIME_RATIO_THRESHOLD) {
     return "Trending";
   }
   return "Unstable";
@@ -703,10 +763,10 @@ function deriveVannaRegime(values: number[]): VannaRegime {
   }
 
   const ratio = sum(values) / absVanna;
-  if (ratio > 0.2) {
+  if (ratio > REGIME_RATIO_THRESHOLD) {
     return "Supportive";
   }
-  if (ratio < -0.2) {
+  if (ratio < -REGIME_RATIO_THRESHOLD) {
     return "Suppressive";
   }
   return "Mixed";
@@ -722,10 +782,10 @@ function deriveIvSmileBias(snapshot: AnalyticsSnapshot): IvSmileBias {
     return "Balanced";
   }
 
-  if (leftAverage - rightAverage > 0.01) {
+  if (leftAverage - rightAverage > IV_SMILE_BIAS_THRESHOLD) {
     return "Left-skew";
   }
-  if (rightAverage - leftAverage > 0.01) {
+  if (rightAverage - leftAverage > IV_SMILE_BIAS_THRESHOLD) {
     return "Right-skew";
   }
   return "Balanced";
