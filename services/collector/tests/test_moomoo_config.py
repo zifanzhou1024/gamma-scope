@@ -42,6 +42,18 @@ def test_default_universe_matches_moomoo_design() -> None:
     assert [item.symbol for item in universe if item.requires_manual_spot] == ["SPX", "RUT", "NDX"]
 
 
+def test_collector_config_defaults_populate_moomoo_universe() -> None:
+    config = MoomooCollectorConfig()
+
+    assert config.host == "127.0.0.1"
+    assert config.port == 11111
+    assert config.refresh_interval_seconds == 2.0
+    assert config.collector_id == "local-moomoo"
+    assert config.api_base == "http://127.0.0.1:8000"
+    assert config.manual_spots == {}
+    assert [item.symbol for item in config.universe] == ["SPX", "SPY", "QQQ", "IWM", "RUT", "NDX"]
+
+
 def test_manual_spots_parse_symbol_value_pairs() -> None:
     assert parse_manual_spots(["SPX=7050.25", "rut=2050", " NDX = 18300.5 "]) == {
         "SPX": 7050.25,
@@ -82,6 +94,15 @@ def test_chunked_splits_without_dropping_items() -> None:
 
 def test_snapshot_rate_math_for_default_universe_at_two_seconds() -> None:
     estimate = estimate_snapshot_request_rate(code_count=572, refresh_interval_seconds=2.0)
+
+    assert estimate.codes == 572
+    assert estimate.requests_per_refresh == 2
+    assert estimate.requests_per_30_seconds == 30
+    assert estimate.within_limit is True
+
+
+def test_snapshot_rate_math_accepts_positional_required_arguments() -> None:
+    estimate = estimate_snapshot_request_rate(572, 2.0)
 
     assert estimate.codes == 572
     assert estimate.requests_per_refresh == 2

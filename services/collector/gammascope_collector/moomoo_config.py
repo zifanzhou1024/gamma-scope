@@ -151,9 +151,9 @@ def chunked(items: Sequence[str], size: int) -> Iterator[list[str]]:
 
 
 def estimate_snapshot_request_rate(
-    *,
     code_count: int,
     refresh_interval_seconds: float,
+    *,
     code_limit: int = SNAPSHOT_CODE_LIMIT,
     request_limit_per_30_seconds: int = SNAPSHOT_REQUEST_LIMIT_PER_30_SECONDS,
 ) -> SnapshotRateEstimate:
