@@ -8,6 +8,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from typing import Any, Protocol
+from uuid import uuid4
 
 from gammascope_collector.moomoo_config import (
     SNAPSHOT_CODE_LIMIT,
@@ -19,6 +20,7 @@ from gammascope_collector.moomoo_config import (
     parse_manual_spots,
     selected_symbols,
 )
+from gammascope_collector.publisher import PublishSummary, publish_events
 
 RET_OK = 0
 
@@ -380,7 +382,10 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
         make_client = client_factory or _create_real_client
         client = make_client(args.host, args.port)
         result = run_moomoo_snapshot_loop(client, config, expiry=args.expiry, max_loops=args.max_loops)
-        print(json.dumps(result.as_dict(), sort_keys=True, separators=(",", ":")))
+        output = result.as_dict()
+        if args.publish:
+            output["publish"] = _publish_spx_compatibility_snapshot(result, config).as_dict()
+        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
     except Exception as exc:
         print(json.dumps({"status": "error", "message": str(exc)}, sort_keys=True, separators=(",", ":")))
         raise SystemExit(1) from exc
@@ -395,6 +400,37 @@ def _create_real_client(host: str, port: int) -> MoomooQuoteClient:
     except ImportError as exc:
         raise RuntimeError("moomoo-api package is not installed") from exc
     return OpenQuoteContext(host=host, port=port)
+
+
+def _publish_spx_compatibility_snapshot(
+    result: MoomooSnapshotResult,
+    config: MoomooCollectorConfig,
+) -> PublishSummary:
+    from gammascope_collector.moomoo_compat import moomoo_rows_to_spx_events
+
+    events = moomoo_rows_to_spx_events(
+        session_id=f"moomoo-spx-0dte-{uuid4()}",
+        collector_id=config.collector_id,
+        spot=_spx_spot(result),
+        rows=result.rows,
+        status=result.status,
+        message=_health_message(result),
+    )
+    return publish_events(events, api_base=config.api_base)
+
+
+def _spx_spot(result: MoomooSnapshotResult) -> float | None:
+    for discovery in result.discoveries:
+        if discovery.symbol == "SPX":
+            return discovery.spot
+    return None
+
+
+def _health_message(result: MoomooSnapshotResult) -> str:
+    warning_count = len(result.warnings)
+    if warning_count:
+        return f"Moomoo compatibility snapshot emitted with {warning_count} warnings"
+    return "Moomoo compatibility snapshot emitted"
 
 
 def _records(data: object) -> list[dict[str, object]]:

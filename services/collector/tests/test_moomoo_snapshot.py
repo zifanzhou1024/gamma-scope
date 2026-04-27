@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from datetime import date
 
 import pytest
@@ -14,6 +16,7 @@ from gammascope_collector.moomoo_snapshot import (
     run_moomoo_snapshot_loop,
     select_atm_strikes,
 )
+from gammascope_collector.publisher import PublishSummary
 
 
 class FakeQuoteClient:
@@ -382,3 +385,78 @@ def test_main_prints_error_json_when_real_client_cannot_be_created(capsys: pytes
     output = capsys.readouterr().out
     assert '"status":"error"' in output
     assert "moomoo-api package is not installed" in output
+
+
+def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
+                _option("US.SPXW260427P07050000", strike=7050, option_type="PUT", name="SPXW 7050P"),
+            ]
+        },
+        snapshots={
+            "US.SPXW260427C07050000": {
+                "code": "US.SPXW260427C07050000",
+                "last_price": 1.2,
+                "bid_price": 1.1,
+                "ask_price": 1.3,
+            },
+            "US.SPXW260427P07050000": {
+                "code": "US.SPXW260427P07050000",
+                "last_price": 1.4,
+                "bid_price": 1.2,
+                "ask_price": 1.6,
+            },
+        },
+    )
+    captured_events: list[dict[str, object]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        captured_events.extend(events)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            accepted_count=len(captured_events),
+            event_types=[
+                "CollectorHealth"
+                if "collector_id" in event
+                else "ContractDiscovered"
+                if "ibkr_con_id" in event
+                else "UnderlyingTick"
+                if "spot" in event
+                else "OptionTick"
+                for event in captured_events
+            ],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+
+    main(
+        [
+            "--publish",
+            "--api",
+            "http://testserver",
+            "--collector-id",
+            "test-moomoo",
+            "--expiry",
+            "2026-04-27",
+            "--spot",
+            "SPX=7050",
+        ],
+        client_factory=lambda _host, _port: client,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["publish"]["accepted_count"] == 6
+    assert payload["publish"]["event_types"] == [
+        "CollectorHealth",
+        "UnderlyingTick",
+        "ContractDiscovered",
+        "ContractDiscovered",
+        "OptionTick",
+        "OptionTick",
+    ]
+    assert len(captured_events) == 6
