@@ -110,7 +110,7 @@ it("derives spot-relative market map levels", () => {
   expect(marketMap.callIvLow).toMatchObject({ strike: 5200, value: 0.18 });
   expect(marketMap.putIvLow).toMatchObject({ strike: 5210, value: 0.17 });
   expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
-  expect(marketMap.vannaFlip?.strike).toBeCloseTo(5202);
+  expect(marketMap.vannaFlip?.strike).toBeCloseTo(5200.91, 2);
   expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
 });
 
