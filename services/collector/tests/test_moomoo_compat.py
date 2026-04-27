@@ -170,3 +170,72 @@ def test_moomoo_rows_to_spx_events_returns_health_only_without_publishable_rows_
 
     assert [_event_type(event) for event in no_spx_events] == ["CollectorHealth"]
     assert [_event_type(event) for event in missing_spot_events] == ["CollectorHealth"]
+
+
+def test_moomoo_rows_to_spx_events_sanitizes_non_finite_manual_row_values() -> None:
+    row = _row("SPX", "US.SPXW260427C07050000", "CALL", 7050)
+    manual_row = MoomooOptionRow(
+        symbol=row.symbol,
+        owner_code=row.owner_code,
+        option_code=row.option_code,
+        option_type=row.option_type,
+        strike=row.strike,
+        expiry=row.expiry,
+        name=row.name,
+        last_price=float("nan"),
+        bid_price=float("inf"),
+        ask_price=float("-inf"),
+        bid_size=float("nan"),
+        ask_size=float("inf"),
+        volume=float("-inf"),
+        open_interest=float("nan"),
+        implied_volatility=float("inf"),
+        delta=float("nan"),
+        gamma=float("inf"),
+        vega=float("-inf"),
+        theta=float("nan"),
+        contract_multiplier=float("inf"),
+    )
+
+    events = moomoo_rows_to_spx_events(
+        session_id="session-1",
+        collector_id="collector-1",
+        spot=7050.25,
+        rows=[manual_row],
+        status="connected",
+        message="ok",
+    )
+
+    json.dumps(events, allow_nan=False)
+    for event in events:
+        CollectorEvents.model_validate(event)
+    option_event = next(event for event in events if _event_type(event) == "OptionTick")
+    assert option_event["bid"] is None
+    assert option_event["ask"] is None
+    assert option_event["last"] is None
+    assert option_event["ibkr_iv"] is None
+
+
+def test_moomoo_rows_to_spx_events_skips_manual_rows_with_non_finite_strike() -> None:
+    row = _row("SPX", "US.SPXW260427C07050000", "CALL", 7050)
+    manual_row = MoomooOptionRow(
+        symbol=row.symbol,
+        owner_code=row.owner_code,
+        option_code=row.option_code,
+        option_type=row.option_type,
+        strike=float("inf"),
+        expiry=row.expiry,
+        name=row.name,
+    )
+
+    events = moomoo_rows_to_spx_events(
+        session_id="session-1",
+        collector_id="collector-1",
+        spot=7050.25,
+        rows=[manual_row],
+        status="connected",
+        message="ok",
+    )
+
+    json.dumps(events, allow_nan=False)
+    assert [_event_type(event) for event in events] == ["CollectorHealth"]

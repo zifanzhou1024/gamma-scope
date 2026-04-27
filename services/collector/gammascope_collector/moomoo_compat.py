@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Iterable
 from datetime import date
 from typing import cast
@@ -31,7 +32,8 @@ def moomoo_rows_to_spx_events(
     status: str,
     message: str,
 ) -> list[dict[str, object]]:
-    spx_rows = [row for row in rows if row.symbol == "SPX"]
+    spx_rows = [row for row in rows if row.symbol == "SPX" and _positive_float_or_none(row.strike) is not None]
+    spot = _finite_float_or_none(spot)
     events = [
         health_event(
             collector_id=collector_id,
@@ -52,14 +54,17 @@ def moomoo_rows_to_spx_events(
 def _contract_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
     expiry = _expiry_text(row.expiry)
     right = _right(row.option_type)
+    strike = _positive_float_or_none(row.strike)
+    if strike is None:
+        raise ValueError(f"Unsupported Moomoo strike: {row.strike}")
     return contract_discovered_event(
         session_id=session_id,
         ibkr_con_id=synthetic_ibkr_con_id(row.option_code),
         symbol="SPX",
         expiry=expiry,
         right=right,
-        strike=row.strike,
-        multiplier=row.contract_multiplier or 100.0,
+        strike=strike,
+        multiplier=_finite_float_or_none(row.contract_multiplier) or 100.0,
         exchange="CBOE",
         currency="USD",
     )
@@ -68,21 +73,24 @@ def _contract_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
 def _option_tick_event(session_id: str, row: MoomooOptionRow) -> dict[str, object]:
     expiry = _expiry_text(row.expiry)
     right = _right(row.option_type)
+    strike = _positive_float_or_none(row.strike)
+    if strike is None:
+        raise ValueError(f"Unsupported Moomoo strike: {row.strike}")
     return option_tick_event(
         session_id=session_id,
-        contract_id=contract_id("SPX", expiry, right, row.strike),
-        bid=row.bid_price,
-        ask=row.ask_price,
-        last=row.last_price,
-        bid_size=row.bid_size,
-        ask_size=row.ask_size,
-        volume=row.volume,
-        open_interest=row.open_interest,
-        ibkr_iv=row.implied_volatility,
-        ibkr_delta=row.delta,
-        ibkr_gamma=row.gamma,
-        ibkr_vega=row.vega,
-        ibkr_theta=row.theta,
+        contract_id=contract_id("SPX", expiry, right, strike),
+        bid=_finite_float_or_none(row.bid_price),
+        ask=_finite_float_or_none(row.ask_price),
+        last=_finite_float_or_none(row.last_price),
+        bid_size=_finite_float_or_none(row.bid_size),
+        ask_size=_finite_float_or_none(row.ask_size),
+        volume=_finite_float_or_none(row.volume),
+        open_interest=_finite_float_or_none(row.open_interest),
+        ibkr_iv=_finite_float_or_none(row.implied_volatility),
+        ibkr_delta=_finite_float_or_none(row.delta),
+        ibkr_gamma=_finite_float_or_none(row.gamma),
+        ibkr_vega=_finite_float_or_none(row.vega),
+        ibkr_theta=_finite_float_or_none(row.theta),
     )
 
 
@@ -95,6 +103,25 @@ def _right(value: str) -> Right:
     if normalized not in ("call", "put"):
         raise ValueError(f"Unsupported Moomoo option type: {value}")
     return cast(Right, normalized)
+
+
+def _finite_float_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result):
+        return None
+    return result
+
+
+def _positive_float_or_none(value: object) -> float | None:
+    result = _finite_float_or_none(value)
+    if result is None or result <= 0:
+        return None
+    return result
 
 
 __all__ = ["moomoo_rows_to_spx_events", "synthetic_ibkr_con_id"]

@@ -206,6 +206,7 @@ def test_normalize_snapshot_record_maps_moomoo_option_fields_into_option_row_dat
             "gamma": 0.02,
             "vega": 0.15,
             "theta": -0.04,
+            "update_time": "2026-04-27 09:31:05",
         },
     )
 
@@ -219,6 +220,8 @@ def test_normalize_snapshot_record_maps_moomoo_option_fields_into_option_row_dat
     assert row.mid_price == 1.25
     assert row.open_interest == 200.0
     assert row.delta == 0.51
+    assert row.snapshot_time == "2026-04-27 09:31:05"
+    assert row.as_dict()["snapshot_time"] == "2026-04-27 09:31:05"
 
 
 def test_normalize_snapshot_record_maps_documented_moomoo_option_fields() -> None:
@@ -242,7 +245,7 @@ def test_normalize_snapshot_record_maps_documented_moomoo_option_fields() -> Non
             "bid_vol": 21,
             "ask_vol": 22,
             "option_open_interest": 300,
-            "option_implied_volatility": 0.31,
+            "option_implied_volatility": 31.0,
             "option_delta": -0.48,
             "option_gamma": 0.03,
             "option_vega": 0.16,
@@ -262,6 +265,76 @@ def test_normalize_snapshot_record_maps_documented_moomoo_option_fields() -> Non
     assert row.theta == -0.05
     assert row.rho == -0.02
     assert row.contract_multiplier == 100.0
+
+
+def test_normalize_snapshot_record_keeps_already_decimal_iv() -> None:
+    contract = MoomooContract(
+        symbol="SPY",
+        owner_code="US.SPY",
+        option_code="US.SPY240427P00500000",
+        option_type="PUT",
+        strike=500.0,
+        expiry=date(2026, 4, 27),
+        name="SPY 500P",
+    )
+
+    row = normalize_snapshot_record(
+        contract,
+        {
+            "code": "US.SPY240427P00500000",
+            "option_implied_volatility": 0.22,
+        },
+    )
+
+    assert row.implied_volatility == 0.22
+
+
+def test_normalize_snapshot_record_converts_non_finite_and_non_numeric_values_to_none() -> None:
+    contract = MoomooContract(
+        symbol="SPY",
+        owner_code="US.SPY",
+        option_code="US.SPY240427C00500000",
+        option_type="CALL",
+        strike=500.0,
+        expiry=date(2026, 4, 27),
+        name="SPY 500C",
+    )
+
+    row = normalize_snapshot_record(
+        contract,
+        {
+            "code": "US.SPY240427C00500000",
+            "last_price": float("nan"),
+            "bid_price": float("inf"),
+            "ask_price": float("-inf"),
+            "bid_volume": "not-a-number",
+            "ask_volume": float("nan"),
+            "volume": float("inf"),
+            "open_interest": float("-inf"),
+            "implied_volatility": float("nan"),
+            "delta": "not-a-number",
+            "gamma": float("inf"),
+            "vega": float("-inf"),
+            "theta": float("nan"),
+            "rho": object(),
+            "contract_multiplier": float("inf"),
+        },
+    )
+
+    assert row.last_price is None
+    assert row.bid_price is None
+    assert row.ask_price is None
+    assert row.bid_size is None
+    assert row.ask_size is None
+    assert row.volume is None
+    assert row.open_interest is None
+    assert row.implied_volatility is None
+    assert row.delta is None
+    assert row.gamma is None
+    assert row.vega is None
+    assert row.theta is None
+    assert row.rho is None
+    assert row.contract_multiplier is None
 
 
 def test_collect_moomoo_snapshot_once_chunks_normalizes_and_reports_rate_estimate() -> None:
@@ -379,14 +452,77 @@ def test_run_moomoo_snapshot_loop_sleeps_only_remaining_interval(
     assert sleeps == [0.75]
 
 
-def test_main_prints_error_json_when_real_client_cannot_be_created(capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_prints_error_json_when_client_factory_cannot_create_client(capsys: pytest.CaptureFixture[str]) -> None:
+    def fail_client_factory(_host: str, _port: int) -> FakeQuoteClient:
+        raise RuntimeError("client factory unavailable")
+
     with pytest.raises(SystemExit) as exc_info:
-        main(["--expiry", "2026-04-27"])
+        main(["--expiry", "2026-04-27"], client_factory=fail_client_factory)
 
     assert exc_info.value.code == 1
     output = capsys.readouterr().out
     assert '"status":"error"' in output
-    assert "moomoo-api package is not installed" in output
+    assert "client factory unavailable" in output
+
+
+def test_collect_moomoo_snapshot_once_degrades_when_snapshot_returns_fewer_known_codes() -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY240427C00500000", strike=500, option_type="CALL"),
+                _option("US.SPY240427P00500000", strike=500, option_type="PUT"),
+            ]
+        },
+        snapshots={
+            "US.SPY240427C00500000": {"code": "US.SPY240427C00500000", "last_price": 1.0},
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=2,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=0,
+                strike_window_up=0,
+                manual_spot=500,
+            )
+        ],
+    )
+
+    result = collect_moomoo_snapshot_once(client, config, expiry=date(2026, 4, 27))
+
+    assert result.status == "degraded"
+    assert result.snapshot_rows_count == 1
+    assert result.warnings == ["Snapshot row count mismatch: expected 2, returned 1, missing 1"]
+
+
+def test_collect_moomoo_snapshot_once_skips_snapshot_polling_when_rate_preflight_is_unsafe() -> None:
+    contracts = [
+        _option(f"US.SPY240427C{i:05d}", strike=200 + i, option_type="CALL", name=f"SPY {200 + i}C")
+        for i in range(801)
+    ]
+    client = FakeQuoteClient(chains={"US.SPY": contracts})
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=1,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=400,
+                strike_window_up=400,
+                manual_spot=600,
+            )
+        ],
+    )
+
+    result = collect_moomoo_snapshot_once(client, config, expiry=date(2026, 4, 27))
+
+    assert client.snapshot_calls == []
+    assert result.status == "degraded"
+    assert result.snapshot_rows_count == 0
+    assert result.total_selected_codes == 801
+    assert result.warnings == ["Snapshot preflight exceeds limit: 90 requests per 30 seconds"]
 
 
 def test_main_help_describes_moomoo_0dte_snapshot(capsys: pytest.CaptureFixture[str]) -> None:
@@ -483,3 +619,57 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
         "OptionTick",
     ]
     assert len(captured_events) == 6
+
+
+def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY260427C00500000", strike=500, option_type="CALL", name="SPY 500C"),
+            ]
+        },
+        snapshots={
+            "US.SPY260427C00500000": {
+                "code": "US.SPY260427C00500000",
+                "last_price": 1.2,
+                "bid_price": 1.1,
+                "ask_price": 1.3,
+            },
+        },
+    )
+    captured_events: list[dict[str, object]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        captured_events.extend(events)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events",
+            accepted_count=len(captured_events),
+            event_types=["CollectorHealth" if "collector_id" in event else "Unexpected" for event in captured_events],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events", fake_publish)
+
+    main(
+        [
+            "--publish",
+            "--api",
+            "http://testserver",
+            "--collector-id",
+            "test-moomoo",
+            "--expiry",
+            "2026-04-27",
+            "--spot",
+            "SPY=500",
+        ],
+        client_factory=lambda _host, _port: client,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "connected"
+    assert payload["publish"]["accepted_count"] == 1
+    assert payload["publish"]["event_types"] == ["CollectorHealth"]
+    assert len(captured_events) == 1
+    assert captured_events[0]["status"] == "degraded"

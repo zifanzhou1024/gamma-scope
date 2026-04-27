@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -76,16 +77,36 @@ class MoomooOptionRow:
     theta: float | None = None
     rho: float | None = None
     contract_multiplier: float | None = None
+    snapshot_time: str | None = None
 
     @property
     def mid_price(self) -> float | None:
-        if self.bid_price is None or self.ask_price is None:
+        bid = _float_or_none(self.bid_price)
+        ask = _float_or_none(self.ask_price)
+        if bid is None or ask is None:
             return None
-        return (self.bid_price + self.ask_price) / 2
+        return (bid + ask) / 2
 
     def as_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["expiry"] = self.expiry.isoformat()
+        for key in (
+            "last_price",
+            "bid_price",
+            "ask_price",
+            "bid_size",
+            "ask_size",
+            "volume",
+            "open_interest",
+            "implied_volatility",
+            "delta",
+            "gamma",
+            "vega",
+            "theta",
+            "rho",
+            "contract_multiplier",
+        ):
+            data[key] = _float_or_none(data[key])
         data["mid_price"] = self.mid_price
         return data
 
@@ -280,7 +301,19 @@ def _collect_snapshot_from_context(
     snapshot_context: _SnapshotContext,
 ) -> MoomooSnapshotResult:
     warnings = list(snapshot_context.warnings)
+    if not snapshot_context.rate_estimate.within_limit:
+        return MoomooSnapshotResult(
+            status="degraded",
+            subscription=snapshot_context.subscription,
+            discoveries=snapshot_context.discoveries,
+            rows=[],
+            total_selected_codes=len(snapshot_context.codes),
+            rate_estimate=snapshot_context.rate_estimate,
+            warnings=warnings,
+        )
+
     rows: list[MoomooOptionRow] = []
+    returned_known_codes: set[str] = set()
     for code_chunk in chunked(snapshot_context.codes, SNAPSHOT_CODE_LIMIT):
         return_code, snapshot_data = client.get_market_snapshot(code_chunk)
         if return_code != RET_OK:
@@ -291,10 +324,18 @@ def _collect_snapshot_from_context(
             code = str(normalized.get("code", ""))
             contract = snapshot_context.contract_by_code.get(code)
             if contract is not None:
+                returned_known_codes.add(code)
                 rows.append(normalize_snapshot_record(contract, normalized))
 
+    missing_count = len(snapshot_context.codes) - len(returned_known_codes)
+    if missing_count > 0:
+        warnings.append(
+            "Snapshot row count mismatch: "
+            f"expected {len(snapshot_context.codes)}, returned {len(returned_known_codes)}, missing {missing_count}"
+        )
+
     return MoomooSnapshotResult(
-        status="connected" if rows else "degraded",
+        status="connected" if rows and missing_count == 0 else "degraded",
         subscription=snapshot_context.subscription,
         discoveries=snapshot_context.discoveries,
         rows=rows,
@@ -342,7 +383,7 @@ def normalize_snapshot_record(contract: MoomooContract, record: dict[str, object
         ask_size=_float_or_none(_first_present(record, "ask_volume", "ask_size", "ask_vol")),
         volume=_float_or_none(record.get("volume")),
         open_interest=_float_or_none(_first_present(record, "open_interest", "option_open_interest")),
-        implied_volatility=_float_or_none(
+        implied_volatility=_iv_or_none(
             _first_present(record, "implied_volatility", "iv", "option_implied_volatility")
         ),
         delta=_float_or_none(_first_present(record, "delta", "option_delta")),
@@ -353,6 +394,7 @@ def normalize_snapshot_record(contract: MoomooContract, record: dict[str, object
         contract_multiplier=_float_or_none(
             _first_present(record, "contract_multiplier", "option_contract_multiplier")
         ),
+        snapshot_time=_text_or_none(_first_present(record, "snapshot_time", "update_time")),
     )
 
 
@@ -416,7 +458,7 @@ def _publish_spx_compatibility_snapshot(
         collector_id=config.collector_id,
         spot=_spx_spot(result),
         rows=result.rows,
-        status=result.status,
+        status=_spx_publish_status(result),
         message=_health_message(result),
     )
     return publish_events(events, api_base=config.api_base)
@@ -427,6 +469,16 @@ def _spx_spot(result: MoomooSnapshotResult) -> float | None:
         if discovery.symbol == "SPX":
             return discovery.spot
     return None
+
+
+def _spx_publish_status(result: MoomooSnapshotResult) -> str:
+    if result.status != "connected":
+        return result.status
+    if _spx_spot(result) is None:
+        return "degraded"
+    if not any(row.symbol == "SPX" for row in result.rows):
+        return "degraded"
+    return result.status
 
 
 def _health_message(result: MoomooSnapshotResult) -> str:
@@ -516,9 +568,27 @@ def _float_or_none(value: object) -> float | None:
     if value is None or value == "":
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(result):
+        return None
+    return result
+
+
+def _iv_or_none(value: object) -> float | None:
+    result = _float_or_none(value)
+    if result is None:
+        return None
+    if result > 1:
+        return result / 100
+    return result
+
+
+def _text_or_none(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    return str(value)
 
 
 def _first_present(record: dict[str, object], *keys: str) -> object:
