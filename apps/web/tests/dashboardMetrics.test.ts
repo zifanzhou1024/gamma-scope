@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  deriveMarketMap,
+  deriveMarketIntelligence,
+  deriveLevelHistoryEntry,
+  deriveLevelMovements,
+  deriveDataQuality,
   filterChainRowsBySide,
   formatBasisPointDiff,
   formatGammaDiff,
@@ -12,16 +17,32 @@ import {
   deriveOperationalNotices,
   getRowOperationalStatusDisplays,
   getRowOperationalStatusDisplay,
+  getAtmMetricValue,
   getTransportStatusDisplay,
   getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
-  summarizeSnapshot
+  summarizeSnapshot,
+  updateLevelHistory
 } from "../lib/dashboardMetrics";
 import { buildPath, buildSeries } from "../lib/chartGeometry";
 import { seedSnapshot } from "../lib/seedSnapshot";
 
 describe("dashboard metrics", () => {
+  const marketMapSnapshot = {
+    ...seedSnapshot,
+    spot: 5206,
+    forward: 5207.5,
+    rows: [
+      { ...seedSnapshot.rows[0]!, strike: 5190, right: "call" as const, custom_iv: 0.22, custom_gamma: -0.01, custom_vanna: -0.04 },
+      { ...seedSnapshot.rows[1]!, strike: 5190, right: "put" as const, custom_iv: 0.24, custom_gamma: -0.02, custom_vanna: -0.03 },
+      { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.03, custom_vanna: -0.01 },
+      { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.02, custom_vanna: 0.005 },
+      { ...seedSnapshot.rows[4]!, strike: 5210, right: "call" as const, custom_iv: 0.21, custom_gamma: 0.04, custom_vanna: 0.03 },
+      { ...seedSnapshot.rows[5]!, strike: 5210, right: "put" as const, custom_iv: 0.17, custom_gamma: 0.01, custom_vanna: 0.02 }
+    ]
+  };
+
   it("summarizes the seeded analytics snapshot", () => {
     const summary = summarizeSnapshot(seedSnapshot);
 
@@ -30,6 +51,242 @@ describe("dashboard metrics", () => {
     expect(summary.averageIv).toBeCloseTo(0.1907);
     expect(summary.totalAbsGamma).toBeCloseTo(0.20565);
     expect(summary.totalAbsVanna).toBeCloseTo(0.181896);
+  });
+
+  it("summarizes net and absolute exposures", () => {
+    const summary = summarizeSnapshot(marketMapSnapshot);
+
+    expect(summary.totalNetGamma).toBeCloseTo(0.07);
+    expect(summary.totalAbsGamma).toBeCloseTo(0.13);
+    expect(summary.totalNetVanna).toBeCloseTo(-0.025);
+    expect(summary.totalAbsVanna).toBeCloseTo(0.135);
+  });
+
+  it("derives spot-relative market map levels", () => {
+    const marketMap = deriveMarketMap(marketMapSnapshot);
+
+    expect(marketMap.spot).toBe(5206);
+    expect(marketMap.forward).toBe(5207.5);
+    expect(marketMap.atmStrike).toBe(5210);
+    expect(marketMap.callIvLow).toMatchObject({ strike: 5200, value: 0.18 });
+    expect(marketMap.putIvLow).toMatchObject({ strike: 5210, value: 0.17 });
+    expect(marketMap.gammaPeak).toMatchObject({ strike: 5210, value: 0.05 });
+    expect(marketMap.vannaFlip?.strike).toBeCloseTo(5200.91, 2);
+    expect(marketMap.vannaMax).toMatchObject({ strike: 5210, value: 0.05 });
+  });
+
+  it("appends bounded level history and resets when session or expiry changes", () => {
+    const firstEntry = deriveLevelHistoryEntry(marketMapSnapshot, "replay");
+    const secondEntry = deriveLevelHistoryEntry(
+      { ...marketMapSnapshot, spot: 5208, snapshot_time: "2026-04-23T18:00:01Z" },
+      "replay"
+    );
+    const thirdEntry = deriveLevelHistoryEntry(
+      { ...marketMapSnapshot, spot: 5209, snapshot_time: "2026-04-23T18:00:02Z" },
+      "replay"
+    );
+
+    const boundedHistory = updateLevelHistory(
+      updateLevelHistory(updateLevelHistory([], firstEntry, 2), secondEntry, 2),
+      thirdEntry,
+      2
+    );
+
+    expect(boundedHistory).toHaveLength(2);
+    expect(boundedHistory.map((entry) => entry.levels.spot)).toEqual([5208, 5209]);
+
+    const changedSession = deriveLevelHistoryEntry({ ...marketMapSnapshot, session_id: "new-session" }, "replay");
+    expect(updateLevelHistory(boundedHistory, changedSession, 2)).toEqual([changedSession]);
+
+    const changedExpiry = deriveLevelHistoryEntry({ ...marketMapSnapshot, expiry: "2026-04-24" }, "replay");
+    expect(updateLevelHistory(boundedHistory, changedExpiry, 2)).toEqual([changedExpiry]);
+  });
+
+  it("derives previous current delta and direction for tracked market levels", () => {
+    const previous = deriveLevelHistoryEntry(marketMapSnapshot, "realtime");
+    const current = deriveLevelHistoryEntry(
+      {
+        ...marketMapSnapshot,
+        spot: 5207,
+        rows: [
+          { ...seedSnapshot.rows[0]!, strike: 5190, right: "call" as const, custom_iv: 0.16, custom_gamma: 0.01, custom_vanna: -0.04 },
+          { ...seedSnapshot.rows[1]!, strike: 5190, right: "put" as const, custom_iv: 0.24, custom_gamma: 0.01, custom_vanna: -0.03 },
+          { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.02, custom_vanna: -0.01 },
+          { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.01, custom_vanna: 0.005 },
+          { ...seedSnapshot.rows[4]!, strike: 5210, right: "call" as const, custom_iv: 0.21, custom_gamma: 0.01, custom_vanna: 0.03 },
+          { ...seedSnapshot.rows[5]!, strike: 5210, right: "put" as const, custom_iv: 0.17, custom_gamma: 0.01, custom_vanna: 0.02 }
+        ]
+      },
+      "realtime"
+    );
+
+    const movements = deriveLevelMovements([previous, current]);
+
+    expect(movements.spot).toMatchObject({ previous: 5206, current: 5207, delta: 1, direction: "Up" });
+    expect(movements.callIvLowStrike).toMatchObject({ previous: 5200, current: 5190, delta: -10, direction: "Down" });
+    expect(movements.putIvLowStrike).toMatchObject({ previous: 5210, current: 5210, delta: 0, direction: "Flat" });
+    expect(movements.gammaPeakStrike).toMatchObject({ previous: 5210, current: 5200, delta: -10, direction: "Down" });
+    expect(movements.vannaFlipStrike.direction).toBe("Flat");
+  });
+
+  it("marks movements unavailable until at least two compatible snapshots exist", () => {
+    const movements = deriveLevelMovements([deriveLevelHistoryEntry(marketMapSnapshot, "realtime")]);
+
+    expect(movements.spot).toMatchObject({ previous: null, current: 5206, delta: null, direction: "Unavailable" });
+  });
+
+  it("derives expected move bands from ATM IV and remaining time to SPX close", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "2026-04-23T18:00:00Z",
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 4990, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[1]!, strike: 4990, right: "put" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[2]!, strike: 5000, right: "call" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[3]!, strike: 5000, right: "put" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[4]!, strike: 5010, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[5]!, strike: 5010, right: "put" as const, custom_iv: 0.32 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.iv).toBeCloseTo(0.16);
+    expect(intelligence.expectedMove.oneSigma.move).toBeCloseTo(12.09, 2);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([
+      expect.closeTo(4987.91, 2),
+      expect.closeTo(5012.09, 2)
+    ]);
+    expect(intelligence.expectedMove.halfSigma.range).toEqual([
+      expect.closeTo(4993.96, 2),
+      expect.closeTo(5006.04, 2)
+    ]);
+  });
+
+  it("falls back to average IV for expected move and clamps expired time to zero", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "2026-04-23T21:00:00Z",
+      rows: marketMapSnapshot.rows.map((row) => ({
+        ...row,
+        custom_iv: row.strike === 5000 ? null : 0.24
+      }))
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.iv).toBeCloseTo(0.24);
+    expect(intelligence.expectedMove.oneSigma.move).toBe(0);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([5000, 5000]);
+    expect(intelligence.expectedMove.halfSigma.range).toEqual([5000, 5000]);
+  });
+
+  it("uses the 21:00Z SPX close during standard time", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-01-15",
+      snapshot_time: "2026-01-15T20:00:00Z",
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 4990, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[1]!, strike: 4990, right: "put" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[2]!, strike: 5000, right: "call" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[3]!, strike: 5000, right: "put" as const, custom_iv: 0.16 },
+        { ...seedSnapshot.rows[4]!, strike: 5010, right: "call" as const, custom_iv: 0.32 },
+        { ...seedSnapshot.rows[5]!, strike: 5010, right: "put" as const, custom_iv: 0.32 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.expectedMove.timeToCloseYears).toBeCloseTo(1 / (365 * 24));
+    expect(intelligence.expectedMove.oneSigma.move).toBeCloseTo(8.55, 2);
+    expect(intelligence.expectedMove.oneSigma.range).toEqual([
+      expect.closeTo(4991.45, 2),
+      expect.closeTo(5008.55, 2)
+    ]);
+  });
+
+  it("returns zero-time expected moves for malformed snapshot dates", () => {
+    const badSnapshotTime = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-04-23",
+      snapshot_time: "not-a-date"
+    };
+    const badExpiry = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "not-an-expiry",
+      snapshot_time: "2026-04-23T18:00:00Z"
+    };
+    const badCalendarExpiry = {
+      ...marketMapSnapshot,
+      spot: 5000,
+      expiry: "2026-02-31",
+      snapshot_time: "2026-02-27T18:00:00Z"
+    };
+
+    expect(() => deriveMarketIntelligence(badSnapshotTime)).not.toThrow();
+    expect(() => deriveMarketIntelligence(badExpiry)).not.toThrow();
+    expect(() => deriveMarketIntelligence(badCalendarExpiry)).not.toThrow();
+
+    for (const snapshot of [badSnapshotTime, badExpiry, badCalendarExpiry]) {
+      const intelligence = deriveMarketIntelligence(snapshot);
+
+      expect(intelligence.expectedMove.timeToCloseYears).toBe(0);
+      expect(intelligence.expectedMove.oneSigma.move).toBe(0);
+      expect(intelligence.expectedMove.oneSigma.range).toEqual([5000, 5000]);
+      expect(Number.isFinite(intelligence.expectedMove.oneSigma.move)).toBe(true);
+    }
+  });
+
+  it("derives wall levels and deterministic regime labels", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5200,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: -0.2, custom_vanna: 0.01 },
+        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: -0.15, custom_vanna: 0.02 },
+        { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.3 },
+        { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.2 },
+        { ...seedSnapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.3, custom_vanna: 0.05 },
+        { ...seedSnapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.2, custom_vanna: 0.04 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.walls.positiveGamma).toMatchObject({ strike: 5220, value: 0.5 });
+    expect(intelligence.walls.negativeGamma).toMatchObject({ strike: 5180, value: -0.35 });
+    expect(intelligence.walls.vanna).toMatchObject({ strike: 5200, value: -0.5 });
+    expect(intelligence.regimes).toEqual({
+      gamma: "Pinning",
+      vanna: "Suppressive",
+      ivSmileBias: "Left-skew"
+    });
+  });
+
+  it("returns ATM aggregate values for chart headers", () => {
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_iv")).toBeCloseTo(0.19);
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_gamma")).toBeCloseTo(0.05);
+    expect(getAtmMetricValue(marketMapSnapshot, "custom_vanna")).toBeCloseTo(0.05);
+  });
+
+  it("returns null for missing ATM exposure values", () => {
+    const snapshotWithMissingAtmExposures = {
+      ...marketMapSnapshot,
+      rows: marketMapSnapshot.rows.map((row) =>
+        row.strike === 5210 ? { ...row, custom_gamma: null, custom_vanna: null } : row
+      )
+    };
+
+    expect(getAtmMetricValue(snapshotWithMissingAtmExposures, "custom_gamma")).toBeNull();
+    expect(getAtmMetricValue(snapshotWithMissingAtmExposures, "custom_vanna")).toBeNull();
   });
 
   it("formats dashboard values consistently", () => {
@@ -153,6 +410,100 @@ describe("dashboard metrics", () => {
     ]);
   });
 
+  it("derives compact data quality details for degraded realtime snapshots", () => {
+    const degradedSnapshot = {
+      ...seedSnapshot,
+      mode: "live",
+      snapshot_time: "2026-04-23T20:30:00Z",
+      expiry: "2026-04-23",
+      source_status: "stale",
+      coverage_status: "partial",
+      freshness_ms: 18_500,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5200, bid: 12, ask: 12.5, calc_status: "ok" as const },
+        { ...seedSnapshot.rows[1]!, strike: 5200, bid: 13, ask: 12.5, calc_status: "solver_failed" as const },
+        { ...seedSnapshot.rows[2]!, strike: 5210, bid: null, ask: 3.25, calc_status: "missing_quote" as const },
+        { ...seedSnapshot.rows[3]!, strike: 5220, bid: 2.25, ask: null, calc_status: "ok" as const }
+      ]
+    } satisfies typeof seedSnapshot;
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-dev",
+      status: "degraded",
+      ibkr_account_mode: "paper",
+      message: "Market data delayed",
+      event_time: "2026-04-23T20:30:00Z",
+      received_time: "2026-04-23T20:30:01Z"
+    } as const;
+
+    expect(deriveDataQuality(degradedSnapshot, collectorHealth, "fallback_polling", "realtime")).toEqual({
+      lastUpdated: "04:30:00 PM EDT",
+      expiry: "2026-04-23",
+      isZeroDte: true,
+      zeroDteLabel: "0DTE",
+      rowCount: 4,
+      distinctStrikeCount: 3,
+      freshness: {
+        label: "18.5s stale",
+        tone: "warning"
+      },
+      source: {
+        label: "Source stale",
+        tone: "warning"
+      },
+      coverage: {
+        label: "Partial chain",
+        tone: "warning"
+      },
+      transport: {
+        label: "Transport Fallback polling",
+        tone: "warning"
+      },
+      collector: {
+        label: "Collector Degraded",
+        detail: "IBKR Paper",
+        tone: "warning"
+      },
+      qualitySummary: {
+        validQuoteRows: 1,
+        crossedQuoteRows: 1,
+        missingBidAskRows: 2,
+        nonOkCalcRows: 2
+      },
+      mode: {
+        label: "Live mode",
+        detail: "Realtime dashboard",
+        tone: "ok"
+      }
+    });
+  });
+
+  it("compares 0DTE status against the New York market date", () => {
+    const snapshotNearUtcMidnight = {
+      ...seedSnapshot,
+      snapshot_time: "2026-04-24T01:30:00Z",
+      expiry: "2026-04-23"
+    } satisfies typeof seedSnapshot;
+    const nextExpirySnapshot = {
+      ...snapshotNearUtcMidnight,
+      expiry: "2026-04-24"
+    } satisfies typeof seedSnapshot;
+
+    expect(deriveDataQuality(snapshotNearUtcMidnight).zeroDteLabel).toBe("0DTE");
+    expect(deriveDataQuality(nextExpirySnapshot).zeroDteLabel).toBe("Not 0DTE");
+  });
+
+  it("treats replay snapshots on the replay dashboard as a matched mode", () => {
+    const replayQuality = deriveDataQuality({ ...seedSnapshot, mode: "replay" }, null, null, "replay");
+
+    expect(replayQuality.mode).toEqual({
+      label: "Replay mode",
+      detail: "Replay dashboard",
+      tone: "ok"
+    });
+  });
+
   it("maps row operational statuses including crossed quotes", () => {
     expect(getRowOperationalStatusDisplay(seedSnapshot.rows[0]!)).toEqual(null);
     expect(getRowOperationalStatusDisplay({ ...seedSnapshot.rows[0]!, bid: 12.1, ask: 11.9 })).toEqual({
@@ -253,6 +604,23 @@ describe("chart geometry", () => {
 
     expect(path).toMatch(/^M /);
     expect(path).toContain(" L ");
+  });
+
+  it("builds an SVG path against a shared multi-series domain", () => {
+    const path = buildPath(
+      [
+        { x: 0, y: 10 },
+        { x: 1, y: 20 }
+      ],
+      { width: 100, height: 100, padding: 10 },
+      [
+        { x: 0, y: 0 },
+        { x: 1, y: 10 },
+        { x: 1, y: 20 }
+      ]
+    );
+
+    expect(path).toBe("M 10.00 50.00 L 90.00 10.00");
   });
 
   it("returns an empty path for fewer than two points", () => {

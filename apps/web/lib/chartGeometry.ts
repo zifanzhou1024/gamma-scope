@@ -26,14 +26,14 @@ export function buildSeries(rows: Array<Pick<AnalyticsRow, "strike"> & Partial<R
     .sort((a, b) => a.x - b.x);
 }
 
-export function buildPath(points: ChartPoint[], frame: ChartFrame): string {
+export function buildPath(points: ChartPoint[], frame: ChartFrame, domainPoints: ChartPoint[] = points): string {
   if (points.length < 2) {
     return "";
   }
 
   return points
     .map((point, index) => {
-      const projected = projectPoint(point, points, frame);
+      const projected = projectPoint(point, domainPoints, frame);
       const command = index === 0 ? "M" : "L";
       return `${command} ${projected.x.toFixed(2)} ${projected.y.toFixed(2)}`;
     })

@@ -17,7 +17,8 @@ describe("ReplayPanel", () => {
             expiry: "2026-04-27",
             start_time: "2026-04-27T14:30:00Z",
             end_time: "2026-04-27T14:35:00Z",
-            snapshot_count: 2
+            snapshot_count: 2,
+            timestamp_source: "exact"
           },
           {
             session_id: "seed-spx-2026-04-23",
@@ -25,13 +26,26 @@ describe("ReplayPanel", () => {
             expiry: "2026-04-23",
             start_time: "2026-04-23T15:30:00Z",
             end_time: "2026-04-23T16:00:00Z",
-            snapshot_count: 4
+            snapshot_count: 4,
+            timestamp_source: "estimated"
           }
         ]}
         hasSessions
-        snapshotTimes={["2026-04-27T14:30:00.000Z", "2026-04-27T14:35:00.000Z"]}
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-27T14:30:00.000Z"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-27T14:35:00.000Z"
+          }
+        ]}
         selectedSnapshotIndex={1}
-        selectedSnapshotTime="2026-04-27T14:35:00.000Z"
+        selectedTimelineEntry={{
+          index: 1,
+          snapshot_time: "2026-04-27T14:35:00.000Z"
+        }}
         isReplayModeActive={false}
         isReplayStreamActive={false}
         isLoadingSessions={false}
@@ -60,12 +74,25 @@ describe("ReplayPanel", () => {
         expiry: "2026-04-27",
         start_time: "2026-04-27T14:30:00Z",
         end_time: "2026-04-27T14:35:00Z",
-        snapshot_count: 2
+        snapshot_count: 2,
+        timestamp_source: "estimated" as const
       }],
       hasSessions: true,
-      snapshotTimes: ["2026-04-27T14:30:00.000Z", "2026-04-27T14:35:00.000Z"],
+      timelineEntries: [
+        {
+          index: 0,
+          snapshot_time: "2026-04-27T14:30:00.000Z"
+        },
+        {
+          index: 1,
+          snapshot_time: "2026-04-27T14:35:00.000Z"
+        }
+      ],
       selectedSnapshotIndex: 0,
-      selectedSnapshotTime: "2026-04-27T14:30:00.000Z",
+      selectedTimelineEntry: {
+        index: 0,
+        snapshot_time: "2026-04-27T14:30:00.000Z"
+      },
       isReplayModeActive: false,
       isLoadingSessions: false,
       isLoadingReplay: false,
@@ -87,5 +114,206 @@ describe("ReplayPanel", () => {
 
     expect(idleMarkup).toContain("Play replay");
     expect(playingMarkup).toContain("Stop replay");
+  });
+
+  it("keeps replay session selection enabled during active playback snapshot loads", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="captured-session"
+        sessions={[
+          {
+            session_id: "captured-session",
+            symbol: "SPX",
+            expiry: "2026-04-27",
+            start_time: "2026-04-27T14:30:00Z",
+            end_time: "2026-04-27T14:35:00Z",
+            snapshot_count: 2,
+            timestamp_source: "estimated"
+          },
+          {
+            session_id: "alternate-session",
+            symbol: "SPX",
+            expiry: "2026-04-27",
+            start_time: "2026-04-27T15:30:00Z",
+            end_time: "2026-04-27T15:35:00Z",
+            snapshot_count: 2,
+            timestamp_source: "estimated"
+          }
+        ]}
+        hasSessions
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-27T14:30:00.000Z"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-27T14:35:00.000Z"
+          }
+        ]}
+        selectedSnapshotIndex={0}
+        selectedTimelineEntry={{
+          index: 0,
+          snapshot_time: "2026-04-27T14:30:00.000Z"
+        }}
+        isReplayModeActive={false}
+        isReplayStreamActive
+        isLoadingSessions={false}
+        isLoadingReplay
+        errorMessage={null}
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toMatch(/<span>Replay session<\/span><select(?![^>]*disabled)[^>]*>/);
+  });
+
+  it("keeps duplicate exact timestamps selectable by selected index", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="import-session"
+        sessions={[{
+          session_id: "import-session",
+          symbol: "SPX",
+          expiry: "2026-04-27",
+          start_time: "2026-04-27T14:30:00Z",
+          end_time: "2026-04-27T14:30:00Z",
+          snapshot_count: 2,
+          timestamp_source: "exact"
+        }]}
+        hasSessions
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-27T14:30:00Z",
+            source_snapshot_id: "snapshot-a"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-27T14:30:00Z",
+            source_snapshot_id: "snapshot-b"
+          }
+        ]}
+        selectedSnapshotIndex={1}
+        selectedTimelineEntry={{
+          index: 1,
+          snapshot_time: "2026-04-27T14:30:00Z",
+          source_snapshot_id: "snapshot-b"
+        }}
+        isReplayModeActive={false}
+        isReplayStreamActive={false}
+        isLoadingSessions={false}
+        isLoadingReplay={false}
+        errorMessage={null}
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("2026-04-27T14:30:00Z");
+    expect(markup).toContain("2 / 2");
+    expect(markup).toContain("value=\"1\"");
+  });
+
+  it("disables replay actions when a session has no available timeline entries", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="import-session"
+        sessions={[{
+          session_id: "import-session",
+          symbol: "SPX",
+          expiry: "2026-04-27",
+          start_time: "2026-04-27T14:30:00Z",
+          end_time: "2026-04-27T14:30:00Z",
+          snapshot_count: 2,
+          timestamp_source: "exact"
+        }]}
+        hasSessions
+        timelineEntries={[]}
+        selectedSnapshotIndex={0}
+        selectedTimelineEntry={null}
+        isReplayModeActive={false}
+        isReplayStreamActive={false}
+        isLoadingSessions={false}
+        isLoadingReplay={false}
+        errorMessage="Exact replay timestamps unavailable."
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("Exact replay timestamps unavailable.");
+    expect(markup).toContain('<button type="button" disabled="">Play replay</button>');
+    expect(markup).toContain('<button type="button" disabled="">Load replay</button>');
+  });
+
+  it("renders replay speed choices and selected timestamp in New York market time", () => {
+    const markup = renderToStaticMarkup(
+      <ReplayPanel
+        selectedSessionId="import-session"
+        sessions={[{
+          session_id: "import-session",
+          symbol: "SPX",
+          expiry: "2026-04-22",
+          start_time: "2026-04-22T13:30:02Z",
+          end_time: "2026-04-22T13:30:03Z",
+          snapshot_count: 2,
+          timestamp_source: "exact"
+        }]}
+        hasSessions
+        timelineEntries={[
+          {
+            index: 0,
+            snapshot_time: "2026-04-22T13:30:02Z",
+            source_snapshot_id: "snapshot-a"
+          },
+          {
+            index: 1,
+            snapshot_time: "2026-04-22T13:30:03Z",
+            source_snapshot_id: "snapshot-b"
+          }
+        ]}
+        selectedSnapshotIndex={0}
+        selectedTimelineEntry={{
+          index: 0,
+          snapshot_time: "2026-04-22T13:30:02Z",
+          source_snapshot_id: "snapshot-a"
+        }}
+        isReplayModeActive={false}
+        isReplayStreamActive={false}
+        isLoadingSessions={false}
+        isLoadingReplay={false}
+        errorMessage={null}
+        onSelectSessionId={vi.fn()}
+        onSelectSnapshotIndex={vi.fn()}
+        onSelectPlaybackSpeed={vi.fn()}
+        onLoadReplay={vi.fn()}
+        onPlayReplayStream={vi.fn()}
+        onStopReplayStream={vi.fn()}
+        onReturnToLive={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("Replay speed");
+    expect(markup).toContain("1x");
+    expect(markup).toContain("5x");
+    expect(markup).toContain("10x");
+    expect(markup).toContain("30x");
+    expect(markup).toContain("60x");
+    expect(markup).toContain("09:30:02");
+    expect(markup).toContain("EDT");
   });
 });

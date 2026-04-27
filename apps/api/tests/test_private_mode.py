@@ -195,7 +195,10 @@ def test_private_mode_keeps_replay_rest_open(monkeypatch: pytest.MonkeyPatch) ->
     )
 
     assert sessions_response.status_code == 200
-    assert sessions_response.json()[0]["session_id"] == "seed-spx-2026-04-23"
+    assert any(
+        session["session_id"] == "seed-spx-2026-04-23"
+        for session in sessions_response.json()
+    )
     assert snapshot_response.status_code == 200
     assert snapshot_response.json()["mode"] == "replay"
 

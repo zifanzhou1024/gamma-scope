@@ -5,10 +5,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from gammascope_api.fixtures import load_json_fixture
-from gammascope_api.replay.dependencies import get_replay_repository
+from gammascope_api.replay.dependencies import get_replay_import_repository, get_replay_repository
+from gammascope_api.replay.imported_snapshot import build_imported_analytics_snapshot
 
 
 router = APIRouter()
+IMPORTED_REPLAY_UNAVAILABLE_DETAIL = "Imported replay persistence unavailable"
 
 REPLAY_TIMES = [
     "2026-04-23T15:30:00Z",
@@ -20,11 +22,13 @@ REPLAY_TIMES = [
 
 @router.get("/api/spx/0dte/replay/sessions")
 def list_replay_sessions() -> list[dict]:
+    imported_sessions = _completed_imported_replay_sessions()
     persisted_sessions = _persisted_replay_sessions()
     snapshots = seed_replay_snapshots()
     first_snapshot = snapshots[0]
     last_snapshot = snapshots[-1]
     return [
+        *imported_sessions,
         *persisted_sessions,
         {
             "session_id": first_snapshot["session_id"],
@@ -33,12 +37,31 @@ def list_replay_sessions() -> list[dict]:
             "start_time": first_snapshot["snapshot_time"],
             "end_time": last_snapshot["snapshot_time"],
             "snapshot_count": len(snapshots),
+            "timestamp_source": "estimated",
         }
     ]
 
 
+@router.get("/api/spx/0dte/replay/sessions/{session_id}/timestamps")
+def get_replay_session_timestamps(session_id: str) -> dict[str, Any]:
+    entries = _imported_replay_timestamps(session_id) if _is_completed_imported_session(session_id) else []
+    return {
+        "session_id": session_id,
+        "timestamp_source": "exact" if entries else "estimated",
+        "timestamps": entries,
+    }
+
+
 @router.get("/api/spx/0dte/replay/snapshot")
-def get_replay_snapshot(session_id: str, at: str | None = None) -> dict:
+def get_replay_snapshot(
+    session_id: str,
+    at: str | None = None,
+    source_snapshot_id: str | None = None,
+) -> dict:
+    imported_snapshot = _imported_replay_snapshot(session_id, at, source_snapshot_id)
+    if imported_snapshot is not None:
+        return imported_snapshot
+
     persisted_snapshot = _persisted_replay_snapshot(session_id, at)
     if persisted_snapshot is not None:
         return persisted_snapshot
@@ -49,7 +72,15 @@ def get_replay_snapshot(session_id: str, at: str | None = None) -> dict:
     return nearest_replay_snapshot(snapshots, at)
 
 
-def replay_stream_snapshots(session_id: str, at: str | None = None) -> list[dict[str, Any]]:
+def replay_stream_snapshots(
+    session_id: str,
+    at: str | None = None,
+    source_snapshot_id: str | None = None,
+) -> list[dict[str, Any]]:
+    imported_snapshots = _imported_replay_stream_snapshots(session_id, at, source_snapshot_id)
+    if imported_snapshots is not None:
+        return imported_snapshots
+
     persisted_snapshots = _persisted_replay_snapshots(session_id, at)
     if persisted_snapshots:
         return persisted_snapshots
@@ -59,6 +90,74 @@ def replay_stream_snapshots(session_id: str, at: str | None = None) -> list[dict
         return snapshots_at_or_after(snapshots, at)
 
     return [{**snapshots[-1], "coverage_status": "empty", "rows": []}]
+
+
+def _completed_imported_replay_sessions() -> list[dict[str, Any]]:
+    try:
+        return get_replay_import_repository().list_completed_sessions()
+    except Exception:
+        return []
+
+
+def _is_completed_imported_session(session_id: str, *, require_available: bool = True) -> bool:
+    try:
+        return get_replay_import_repository().is_completed_public_session(session_id)
+    except Exception as exc:
+        if not require_available:
+            return False
+        raise _imported_replay_unavailable() from exc
+
+
+def _imported_replay_timestamps(session_id: str) -> list[dict[str, Any]]:
+    try:
+        return get_replay_import_repository().timestamps(session_id)
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
+
+
+def _imported_replay_snapshot(
+    session_id: str,
+    at: str | None,
+    source_snapshot_id: str | None,
+) -> dict[str, Any] | None:
+    if not _is_completed_imported_session(session_id, require_available=source_snapshot_id is not None):
+        return None
+
+    if source_snapshot_id is not None:
+        try:
+            snapshot = get_replay_import_repository().snapshot_by_source_id(session_id, source_snapshot_id)
+        except Exception as exc:
+            raise _imported_replay_unavailable() from exc
+        if snapshot is None:
+            return _empty_replay_snapshot()
+        return build_imported_analytics_snapshot(snapshot)
+
+    try:
+        snapshot = get_replay_import_repository().nearest_snapshot(session_id, at)
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
+    if snapshot is None:
+        return _empty_replay_snapshot()
+    return build_imported_analytics_snapshot(snapshot)
+
+
+def _imported_replay_stream_snapshots(
+    session_id: str,
+    at: str | None,
+    source_snapshot_id: str | None,
+) -> list[dict[str, Any]] | None:
+    if not _is_completed_imported_session(session_id, require_available=source_snapshot_id is not None):
+        return None
+
+    try:
+        snapshots = get_replay_import_repository().stream_snapshots(session_id, at, source_snapshot_id)
+    except Exception as exc:
+        raise _imported_replay_unavailable() from exc
+    return [build_imported_analytics_snapshot(snapshot) for snapshot in snapshots]
+
+
+def _imported_replay_unavailable() -> HTTPException:
+    return HTTPException(status_code=503, detail=IMPORTED_REPLAY_UNAVAILABLE_DETAIL)
 
 
 def _persisted_replay_sessions() -> list[dict[str, Any]]:
@@ -86,6 +185,10 @@ def _persisted_replay_snapshots(session_id: str, at: str | None) -> list[dict[st
         if session_id == snapshots[0]["session_id"]:
             return []
         raise HTTPException(status_code=503, detail="Replay persistence unavailable") from None
+
+
+def _empty_replay_snapshot() -> dict[str, Any]:
+    return {**seed_replay_snapshots()[-1], "coverage_status": "empty", "rows": []}
 
 
 def seed_replay_snapshots() -> list[dict[str, Any]]:

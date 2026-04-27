@@ -448,7 +448,11 @@ def test_replay_sessions_exposes_seed_session() -> None:
     response = client.get("/api/spx/0dte/replay/sessions")
 
     assert response.status_code == 200
-    session = response.json()[0]
+    session = next(
+        session
+        for session in response.json()
+        if session["session_id"] == "seed-spx-2026-04-23"
+    )
     assert session["session_id"] == "seed-spx-2026-04-23"
     assert session["snapshot_count"] > 1
     assert session["start_time"] != session["end_time"]

@@ -9,6 +9,7 @@ function replaySnapshotUrl(apiBaseUrl: string, requestUrl: string): string {
   const params = new URLSearchParams();
   const sessionId = sourceUrl.searchParams.get("session_id");
   const at = sourceUrl.searchParams.get("at");
+  const sourceSnapshotId = sourceUrl.searchParams.get("source_snapshot_id");
 
   if (sessionId) {
     params.set("session_id", sessionId);
@@ -16,6 +17,10 @@ function replaySnapshotUrl(apiBaseUrl: string, requestUrl: string): string {
 
   if (at) {
     params.set("at", at);
+  }
+
+  if (sourceSnapshotId) {
+    params.set("source_snapshot_id", sourceSnapshotId);
   }
 
   return `${apiBaseUrl.replace(/\/+$/, "")}${REPLAY_SNAPSHOT_PATH}?${params.toString()}`;

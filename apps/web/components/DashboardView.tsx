@@ -1,14 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
+import { DataQualityPanel } from "./DataQualityPanel";
+import { LevelMovementPanel } from "./LevelMovementPanel";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
+import { deriveStrikeInspection } from "../lib/chartInspection";
 import {
   type ChainSide,
   type LiveTransportStatus,
+  deriveLevelHistoryEntry,
+  deriveLevelMovements,
   deriveOperationalNotices,
+  deriveMarketIntelligence,
+  deriveMarketMap,
   filterChainRowsBySide,
   formatGammaDiff,
   formatInteger,
@@ -19,13 +27,15 @@ import {
   formatSnapshotTime,
   formatStatusLabel,
   formatStrikeRange,
+  getAtmMetricValue,
   getRowOperationalStatusDisplays,
   getTransportStatusDisplay,
   getComparisonStatusDisplay,
   groupRowsByStrike,
   nearestStrike,
   sortRowsByStrike,
-  summarizeSnapshot
+  summarizeSnapshot,
+  updateLevelHistory
 } from "../lib/dashboardMetrics";
 
 interface DashboardViewProps {
@@ -33,6 +43,8 @@ interface DashboardViewProps {
   collectorHealth?: CollectorHealth | null;
   transportStatus?: LiveTransportStatus | null;
   initialChainSide?: ChainSide;
+  activeDashboard?: "realtime" | "replay";
+  adminUtility?: React.ReactNode;
   replayPanel?: React.ReactNode;
   savedViewsPanel?: React.ReactNode;
   scenarioPanel?: React.ReactNode;
@@ -49,57 +61,99 @@ export function DashboardView({
   collectorHealth,
   transportStatus,
   initialChainSide = "all",
+  activeDashboard = "realtime",
+  adminUtility,
   replayPanel,
   savedViewsPanel,
   scenarioPanel
 }: DashboardViewProps) {
   const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
+  const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
+  const [levelHistory, setLevelHistory] = useState(() => [deriveLevelHistoryEntry(snapshot, activeDashboard)]);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
+  const sharedStrikeDomain = deriveSharedStrikeDomain(rows);
+  const inspection = deriveStrikeInspection(rows, inspectedStrike, snapshot.spot);
   const chainRows = groupRowsByStrike(rows);
   const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
   const showCalls = chainSide === "all" || chainSide === "calls";
   const showPuts = chainSide === "all" || chainSide === "puts";
   const atmStrike = nearestStrike(snapshot);
+  const marketMap = deriveMarketMap(snapshot);
+  const marketIntelligence = deriveMarketIntelligence(snapshot);
+  const levelMovements = deriveLevelMovements(levelHistory);
+  const atmIv = getAtmMetricValue(snapshot, "custom_iv");
+  const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
+  const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
   const maxGamma = Math.max(0, ...rows.map((row) => Math.abs(row.custom_gamma ?? 0)));
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
+  const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
+  const handleClearInspection = () => setInspectedStrike(null);
+
+  useEffect(() => {
+    setLevelHistory((history) => updateLevelHistory(history, deriveLevelHistoryEntry(snapshot, activeDashboard), 12));
+  }, [activeDashboard, snapshot]);
 
   return (
     <main className="dashboardShell">
       <header className="topBar">
-        <div className="brandLockup">
-          <div className="scopeMark" aria-hidden="true" />
-          <div>
-            <h1>GammaScope</h1>
-            <p>SPX 0DTE analytics</p>
+        <div className="topBarPrimary">
+          <div className="brandLockup">
+            <div className="scopeMark" aria-hidden="true" />
+            <div>
+              <h1>GammaScope</h1>
+              <p>SPX 0DTE analytics</p>
+            </div>
           </div>
-        </div>
-        <div className="statusRail" aria-label="Session status">
-          <span>{formatStatusLabel(snapshot.mode)}</span>
-          <span>{formatStatusLabel(snapshot.source_status)}</span>
-          <span>{snapshot.freshness_ms} ms</span>
-          {transportDisplay ? (
-            <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
-              Transport {transportDisplay.label}
+          <nav className="topNavTabs" aria-label="Dashboard views">
+            <a
+              className={`topNavTab${activeDashboard === "realtime" ? " topNavTab-active" : ""}`}
+              href="/"
+              aria-current={activeDashboard === "realtime" ? "page" : undefined}
+            >
+              Realtime
+            </a>
+            <a
+              className={`topNavTab${activeDashboard === "replay" ? " topNavTab-active" : ""}`}
+              href="/replay"
+              aria-current={activeDashboard === "replay" ? "page" : undefined}
+            >
+              Replay
+            </a>
+            <span className="topNavTab topNavTab-disabled" aria-disabled="true">
+              Heatmap
             </span>
-          ) : null}
-          {collectorHealth ? (
-            <>
-              <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
-                Collector {formatStatusLabel(collectorHealth.status)}
+          </nav>
+        </div>
+        <div className="topBarUtility">
+          <div className="statusRail" aria-label="Session status">
+            <span>{formatStatusLabel(snapshot.mode)}</span>
+            <span>{formatStatusLabel(snapshot.source_status)}</span>
+            <span>{snapshot.freshness_ms} ms</span>
+            {transportDisplay ? (
+              <span className={`transportStatus transportStatus-${transportDisplay.tone}`}>
+                Transport {transportDisplay.label}
               </span>
-              <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
-              <span className="collectorMessage" title={collectorHealth.message}>
-                {collectorHealth.message}
-              </span>
-            </>
-          ) : null}
+            ) : null}
+            {collectorHealth ? (
+              <>
+                <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
+                  Collector {formatStatusLabel(collectorHealth.status)}
+                </span>
+                <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
+                <span className="collectorMessage" title={collectorHealth.message}>
+                  {collectorHealth.message}
+                </span>
+              </>
+            ) : null}
+          </div>
+          {adminUtility}
         </div>
       </header>
 
-      <section className="sessionBand" aria-label="Current replay session">
+      <section className="sessionBand" aria-label="Current session">
         <div>
           <span className="eyebrow">Session</span>
           <strong>{snapshot.session_id}</strong>
@@ -117,6 +171,13 @@ export function DashboardView({
           <strong>{snapshot.expiry}</strong>
         </div>
       </section>
+
+      <DataQualityPanel
+        snapshot={snapshot}
+        collectorHealth={collectorHealth}
+        transportStatus={transportStatus}
+        activeDashboard={activeDashboard}
+      />
 
       {operationalNotices.length > 0 ? (
         <section className="operationalNotices" aria-label="Operational notices">
@@ -142,15 +203,66 @@ export function DashboardView({
         <Metric label="Forward" value={formatPrice(snapshot.forward)} />
         <Metric label="Strike range" value={formatStrikeRange(summary.strikeRange)} />
         <Metric label="Average IV" value={formatPercent(summary.averageIv)} />
+        <Metric label="Net gamma" value={formatNumber(summary.totalNetGamma, 4)} />
         <Metric label="Abs gamma" value={formatNumber(summary.totalAbsGamma, 4)} />
+        <Metric label="Net vanna" value={formatNumber(summary.totalNetVanna, 4)} />
         <Metric label="Abs vanna" value={formatNumber(summary.totalAbsVanna, 4)} />
       </section>
 
+      <MarketMapPanel marketMap={marketMap} />
+      <MarketIntelligencePanel intelligence={marketIntelligence} />
+      <LevelMovementPanel movements={levelMovements} historyCount={levelHistory.length} />
+
       <section className="chartGrid" aria-label="Analytics charts">
-        <DashboardChart rows={rows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />
-        <DashboardChart rows={rows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
-        <DashboardChart rows={rows} title="Vanna by strike" metricKey="custom_vanna" tone="teal" valueKind="decimal" />
+        <DashboardChart
+          rows={rows}
+          title="IV BY STRIKE"
+          metricKey="custom_iv"
+          tone="blue"
+          valueKind="percent"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmIv}
+          sharedStrikeDomain={sharedStrikeDomain}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
+        />
+        <DashboardChart
+          rows={rows}
+          title="GAMMA BY STRIKE"
+          metricKey="custom_gamma"
+          tone="violet"
+          valueKind="decimal"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmGamma}
+          sharedStrikeDomain={sharedStrikeDomain}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
+        />
+        <DashboardChart
+          rows={rows}
+          title="VANNA BY STRIKE"
+          metricKey="custom_vanna"
+          tone="teal"
+          valueKind="decimal"
+          spot={snapshot.spot}
+          forward={snapshot.forward}
+          atmValue={atmVanna}
+          sharedStrikeDomain={sharedStrikeDomain}
+          showZeroLine
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
+        />
       </section>
+
+      {inspection ? <ChartInspectionBar inspection={inspection} onClear={handleClearInspection} /> : null}
 
       <section className="chainSection" aria-label="Option chain">
         <div className="chainToolbar">
@@ -242,6 +354,14 @@ export function DashboardView({
   );
 }
 
+function deriveSharedStrikeDomain(rows: AnalyticsSnapshot["rows"]): [number, number] | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const strikes = rows.map((row) => row.strike);
+  return [Math.min(...strikes), Math.max(...strikes)];
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
@@ -249,6 +369,224 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function MarketMapPanel({ marketMap }: { marketMap: ReturnType<typeof deriveMarketMap> }) {
+  return (
+    <section className="marketMapPanel" aria-label="Market map">
+      <div className="sectionHeader">
+        <div>
+          <h2>MARKET MAP</h2>
+          <p>Spot-relative strikes and exposure inflection points.</p>
+        </div>
+      </div>
+      <div className="marketMapGrid">
+        <MarketMapItem level="spot" label="Spot" value={formatPrice(marketMap.spot)} detail="Current index level" tone="spot" />
+        <MarketMapItem
+          level="forward"
+          label="Forward"
+          value={formatPrice(marketMap.forward)}
+          detail="Implied forward level"
+          tone="forward"
+        />
+        <MarketMapItem
+          level="atm-strike"
+          label="ATM strike"
+          value={formatPrice(marketMap.atmStrike)}
+          detail="Nearest listed strike"
+          tone="spot"
+        />
+        <MarketMapItem
+          level="call-iv-low"
+          label="Call IV low"
+          value={formatMarketLevel(marketMap.callIvLow, "percent")}
+          detail={formatMarketStrike(marketMap.callIvLow)}
+          side="call"
+        />
+        <MarketMapItem
+          level="put-iv-low"
+          label="Put IV low"
+          value={formatMarketLevel(marketMap.putIvLow, "percent")}
+          detail={formatMarketStrike(marketMap.putIvLow)}
+          side="put"
+        />
+        <MarketMapItem
+          level="gamma-peak"
+          label="Gamma peak"
+          value={formatMarketLevel(marketMap.gammaPeak, "decimal")}
+          detail={formatMarketStrike(marketMap.gammaPeak)}
+          tone="gamma"
+        />
+        <MarketMapItem
+          level="vanna-flip"
+          label={vannaFlipLabel(marketMap.vannaFlip)}
+          value={formatMarketStrike(marketMap.vannaFlip)}
+          detail={formatVannaFlipDetail(marketMap.vannaFlip)}
+          tone="vanna"
+        />
+        <MarketMapItem
+          level="vanna-max"
+          label="Vanna max"
+          value={formatMarketLevel(marketMap.vannaMax, "decimal")}
+          detail={formatMarketStrike(marketMap.vannaMax)}
+          tone="vanna"
+        />
+      </div>
+    </section>
+  );
+}
+
+function MarketMapItem({
+  level,
+  label,
+  value,
+  detail,
+  side,
+  tone
+}: {
+  level: string;
+  label: string;
+  value: string;
+  detail: string;
+  side?: "call" | "put";
+  tone?: "spot" | "forward" | "gamma" | "vanna";
+}) {
+  const modifier = side ? ` marketMapItem-${side}` : tone ? ` marketMapItem-${tone}` : "";
+
+  return (
+    <div className={`marketMapItem${modifier}`} data-market-map-level={level}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function MarketIntelligencePanel({ intelligence }: { intelligence: ReturnType<typeof deriveMarketIntelligence> }) {
+  return (
+    <section className="marketIntelligencePanel" aria-label="Market intelligence">
+      <div className="sectionHeader">
+        <div>
+          <h2>MARKET INTELLIGENCE</h2>
+          <p>Expected ranges, walls, and regime labels from the current snapshot.</p>
+        </div>
+      </div>
+      <div className="marketIntelligenceGrid">
+        <MarketIntelligenceItem
+          label="0.5σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.halfSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.halfSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="1σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.oneSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.oneSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="Positive gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.positiveGamma)}
+          detail={formatMarketLevel(intelligence.walls.positiveGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Negative gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.negativeGamma)}
+          detail={formatMarketLevel(intelligence.walls.negativeGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Vanna wall"
+          value={formatMarketStrikeValue(intelligence.walls.vanna)}
+          detail={formatMarketLevel(intelligence.walls.vanna, "decimal")}
+          tone="vanna"
+        />
+        <MarketIntelligenceItem label="Gamma regime" value={intelligence.regimes.gamma} detail="Net gamma / abs gamma" />
+        <MarketIntelligenceItem label="Vanna regime" value={intelligence.regimes.vanna} detail="Net vanna / abs vanna" />
+        <MarketIntelligenceItem label="IV smile bias" value={intelligence.regimes.ivSmileBias} detail="Below spot vs above spot" />
+      </div>
+    </section>
+  );
+}
+
+function MarketIntelligenceItem({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "move" | "gamma" | "vanna";
+}) {
+  const modifier = tone ? ` marketIntelligenceItem-${tone}` : "";
+
+  return (
+    <div className={`marketIntelligenceItem${modifier}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function formatMarketLevel(
+  level: ReturnType<typeof deriveMarketMap>["callIvLow"],
+  valueKind: "percent" | "decimal"
+): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return valueKind === "percent" ? formatPercent(level.value) : formatNumber(level.value, 4);
+}
+
+function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return `${formatPrice(level.strike)} strike`;
+}
+
+function formatMarketStrikeValue(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return formatPrice(level.strike);
+}
+
+function formatExpectedMoveRange(range: [number, number] | null): string {
+  if (range == null) {
+    return "—";
+  }
+
+  return `${formatPrice(range[0])}–${formatPrice(range[1])}`;
+}
+
+function formatExpectedMoveDetail(move: number | null): string {
+  if (move == null) {
+    return "Move unavailable";
+  }
+
+  return `±${formatPrice(move)} pts`;
+}
+
+function vannaFlipLabel(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {
+  return level?.source === "nearest_zero" ? "Vanna nearest zero" : "Vanna flip";
+}
+
+function formatVannaFlipDetail(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {
+  if (level == null) {
+    return "—";
+  }
+  if (level.source === "nearest_zero") {
+    return `Nearest zero value ${formatMarketLevel(level, "decimal")}`;
+  }
+  return formatMarketLevel(level, "decimal");
 }
 
 function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {

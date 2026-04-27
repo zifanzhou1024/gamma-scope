@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from gammascope_api.auth import is_valid_admin_token, private_mode_enabled, websocket_admin_token
 from gammascope_api.fixtures import load_json_fixture
@@ -38,11 +38,19 @@ async def stream_spx_0dte_replay(
     websocket: WebSocket,
     session_id: str = Query(...),
     at: str | None = None,
+    source_snapshot_id: str | None = None,
     interval_ms: int = DEFAULT_REPLAY_INTERVAL_MS,
 ) -> None:
     await websocket.accept()
     interval_seconds = _replay_interval_seconds(interval_ms)
-    snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at)
+    try:
+        if source_snapshot_id is None:
+            snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at)
+        else:
+            snapshots = await asyncio.to_thread(replay_stream_snapshots, session_id, at, source_snapshot_id)
+    except HTTPException as exc:
+        await websocket.close(code=1011, reason=str(exc.detail))
+        return
 
     if not snapshots:
         snapshots = [_empty_replay_snapshot()]
