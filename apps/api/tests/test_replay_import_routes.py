@@ -655,6 +655,36 @@ def test_public_replay_sessions_degrade_when_import_repository_fails(
     assert session_ids == ["live-session-ready", "seed-spx-2026-04-23"]
 
 
+def test_public_seed_replay_snapshot_degrades_when_import_membership_fails(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.is_completed_public_session_error = RuntimeError("database unavailable")
+
+    response = client.get(
+        "/api/spx/0dte/replay/snapshot",
+        params={"session_id": "seed-spx-2026-04-23", "at": "2026-04-23T15:30:00Z"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["session_id"] == "seed-spx-2026-04-23"
+
+
+def test_public_seed_replay_websocket_degrades_when_import_membership_fails(
+    public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
+) -> None:
+    client, import_repository, _replay_repository = public_replay_client
+    import_repository.is_completed_public_session_error = RuntimeError("database unavailable")
+
+    with client.websocket_connect(
+        "/ws/spx/0dte/replay",
+        params={"session_id": "seed-spx-2026-04-23", "interval_ms": "50"},
+    ) as websocket:
+        payload = websocket.receive_json()
+
+    assert payload["session_id"] == "seed-spx-2026-04-23"
+
+
 def test_public_replay_timestamps_surface_import_repository_failure(
     public_replay_client: tuple[TestClient, "_FakeReplayImportRepository", "_FakeReplayRepository"],
 ) -> None:
