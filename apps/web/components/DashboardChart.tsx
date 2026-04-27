@@ -62,6 +62,7 @@ export function DashboardChart({
   const referenceLines = buildReferenceLines({ spot, forward }, domainPoints);
   const showVannaZeroLine = metricKey === "custom_vanna" && showZeroLine && isInYDomain(0, domainPoints);
   const inspectedStrikeInDomain = inspectedStrike != null && isInStrikeDomain(inspectedStrike, strikeHitZones);
+  const isInspectable = Boolean(onInspectStrike);
 
   return (
     <section className="chartPanel" aria-label={chartTitle}>
@@ -169,25 +170,28 @@ export function DashboardChart({
             {metricKey === "custom_iv" ? <IvMinimumMarker series={series} domainPoints={domainPoints} /> : null}
           </g>
         ))}
-        <g className="chartHitZones" aria-hidden={onInspectStrike ? undefined : true}>
-          {strikeHitZones.map((zone) => (
-            <rect
-              key={`hit-zone-${zone.strike}`}
-              className="chartHitZone"
-              data-chart-hit-strike={zone.strike}
-              x={zone.x}
-              y={FRAME.padding}
-              width={zone.width}
-              height={FRAME.height - FRAME.padding * 2}
-              tabIndex={onInspectStrike ? 0 : undefined}
-              role={onInspectStrike ? "button" : undefined}
-              aria-label={`Inspect ${formatStrike(zone.strike)}`}
-              onMouseEnter={() => onInspectStrike?.(zone.strike)}
-              onFocus={() => onInspectStrike?.(zone.strike)}
-              onBlur={onClearInspection}
-            />
-          ))}
-        </g>
+        {isInspectable ? (
+          <g className="chartHitZones">
+            {strikeHitZones.map((zone) => (
+              <rect
+                key={`hit-zone-${zone.strike}`}
+                className="chartHitZone"
+                data-chart-hit-strike={zone.strike}
+                x={zone.x}
+                y={FRAME.padding}
+                width={zone.width}
+                height={FRAME.height - FRAME.padding * 2}
+                tabIndex={0}
+                role="button"
+                aria-label={`Inspect ${formatStrike(zone.strike)}`}
+                onMouseEnter={() => onInspectStrike?.(zone.strike)}
+                onFocus={() => onInspectStrike?.(zone.strike)}
+                onBlur={onClearInspection}
+                onKeyDown={(event) => handleHitZoneKeyDown(event, zone.strike, onInspectStrike, onClearInspection)}
+              />
+            ))}
+          </g>
+        ) : null}
       </svg>
       {inspection ? <InspectionTooltip inspection={inspection} /> : null}
       <div className="chartStats" aria-label={`${chartTitle} summary`}>
@@ -295,6 +299,22 @@ function InspectionTooltipRow({ label, callValue, putValue }: { label: string; c
       <span>{putValue}</span>
     </>
   );
+}
+
+function handleHitZoneKeyDown(
+  event: React.KeyboardEvent<SVGRectElement>,
+  strike: number,
+  onInspectStrike: ((strike: number) => void) | undefined,
+  onClearInspection: (() => void) | undefined
+) {
+  if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    onInspectStrike?.(strike);
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    onClearInspection?.();
+  }
 }
 
 function IvMinimumSummary({ minimumPoints }: { minimumPoints: IvMinimumPoint[] }) {

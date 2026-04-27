@@ -1,10 +1,16 @@
-import React from "react";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardChart } from "../components/DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Row = AnalyticsSnapshot["rows"][number];
 
@@ -20,6 +26,10 @@ const baseRows = [
 const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
 
 describe("DashboardChart", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
   it("renders split call and put IV market-ops axes", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart rows={baseRows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />
@@ -219,6 +229,15 @@ describe("DashboardChart", () => {
     expect(nullMarkup).not.toContain("ATM Gamma");
   });
 
+  it("does not render strike hit zones without an inspection handler", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart rows={baseRows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
+    );
+
+    expect(markup).not.toContain("data-chart-hit-strike");
+    expect(markup).not.toContain("Inspect 5,200");
+  });
+
   it("renders strike hit zones for chart inspection", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart
@@ -236,6 +255,54 @@ describe("DashboardChart", () => {
     expect(markup).toContain('data-chart-hit-strike="5200"');
     expect(markup).toContain('data-chart-hit-strike="5210"');
     expect(markup).toContain("Inspect 5,200");
+  });
+
+  it("inspects and clears strikes through mouse, focus, and keyboard events", () => {
+    const onInspectStrike = vi.fn();
+    const onClearInspection = vi.fn();
+    const { container, root } = renderInteractiveChart({ onInspectStrike, onClearInspection });
+    const hitZone = container.querySelector<SVGRectElement>('[data-chart-hit-strike="5200"]');
+    const chart = container.querySelector<SVGElement>("svg.chart");
+
+    expect(hitZone).not.toBeNull();
+    expect(chart).not.toBeNull();
+
+    act(() => {
+      hitZone?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClearInspection).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      hitZone?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onClearInspection).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      chart?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    });
+    expect(onClearInspection).toHaveBeenCalledTimes(3);
+
+    cleanupRenderedChart(root, container);
   });
 
   it("renders synchronized crosshair and tooltip for the inspected strike", () => {
@@ -306,6 +373,41 @@ describe("DashboardChart", () => {
     expect(styles).toMatch(/\.chartReferenceLine-forward line\s*{[\s\S]*stroke-dasharray:\s*4 5/);
   });
 });
+
+function renderInteractiveChart({
+  onInspectStrike,
+  onClearInspection
+}: {
+  onInspectStrike: (strike: number) => void;
+  onClearInspection: () => void;
+}) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  act(() => {
+    root.render(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        onInspectStrike={onInspectStrike}
+        onClearInspection={onClearInspection}
+      />
+    );
+  });
+
+  return { container, root };
+}
+
+function cleanupRenderedChart(root: Root, container: HTMLElement) {
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
+}
 
 function marketRow({ strike, right, ...overrides }: Partial<Row> & Pick<Row, "strike" | "right">): Row {
   return {
