@@ -340,7 +340,7 @@ export function deriveMarketMap(snapshot: AnalyticsSnapshot): MarketMap {
     callIvLow: findSideMinimum(snapshot.rows, "call", "custom_iv"),
     putIvLow: findSideMinimum(snapshot.rows, "put", "custom_iv"),
     gammaPeak: findLargestAbsLevel(gammaLevels),
-    vannaFlip: findZeroCrossing(aggregateDominantByStrike(snapshot.rows, "custom_vanna")),
+    vannaFlip: findZeroCrossing(vannaLevels),
     vannaMax: findLargestValueLevel(vannaLevels)
   };
 }
@@ -389,25 +389,6 @@ function aggregateByStrike(rows: AnalyticsRow[], key: "custom_gamma" | "custom_v
       continue;
     }
     levels.set(row.strike, (levels.get(row.strike) ?? 0) + value);
-  }
-
-  return [...levels.entries()]
-    .map(([strike, value]) => ({ strike, value }))
-    .sort((a, b) => a.strike - b.strike);
-}
-
-function aggregateDominantByStrike(rows: AnalyticsRow[], key: "custom_vanna"): MarketLevel[] {
-  const levels = new Map<number, number>();
-
-  for (const row of rows) {
-    const value = row[key];
-    if (value == null) {
-      continue;
-    }
-    const existing = levels.get(row.strike);
-    if (existing == null || Math.abs(value) > Math.abs(existing)) {
-      levels.set(row.strike, value);
-    }
   }
 
   return [...levels.entries()]
@@ -464,7 +445,7 @@ function findZeroCrossing(levels: MarketLevel[]): MarketLevel | null {
 
     const ratio = Math.abs(current.value) / (Math.abs(current.value) + Math.abs(next.value));
     return {
-      strike: Math.floor(current.strike + (next.strike - current.strike) * ratio),
+      strike: current.strike + (next.strike - current.strike) * ratio,
       value: 0,
       source: "crossing"
     };
