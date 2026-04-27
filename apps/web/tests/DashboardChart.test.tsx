@@ -126,6 +126,111 @@ describe("DashboardChart", () => {
     expect(markup).not.toContain("Forward 5,211.00");
   });
 
+  it("projects ticks references hit zones and inspection crosshair against a shared strike domain", () => {
+    const narrowRows = baseRows.filter((row) => row.strike === 5190 || row.strike === 5200);
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={narrowRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5185}
+        forward={5215}
+        sharedStrikeDomain={[5180, 5220]}
+        inspectedStrike={5190}
+        inspection={{
+          strike: 5190,
+          distanceLabel: "-11 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "21.20%",
+            gamma: "0.00410",
+            vanna: "-0.00120",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "23.20%",
+            gamma: "0.00390",
+            vanna: "-0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain("5,180");
+    expect(markup).toContain("5,220");
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toContain("SPX spot 5,185.00");
+    expect(markup).toContain('data-reference-line="forward"');
+    expect(markup).toContain("Forward 5,215.00");
+    expect(markup).toMatch(/data-inspection-crosshair="5190" x1="161" x2="161"/);
+    expect(markup).toMatch(/data-chart-hit-strike="5190" x="42" y="42" width="178\.5"/);
+  });
+
+  it("keeps shared x-domain inspection affordances when the metric has no usable points", () => {
+    const nullGammaRows = baseRows.map((row) => ({ ...row, custom_gamma: null }));
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={nullGammaRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5185}
+        forward={5215}
+        sharedStrikeDomain={[5180, 5220]}
+        inspectedStrike={5190}
+        inspection={{
+          strike: 5190,
+          distanceLabel: "-11 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "21.20%",
+            gamma: "N/A",
+            vanna: "-0.00120",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "23.20%",
+            gamma: "N/A",
+            vanna: "-0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain("5,180");
+    expect(markup).toContain("5,220");
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toContain("SPX spot 5,185.00");
+    expect(markup).toContain('data-reference-line="forward"');
+    expect(markup).toContain("Forward 5,215.00");
+    expect(markup).toContain('data-chart-hit-strike="5190"');
+    expect(markup).toContain('data-chart-hit-strike="5200"');
+    expect(markup).toContain('data-chart-hit-strike="5210"');
+    expect(markup).toMatch(/data-inspection-crosshair="5190" x1="161" x2="161"/);
+    expect(markup).toContain('data-chart-inspection-chip="5190"');
+    expect(markup).toContain("Call Γ N/A");
+    expect(markup).toContain("Put Γ N/A");
+  });
+
   it("places right-edge reference labels inside the chart", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart
@@ -471,6 +576,13 @@ describe("DashboardChart", () => {
   it("uses solid spot references and dashed forward references", () => {
     expect(styles).toMatch(/\.chartReferenceLine-spot line\s*{[\s\S]*stroke-dasharray:\s*none/);
     expect(styles).toMatch(/\.chartReferenceLine-forward line\s*{[\s\S]*stroke-dasharray:\s*4 5/);
+  });
+
+  it("contains chart panels and inspection chips within stable responsive layout bounds", () => {
+    expect(styles).toMatch(/\.chartGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(320px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.chartPanel\s*{[\s\S]*display:\s*grid;[\s\S]*grid-template-rows:[\s\S]*minmax\(0,\s*300px\)[\s\S]*overflow:\s*hidden/);
+    expect(styles).toMatch(/\.chart\s*{[\s\S]*height:\s*300px;[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden/);
+    expect(styles).toMatch(/\.chartInspectionChip\s*{[\s\S]*justify-content:\s*space-between;[\s\S]*overflow:\s*hidden/);
   });
 });
 

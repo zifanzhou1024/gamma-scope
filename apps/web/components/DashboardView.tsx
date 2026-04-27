@@ -65,6 +65,7 @@ export function DashboardView({
   const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
+  const sharedStrikeDomain = deriveSharedStrikeDomain(rows);
   const inspection = deriveStrikeInspection(rows, inspectedStrike, snapshot.spot);
   const chainRows = groupRowsByStrike(rows);
   const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
@@ -200,6 +201,7 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmIv}
+          sharedStrikeDomain={sharedStrikeDomain}
           inspectedStrike={inspectedStrike}
           inspection={inspection}
           onInspectStrike={handleInspectStrike}
@@ -214,6 +216,7 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmGamma}
+          sharedStrikeDomain={sharedStrikeDomain}
           inspectedStrike={inspectedStrike}
           inspection={inspection}
           onInspectStrike={handleInspectStrike}
@@ -228,6 +231,7 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmVanna}
+          sharedStrikeDomain={sharedStrikeDomain}
           showZeroLine
           inspectedStrike={inspectedStrike}
           inspection={inspection}
@@ -326,6 +330,14 @@ export function DashboardView({
       </section>
     </main>
   );
+}
+
+function deriveSharedStrikeDomain(rows: AnalyticsSnapshot["rows"]): [number, number] | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const strikes = rows.map((row) => row.strike);
+  return [Math.min(...strikes), Math.max(...strikes)];
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

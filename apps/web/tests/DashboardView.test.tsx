@@ -16,6 +16,7 @@ vi.mock("../components/DashboardChart", () => ({
     showZeroLine,
     inspectedStrike,
     inspection,
+    sharedStrikeDomain,
     onInspectStrike,
     onClearInspection
   }: {
@@ -26,6 +27,7 @@ vi.mock("../components/DashboardChart", () => ({
     showZeroLine?: boolean;
     inspectedStrike?: number | null;
     inspection?: { strike: number } | null;
+    sharedStrikeDomain?: [number, number] | null;
     onInspectStrike?: (strike: number) => void;
     onClearInspection?: () => void;
   }) => (
@@ -37,6 +39,7 @@ vi.mock("../components/DashboardChart", () => ({
       data-chart-zero-line={showZeroLine ? "true" : "false"}
       data-chart-inspected-strike={inspectedStrike ?? ""}
       data-chart-inspection-strike={inspection?.strike ?? ""}
+      data-chart-shared-strike-domain={sharedStrikeDomain?.join(":") ?? ""}
       data-chart-can-inspect={typeof onInspectStrike === "function" ? "true" : "false"}
       data-chart-can-clear={typeof onClearInspection === "function" ? "true" : "false"}
     >
@@ -122,6 +125,21 @@ describe("DashboardView", () => {
     expect(markup.match(/data-chart-can-clear="true"/g) ?? []).toHaveLength(3);
     expect(markup.match(/data-chart-inspected-strike=""/g) ?? []).toHaveLength(3);
     expect(markup.match(/data-chart-inspection-strike=""/g) ?? []).toHaveLength(3);
+  });
+
+  it("passes the same shared strike domain to all dashboard charts", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const domainSnapshot = {
+      ...snapshot,
+      rows: [
+        { ...snapshot.rows[0], strike: 5180, custom_iv: 0.22, custom_gamma: null, custom_vanna: null },
+        { ...snapshot.rows[1], strike: 5190, custom_iv: null, custom_gamma: 0.004, custom_vanna: null },
+        { ...snapshot.rows[2], strike: 5220, custom_iv: null, custom_gamma: null, custom_vanna: 0.001 }
+      ]
+    } satisfies AnalyticsSnapshot;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={domainSnapshot} />);
+
+    expect(markup.match(/data-chart-shared-strike-domain="5180:5220"/g) ?? []).toHaveLength(3);
   });
 
   it("renders option-chain filters as pressed-state buttons with All selected by default", async () => {
