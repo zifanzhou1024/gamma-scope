@@ -283,4 +283,12 @@ describe("DashboardView", () => {
     expect(styles).toMatch(/\.callInterest \.oiBar\s*{[\s\S]*var\(--call-color-rgb\)/);
     expect(styles).toMatch(/\.putInterest \.oiBar\s*{[\s\S]*var\(--put-color-rgb\)/);
   });
+
+  it("defines shared inspection bar styles that contain table overflow", async () => {
+    expect(styles).toMatch(/\.sharedInspectionBar\s*{[\s\S]*min-width:\s*0/);
+    expect(styles).toMatch(/\.sharedInspectionStrike\s*{[\s\S]*overflow-wrap:\s*anywhere/);
+    expect(styles).toMatch(/\.sharedInspectionTableWrap\s*{[\s\S]*overflow-x:\s*auto/);
+    expect(styles).toMatch(/\.sharedInspectionTable\s*{[\s\S]*border-collapse:\s*collapse/);
+    expect(styles).toMatch(/\.sharedInspectionClear\s*{[\s\S]*white-space:\s*nowrap/);
+  });
 });

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import type { CSSProperties } from "react";
+import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
@@ -234,6 +235,8 @@ export function DashboardView({
           onClearInspection={handleClearInspection}
         />
       </section>
+
+      {inspection ? <ChartInspectionBar inspection={inspection} onClear={handleClearInspection} /> : null}
 
       <section className="chainSection" aria-label="Option chain">
         <div className="chainToolbar">
