@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date
-from hashlib import sha256
 from typing import cast
 
 from gammascope_collector.events import (
@@ -17,8 +16,8 @@ from gammascope_collector.moomoo_snapshot import MoomooOptionRow
 
 
 def synthetic_ibkr_con_id(option_code: str) -> int:
-    digest = sha256(option_code.encode("utf-8")).digest()
-    return int.from_bytes(digest[:8], "big") % 2_147_483_647 + 1
+    data = option_code.encode("utf-8")
+    return int.from_bytes(len(data).to_bytes(4, "big") + data, "big") + 1
 
 
 def moomoo_rows_to_spx_events(

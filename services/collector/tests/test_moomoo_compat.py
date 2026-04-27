@@ -58,6 +58,13 @@ def test_synthetic_ibkr_con_id_is_stable_positive_and_distinct() -> None:
     assert first != other
 
 
+def test_synthetic_ibkr_con_id_does_not_collide_for_known_hash_mod_pair() -> None:
+    first = synthetic_ibkr_con_id("US.SPXW260427C00032042")
+    second = synthetic_ibkr_con_id("US.SPXW260427C00089630")
+
+    assert first != second
+
+
 def test_moomoo_rows_to_spx_events_filters_non_spx_and_validates_events() -> None:
     events = moomoo_rows_to_spx_events(
         session_id="session-1",
