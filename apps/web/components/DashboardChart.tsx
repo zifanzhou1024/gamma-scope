@@ -89,7 +89,6 @@ export function DashboardChart({
         viewBox={`0 0 ${FRAME.width} ${FRAME.height}`}
         role={chartRole}
         aria-label={chartLabel}
-        onMouseLeave={onClearInspection}
       >
         <title>{chartTitle}</title>
         <g data-chart-grid="market-ops" className="chartGridLines" aria-hidden="true">
@@ -189,7 +188,6 @@ export function DashboardChart({
                 aria-label={`Inspect ${formatStrike(zone.strike)}`}
                 onMouseEnter={() => onInspectStrike?.(zone.strike)}
                 onFocus={() => onInspectStrike?.(zone.strike)}
-                onBlur={onClearInspection}
                 onKeyDown={(event) => handleHitZoneKeyDown(event, zone.strike, onInspectStrike, onClearInspection)}
               />
             ))}

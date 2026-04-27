@@ -263,7 +263,7 @@ describe("DashboardChart", () => {
     expect(markup).toContain("Inspect 5,200");
   });
 
-  it("inspects and clears strikes through mouse, focus, and keyboard events", () => {
+  it("inspects strikes through mouse, focus, and keyboard events but only clears from Escape", () => {
     const onInspectStrike = vi.fn();
     const onClearInspection = vi.fn();
     const { container, root } = renderInteractiveChart({ onInspectStrike, onClearInspection });
@@ -294,19 +294,19 @@ describe("DashboardChart", () => {
     expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
 
     act(() => {
-      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    });
-    expect(onClearInspection).toHaveBeenCalledTimes(1);
-
-    act(() => {
       hitZone?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
-    expect(onClearInspection).toHaveBeenCalledTimes(2);
+    expect(onClearInspection).not.toHaveBeenCalled();
 
     act(() => {
       chart?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
     });
-    expect(onClearInspection).toHaveBeenCalledTimes(3);
+    expect(onClearInspection).not.toHaveBeenCalled();
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClearInspection).toHaveBeenCalledTimes(1);
 
     cleanupRenderedChart(root, container);
   });
