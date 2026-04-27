@@ -1,5 +1,6 @@
 import React from "react";
 import { buildPath, buildSeries, projectPoint, valueExtent, type ChartPoint, type NumericRowKey } from "../lib/chartGeometry";
+import type { StrikeInspection } from "../lib/chartInspection";
 import { formatNumber, formatPercent } from "../lib/dashboardMetrics";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 
@@ -15,6 +16,11 @@ interface DashboardChartProps {
   forward?: number | null;
   atmValue?: number | null;
   showZeroLine?: boolean;
+  inspectedStrike?: number | null;
+  inspection?: StrikeInspection | null;
+  sharedStrikeDomain?: [number, number] | null;
+  onInspectStrike?: (strike: number) => void;
+  onClearInspection?: () => void;
 }
 
 interface RenderSeries {
@@ -35,22 +41,33 @@ export function DashboardChart({
   spot = null,
   forward = null,
   atmValue = null,
-  showZeroLine = false
+  showZeroLine = false,
+  inspectedStrike = null,
+  inspection = null,
+  sharedStrikeDomain = null,
+  onInspectStrike,
+  onClearInspection
 }: DashboardChartProps) {
   const renderSeries = buildRenderSeries(rows, metricKey);
   const domainPoints = renderSeries.flatMap((series) => series.points);
+  const xDomainPoints = buildXDomainPoints(domainPoints, sharedStrikeDomain);
+  const strikeHitZones = buildStrikeHitZones(rows.map((row) => row.strike), xDomainPoints);
   const ivMinimumPoints = metricKey === "custom_iv" ? buildIvMinimumPoints(renderSeries) : [];
   const extent = valueExtent(domainPoints);
   const latest = domainPoints.at(-1)?.y ?? null;
   const headlineValue = atmValue ?? latest;
   const headlineLabel = headlineLabelFor(metricKey, atmValue);
-  const xTicks = buildTicks(domainPoints.map((point) => point.x), 3);
+  const xTicks = buildTicks(xDomainPoints.map((point) => point.x), 3);
   const yTicks = buildTicks(domainPoints.map((point) => point.y), GRID_LINES);
   const chartTitle = chartTitleFor(metricKey, title);
   const axisLabel = axisLabelFor(metricKey);
   const strikeCount = new Set(domainPoints.map((point) => point.x)).size;
-  const referenceLines = buildReferenceLines({ spot, forward }, domainPoints);
+  const referenceLines = buildReferenceLines({ spot, forward }, xDomainPoints);
   const showVannaZeroLine = metricKey === "custom_vanna" && showZeroLine && isInYDomain(0, domainPoints);
+  const inspectedStrikeInDomain = inspectedStrike != null && isInStrikeDomain(inspectedStrike, strikeHitZones);
+  const isInspectable = Boolean(onInspectStrike);
+  const chartRole = isInspectable ? "group" : "img";
+  const chartLabel = isInspectable ? `${chartTitle} interactive strike inspection` : undefined;
 
   return (
     <section className="chartPanel" aria-label={chartTitle}>
@@ -70,7 +87,12 @@ export function DashboardChart({
         ))}
       </div>
       {ivMinimumPoints.length > 0 ? <IvMinimumSummary minimumPoints={ivMinimumPoints} /> : null}
-      <svg className={`chart chart-${tone}`} viewBox={`0 0 ${FRAME.width} ${FRAME.height}`} role="img">
+      <svg
+        className={`chart chart-${tone}`}
+        viewBox={`0 0 ${FRAME.width} ${FRAME.height}`}
+        role={chartRole}
+        aria-label={chartLabel}
+      >
         <title>{chartTitle}</title>
         <g data-chart-grid="market-ops" className="chartGridLines" aria-hidden="true">
           {yTicks.map((tick) => {
@@ -86,7 +108,7 @@ export function DashboardChart({
             );
           })}
           {xTicks.map((tick) => {
-            const x = projectX(tick, domainPoints);
+            const x = projectX(tick, xDomainPoints);
             return (
               <line
                 key={`x-grid-${tick}`}
@@ -99,9 +121,10 @@ export function DashboardChart({
           })}
         </g>
         {referenceLines.map((line) => (
-          <ReferenceLine key={line.key} line={line} domainPoints={domainPoints} />
+          <ReferenceLine key={line.key} line={line} domainPoints={xDomainPoints} />
         ))}
         {showVannaZeroLine ? <ZeroLine domainPoints={domainPoints} /> : null}
+        {inspectedStrikeInDomain ? <InspectionCrosshair strike={inspectedStrike} domainPoints={xDomainPoints} /> : null}
         <line
           className="chartAxis"
           data-axis="x"
@@ -120,7 +143,7 @@ export function DashboardChart({
         />
         <g className="chartTickLabels" aria-hidden="true">
           {xTicks.map((tick) => (
-            <text key={`x-tick-${tick}`} x={projectX(tick, domainPoints)} y={FRAME.height - 18} textAnchor="middle">
+            <text key={`x-tick-${tick}`} x={projectX(tick, xDomainPoints)} y={FRAME.height - 18} textAnchor="middle">
               {formatStrike(tick)}
             </text>
           ))}
@@ -144,15 +167,37 @@ export function DashboardChart({
         </text>
         {renderSeries.map((series) => (
           <g key={series.key} className={`chartSeries chartSeries-${series.key}`} data-series={series.key}>
-            {series.points.length > 1 ? <path d={buildPath(series.points, FRAME, domainPoints)} /> : null}
+            {series.points.length > 1 ? <path d={buildPath(series.points, FRAME, xDomainPoints)} /> : null}
             {series.points.map((point, index) => {
-              const projected = projectPoint(point, domainPoints, FRAME);
+              const projected = projectPoint(point, xDomainPoints, FRAME);
               return <circle key={`${series.key}-${point.x}-${point.y}-${index}`} cx={projected.x} cy={projected.y} r="3.5" />;
             })}
-            {metricKey === "custom_iv" ? <IvMinimumMarker series={series} domainPoints={domainPoints} /> : null}
+            {metricKey === "custom_iv" ? <IvMinimumMarker series={series} domainPoints={xDomainPoints} /> : null}
           </g>
         ))}
+        {isInspectable ? (
+          <g className="chartHitZones">
+            {strikeHitZones.map((zone) => (
+              <rect
+                key={`hit-zone-${zone.strike}`}
+                className="chartHitZone"
+                data-chart-hit-strike={zone.strike}
+                x={zone.x}
+                y={FRAME.padding}
+                width={zone.width}
+                height={FRAME.height - FRAME.padding * 2}
+                tabIndex={0}
+                role="button"
+                aria-label={`Inspect ${formatStrike(zone.strike)}`}
+                onMouseEnter={() => onInspectStrike?.(zone.strike)}
+                onFocus={() => onInspectStrike?.(zone.strike)}
+                onKeyDown={(event) => handleHitZoneKeyDown(event, zone.strike, onInspectStrike, onClearInspection)}
+              />
+            ))}
+          </g>
+        ) : null}
       </svg>
+      {inspection && inspectedStrikeInDomain ? <InspectionChip inspection={inspection} metricKey={metricKey} /> : null}
       <div className="chartStats" aria-label={`${chartTitle} summary`}>
         <ChartStat label={headlineLabel} value={formatHeadlineValue(headlineValue, valueKind, atmValue != null)} />
         <ChartStat label="Min" value={formatValue(extent?.[0] ?? null, valueKind)} />
@@ -160,6 +205,12 @@ export function DashboardChart({
       </div>
     </section>
   );
+}
+
+interface StrikeHitZone {
+  strike: number;
+  x: number;
+  width: number;
 }
 
 interface IvMinimumPoint {
@@ -202,6 +253,71 @@ function ZeroLine({ domainPoints }: { domainPoints: ChartPoint[] }) {
       </text>
     </g>
   );
+}
+
+function InspectionCrosshair({ strike, domainPoints }: { strike: number; domainPoints: ChartPoint[] }) {
+  const x = projectX(strike, domainPoints);
+
+  return (
+    <line
+      className="chartInspectionCrosshair"
+      data-inspection-crosshair={strike}
+      x1={x}
+      x2={x}
+      y1={FRAME.padding}
+      y2={FRAME.height - FRAME.padding}
+      aria-hidden="true"
+    />
+  );
+}
+
+function InspectionChip({ inspection, metricKey }: { inspection: StrikeInspection; metricKey: NumericRowKey }) {
+  const values = inspectionChipValues(inspection, metricKey);
+
+  return (
+    <div
+      className="chartInspectionChip"
+      data-chart-inspection-chip={inspection.strike}
+      aria-label={`Selected strike ${formatStrike(inspection.strike)}`}
+    >
+      <strong>{formatStrike(inspection.strike)}</strong>
+      <span>
+        {values.callLabel} {values.callValue}
+      </span>
+      <span>
+        {values.putLabel} {values.putValue}
+      </span>
+    </div>
+  );
+}
+
+function inspectionChipValues(inspection: StrikeInspection, metricKey: NumericRowKey) {
+  if (metricKey === "custom_iv") {
+    return { callLabel: "Call IV", callValue: inspection.call.iv, putLabel: "Put IV", putValue: inspection.put.iv };
+  }
+  if (metricKey === "custom_gamma") {
+    return { callLabel: "Call Γ", callValue: inspection.call.gamma, putLabel: "Put Γ", putValue: inspection.put.gamma };
+  }
+  if (metricKey === "custom_vanna") {
+    return { callLabel: "Call Vanna", callValue: inspection.call.vanna, putLabel: "Put Vanna", putValue: inspection.put.vanna };
+  }
+  return { callLabel: "Call", callValue: "N/A", putLabel: "Put", putValue: "N/A" };
+}
+
+function handleHitZoneKeyDown(
+  event: React.KeyboardEvent<SVGRectElement>,
+  strike: number,
+  onInspectStrike: ((strike: number) => void) | undefined,
+  onClearInspection: (() => void) | undefined
+) {
+  if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    onInspectStrike?.(strike);
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    onClearInspection?.();
+  }
 }
 
 function IvMinimumSummary({ minimumPoints }: { minimumPoints: IvMinimumPoint[] }) {
@@ -283,6 +399,49 @@ function buildReferenceLines(
   }
 
   return lines;
+}
+
+function buildStrikeHitZones(strikeValues: number[], xDomainPoints: ChartPoint[]): StrikeHitZone[] {
+  const strikes = Array.from(new Set(strikeValues)).sort((a, b) => a - b);
+  if (strikes.length === 0 || xDomainPoints.length === 0) {
+    return [];
+  }
+
+  return strikes.map((strike, index) => {
+    const x = projectX(strike, xDomainPoints);
+    const previousX = index > 0 ? projectX(strikes[index - 1], xDomainPoints) : FRAME.padding;
+    const nextX = index < strikes.length - 1 ? projectX(strikes[index + 1], xDomainPoints) : FRAME.width - FRAME.padding;
+    const left = index > 0 ? (previousX + x) / 2 : FRAME.padding;
+    const right = index < strikes.length - 1 ? (x + nextX) / 2 : FRAME.width - FRAME.padding;
+
+    return {
+      strike,
+      x: left,
+      width: Math.max(right - left, 1)
+    };
+  });
+}
+
+function buildXDomainPoints(domainPoints: ChartPoint[], sharedStrikeDomain: [number, number] | null): ChartPoint[] {
+  if (!sharedStrikeDomain) {
+    return domainPoints;
+  }
+
+  const [firstStrike, secondStrike] = sharedStrikeDomain;
+  const minX = Math.min(firstStrike, secondStrike);
+  const maxX = Math.max(firstStrike, secondStrike);
+  const yExtent = valueExtent(domainPoints);
+  const minY = yExtent?.[0] ?? 0;
+  const maxY = yExtent?.[1] ?? minY;
+
+  return [
+    { x: minX, y: minY },
+    { x: maxX, y: maxY }
+  ];
+}
+
+function isInStrikeDomain(strike: number, strikeHitZones: StrikeHitZone[]): boolean {
+  return strikeHitZones.some((zone) => zone.strike === strike);
 }
 
 function findMinimumPoint(points: ChartPoint[]): ChartPoint | null {

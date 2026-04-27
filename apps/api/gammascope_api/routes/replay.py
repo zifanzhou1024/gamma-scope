@@ -99,10 +99,12 @@ def _completed_imported_replay_sessions() -> list[dict[str, Any]]:
         return []
 
 
-def _is_completed_imported_session(session_id: str) -> bool:
+def _is_completed_imported_session(session_id: str, *, require_available: bool = True) -> bool:
     try:
         return get_replay_import_repository().is_completed_public_session(session_id)
     except Exception as exc:
+        if not require_available:
+            return False
         raise _imported_replay_unavailable() from exc
 
 
@@ -118,7 +120,7 @@ def _imported_replay_snapshot(
     at: str | None,
     source_snapshot_id: str | None,
 ) -> dict[str, Any] | None:
-    if not _is_completed_imported_session(session_id):
+    if not _is_completed_imported_session(session_id, require_available=source_snapshot_id is not None):
         return None
 
     if source_snapshot_id is not None:
@@ -144,7 +146,7 @@ def _imported_replay_stream_snapshots(
     at: str | None,
     source_snapshot_id: str | None,
 ) -> list[dict[str, Any]] | None:
-    if not _is_completed_imported_session(session_id):
+    if not _is_completed_imported_session(session_id, require_available=source_snapshot_id is not None):
         return None
 
     try:

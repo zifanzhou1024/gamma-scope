@@ -1,10 +1,16 @@
-import React from "react";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardChart } from "../components/DashboardChart";
 import type { AnalyticsSnapshot } from "../lib/contracts";
+
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 type Row = AnalyticsSnapshot["rows"][number];
 
@@ -20,6 +26,10 @@ const baseRows = [
 const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
 
 describe("DashboardChart", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
   it("renders split call and put IV market-ops axes", () => {
     const markup = renderToStaticMarkup(
       <DashboardChart rows={baseRows} title="IV smile" metricKey="custom_iv" tone="blue" valueKind="percent" />
@@ -114,6 +124,111 @@ describe("DashboardChart", () => {
     expect(markup).not.toContain("SPX spot 5,189.00");
     expect(markup).not.toContain('data-reference-line="forward"');
     expect(markup).not.toContain("Forward 5,211.00");
+  });
+
+  it("projects ticks references hit zones and inspection crosshair against a shared strike domain", () => {
+    const narrowRows = baseRows.filter((row) => row.strike === 5190 || row.strike === 5200);
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={narrowRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5185}
+        forward={5215}
+        sharedStrikeDomain={[5180, 5220]}
+        inspectedStrike={5190}
+        inspection={{
+          strike: 5190,
+          distanceLabel: "-11 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "21.20%",
+            gamma: "0.00410",
+            vanna: "-0.00120",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "23.20%",
+            gamma: "0.00390",
+            vanna: "-0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain("5,180");
+    expect(markup).toContain("5,220");
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toContain("SPX spot 5,185.00");
+    expect(markup).toContain('data-reference-line="forward"');
+    expect(markup).toContain("Forward 5,215.00");
+    expect(markup).toMatch(/data-inspection-crosshair="5190" x1="161" x2="161"/);
+    expect(markup).toMatch(/data-chart-hit-strike="5190" x="42" y="42" width="178\.5"/);
+  });
+
+  it("keeps shared x-domain inspection affordances when the metric has no usable points", () => {
+    const nullGammaRows = baseRows.map((row) => ({ ...row, custom_gamma: null }));
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={nullGammaRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        spot={5185}
+        forward={5215}
+        sharedStrikeDomain={[5180, 5220]}
+        inspectedStrike={5190}
+        inspection={{
+          strike: 5190,
+          distanceLabel: "-11 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "21.20%",
+            gamma: "N/A",
+            vanna: "-0.00120",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "23.20%",
+            gamma: "N/A",
+            vanna: "-0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain("5,180");
+    expect(markup).toContain("5,220");
+    expect(markup).toContain('data-reference-line="spot"');
+    expect(markup).toContain("SPX spot 5,185.00");
+    expect(markup).toContain('data-reference-line="forward"');
+    expect(markup).toContain("Forward 5,215.00");
+    expect(markup).toContain('data-chart-hit-strike="5190"');
+    expect(markup).toContain('data-chart-hit-strike="5200"');
+    expect(markup).toContain('data-chart-hit-strike="5210"');
+    expect(markup).toMatch(/data-inspection-crosshair="5190" x1="161" x2="161"/);
+    expect(markup).toContain('data-chart-inspection-chip="5190"');
+    expect(markup).toContain("Call Γ N/A");
+    expect(markup).toContain("Put Γ N/A");
   });
 
   it("places right-edge reference labels inside the chart", () => {
@@ -219,6 +334,236 @@ describe("DashboardChart", () => {
     expect(nullMarkup).not.toContain("ATM Gamma");
   });
 
+  it("does not render strike hit zones without an inspection handler", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart rows={baseRows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
+    );
+
+    expect(markup).toContain('role="img"');
+    expect(markup).not.toContain('role="group"');
+    expect(markup).not.toContain("data-chart-hit-strike");
+    expect(markup).not.toContain("Inspect 5,200");
+  });
+
+  it("renders strike hit zones for chart inspection", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain('role="group"');
+    expect(markup).toContain('aria-label="GAMMA BY STRIKE interactive strike inspection"');
+    expect(markup).not.toContain('role="img"');
+    expect(markup).toContain('data-chart-hit-strike="5190"');
+    expect(markup).toContain('data-chart-hit-strike="5200"');
+    expect(markup).toContain('data-chart-hit-strike="5210"');
+    expect(markup).toMatch(/<rect[^>]*data-chart-hit-strike="5200"[^>]*role="button"[^>]*aria-label="Inspect 5,200"/);
+    expect(markup).toContain("Inspect 5,200");
+  });
+
+  it("inspects strikes through mouse, focus, and keyboard events but only clears from Escape", () => {
+    const onInspectStrike = vi.fn();
+    const onClearInspection = vi.fn();
+    const { container, root } = renderInteractiveChart({ onInspectStrike, onClearInspection });
+    const hitZone = container.querySelector<SVGRectElement>('[data-chart-hit-strike="5200"]');
+    const chart = container.querySelector<SVGElement>("svg.chart");
+
+    expect(hitZone).not.toBeNull();
+    expect(chart).not.toBeNull();
+
+    act(() => {
+      hitZone?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    });
+    expect(onInspectStrike).toHaveBeenLastCalledWith(5200);
+
+    act(() => {
+      hitZone?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onClearInspection).not.toHaveBeenCalled();
+
+    act(() => {
+      chart?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+    });
+    expect(onClearInspection).not.toHaveBeenCalled();
+
+    act(() => {
+      hitZone?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClearInspection).toHaveBeenCalledTimes(1);
+
+    cleanupRenderedChart(root, container);
+  });
+
+  it("renders synchronized crosshair without the full inspection tooltip table", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        inspectedStrike={5200}
+        inspection={{
+          strike: 5200,
+          distanceLabel: "+1 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+      />
+    );
+
+    expect(markup).toContain('data-inspection-crosshair="5200"');
+    expect(markup).toContain('data-chart-inspection-chip="5200"');
+    expect(markup).toContain("5,200");
+    expect(markup).not.toContain("chartInspectionTooltip");
+    expect(markup).not.toContain("Call and put inspection values");
+    expect(markup).not.toContain("<table");
+    expect(markup).not.toContain("+1 pts from spot");
+    expect(markup).not.toContain("Bid");
+    expect(markup).not.toContain("Ask");
+    expect(markup).not.toContain("Mid");
+    expect(markup).not.toContain("OI");
+  });
+
+  it.each([
+    { metricKey: "custom_iv" as const, title: "IV smile", tone: "blue" as const, valueKind: "percent" as const, callText: "Call IV 18.80%", putText: "Put IV 20.50%" },
+    {
+      metricKey: "custom_gamma" as const,
+      title: "Gamma by strike",
+      tone: "violet" as const,
+      valueKind: "decimal" as const,
+      callText: "Call Γ 0.01850",
+      putText: "Put Γ 0.01800"
+    },
+    {
+      metricKey: "custom_vanna" as const,
+      title: "Vanna by strike",
+      tone: "teal" as const,
+      valueKind: "decimal" as const,
+      callText: "Call Vanna 0.00080",
+      putText: "Put Vanna 0.00100"
+    }
+  ])("renders a compact $metricKey inspection chip instead of a full tooltip table", ({ metricKey, title, tone, valueKind, callText, putText }) => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title={title}
+        metricKey={metricKey}
+        tone={tone}
+        valueKind={valueKind}
+        inspectedStrike={5200}
+        inspection={{
+          strike: 5200,
+          distanceLabel: "+1 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+        onInspectStrike={() => undefined}
+        onClearInspection={() => undefined}
+      />
+    );
+
+    expect(markup).toContain('data-chart-inspection-chip="5200"');
+    expect(markup).toContain("5,200");
+    expect(markup).toContain(callText);
+    expect(markup).toContain(putText);
+    expect(markup).not.toContain("chartInspectionTooltip");
+    expect(markup).not.toContain("Call and put inspection values");
+    expect(markup).not.toContain("<table");
+  });
+
+  it("does not render a compact inspection chip when the inspected strike is outside the chart domain", () => {
+    const markup = renderToStaticMarkup(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        inspectedStrike={5225}
+        inspection={{
+          strike: 5225,
+          distanceLabel: "+26 pts from spot",
+          call: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "18.80%",
+            gamma: "0.01850",
+            vanna: "0.00080",
+            openInterest: "100"
+          },
+          put: {
+            bid: "1.00",
+            ask: "1.20",
+            mid: "1.10",
+            iv: "20.50%",
+            gamma: "0.01800",
+            vanna: "0.00100",
+            openInterest: "100"
+          }
+        }}
+      />
+    );
+
+    expect(markup).not.toContain("data-inspection-crosshair");
+    expect(markup).not.toContain("data-chart-inspection-chip");
+  });
+
   it("uses green for call IV and red for put IV chart semantics", () => {
     expect(styles).toMatch(/--call-color:\s*var\(--green\)/);
     expect(styles).toMatch(/--put-color:\s*var\(--red\)/);
@@ -232,7 +577,49 @@ describe("DashboardChart", () => {
     expect(styles).toMatch(/\.chartReferenceLine-spot line\s*{[\s\S]*stroke-dasharray:\s*none/);
     expect(styles).toMatch(/\.chartReferenceLine-forward line\s*{[\s\S]*stroke-dasharray:\s*4 5/);
   });
+
+  it("contains chart panels and inspection chips within stable responsive layout bounds", () => {
+    expect(styles).toMatch(/\.chartGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(320px,\s*1fr\)\)/);
+    expect(styles).toMatch(/\.chartPanel\s*{[\s\S]*display:\s*grid;[\s\S]*grid-template-rows:[\s\S]*minmax\(0,\s*300px\)[\s\S]*overflow:\s*hidden/);
+    expect(styles).toMatch(/\.chart\s*{[\s\S]*height:\s*300px;[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden/);
+    expect(styles).toMatch(/\.chartInspectionChip\s*{[\s\S]*justify-content:\s*space-between;[\s\S]*overflow:\s*hidden/);
+  });
 });
+
+function renderInteractiveChart({
+  onInspectStrike,
+  onClearInspection
+}: {
+  onInspectStrike: (strike: number) => void;
+  onClearInspection: () => void;
+}) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  act(() => {
+    root.render(
+      <DashboardChart
+        rows={baseRows}
+        title="Gamma by strike"
+        metricKey="custom_gamma"
+        tone="violet"
+        valueKind="decimal"
+        onInspectStrike={onInspectStrike}
+        onClearInspection={onClearInspection}
+      />
+    );
+  });
+
+  return { container, root };
+}
+
+function cleanupRenderedChart(root: Root, container: HTMLElement) {
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
+}
 
 function marketRow({ strike, right, ...overrides }: Partial<Row> & Pick<Row, "strike" | "right">): Row {
   return {

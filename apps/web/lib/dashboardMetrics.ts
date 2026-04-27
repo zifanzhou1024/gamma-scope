@@ -8,9 +8,14 @@ type SourceStatus = AnalyticsSnapshot["source_status"];
 type CoverageStatus = AnalyticsSnapshot["coverage_status"];
 type CollectorStatus = CollectorHealth["status"];
 
+const REGIME_RATIO_THRESHOLD = 0.2;
+const IV_SMILE_BIAS_THRESHOLD = 0.01;
+const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
+
 export type ComparisonTone = "ok" | "warning" | "muted";
 export type OperationalTone = "ok" | "warning" | "error" | "muted";
 export type LiveTransportStatus = "connecting" | "streaming" | "disconnected" | "fallback_polling" | "reconnecting";
+export type DashboardSurface = "realtime" | "replay";
 
 export interface ComparisonStatusDisplay {
   label: string;
@@ -37,6 +42,27 @@ export interface SnapshotSummary {
   totalAbsVanna: number;
 }
 
+export interface DataQualitySummary {
+  lastUpdated: string;
+  expiry: string;
+  isZeroDte: boolean;
+  zeroDteLabel: string;
+  rowCount: number;
+  distinctStrikeCount: number;
+  freshness: OperationalStatusDisplay;
+  source: OperationalStatusDisplay;
+  coverage: OperationalStatusDisplay;
+  transport: OperationalStatusDisplay | null;
+  collector: (OperationalStatusDisplay & { detail: string }) | null;
+  qualitySummary: {
+    validQuoteRows: number;
+    crossedQuoteRows: number;
+    missingBidAskRows: number;
+    nonOkCalcRows: number;
+  };
+  mode: OperationalStatusDisplay & { detail: string };
+}
+
 export interface MarketLevel {
   strike: number;
   value: number;
@@ -53,6 +79,57 @@ export interface MarketMap {
   vannaFlip: MarketLevel | null;
   vannaMax: MarketLevel | null;
 }
+
+export type GammaRegime = "Pinning" | "Trending" | "Unstable";
+export type VannaRegime = "Supportive" | "Suppressive" | "Mixed";
+export type IvSmileBias = "Left-skew" | "Right-skew" | "Balanced";
+
+export interface ExpectedMoveBand {
+  move: number | null;
+  range: [number, number] | null;
+}
+
+export interface MarketIntelligence {
+  expectedMove: {
+    iv: number | null;
+    timeToCloseYears: number;
+    halfSigma: ExpectedMoveBand;
+    oneSigma: ExpectedMoveBand;
+  };
+  walls: {
+    positiveGamma: MarketLevel | null;
+    negativeGamma: MarketLevel | null;
+    vanna: MarketLevel | null;
+  };
+  regimes: {
+    gamma: GammaRegime;
+    vanna: VannaRegime;
+    ivSmileBias: IvSmileBias;
+  };
+}
+
+export type LevelMovementDirection = "Up" | "Down" | "Flat" | "Unavailable";
+export type LevelHistoryKey =
+  | "spot"
+  | "callIvLowStrike"
+  | "putIvLowStrike"
+  | "gammaPeakStrike"
+  | "vannaFlipStrike";
+
+export interface LevelHistoryEntry {
+  resetKey: string;
+  snapshotTime: string;
+  levels: Record<LevelHistoryKey, number | null>;
+}
+
+export interface LevelMovement {
+  previous: number | null;
+  current: number | null;
+  delta: number | null;
+  direction: LevelMovementDirection;
+}
+
+export type LevelMovements = Record<LevelHistoryKey, LevelMovement>;
 
 export interface ChainStrikeRow {
   strike: number;
@@ -254,6 +331,54 @@ export function deriveOperationalNotices(
   return dedupeNotices(notices);
 }
 
+export function deriveDataQuality(
+  snapshot: AnalyticsSnapshot,
+  collectorHealth?: CollectorHealth | null,
+  transportStatus?: LiveTransportStatus | null,
+  activeDashboard: DashboardSurface = "realtime"
+): DataQualitySummary {
+  const missingBidAskRows = snapshot.rows.filter((row) => row.bid == null || row.ask == null).length;
+  const crossedQuoteRows = snapshot.rows.filter(isCrossedQuote).length;
+  const snapshotMarketDate = marketDate(snapshot.snapshot_time);
+  const modeMatchesSurface =
+    (snapshot.mode === "live" && activeDashboard === "realtime") ||
+    (snapshot.mode === "replay" && activeDashboard === "replay");
+
+  return {
+    lastUpdated: formatSnapshotTime(snapshot.snapshot_time),
+    expiry: snapshot.expiry,
+    isZeroDte: snapshotMarketDate === snapshot.expiry,
+    zeroDteLabel: snapshotMarketDate === snapshot.expiry ? "0DTE" : "Not 0DTE",
+    rowCount: snapshot.rows.length,
+    distinctStrikeCount: new Set(snapshot.rows.map((row) => row.strike)).size,
+    freshness: getFreshnessDisplay(snapshot.freshness_ms),
+    source: {
+      label: `Source ${formatStatusLabel(snapshot.source_status).toLowerCase()}`,
+      tone: snapshot.source_status === "connected" ? "ok" : sourceStatusTone(snapshot.source_status)
+    },
+    coverage: getCoverageDisplay(snapshot.coverage_status),
+    transport: transportStatus ? prefixStatusDisplay("Transport", getTransportStatusDisplay(transportStatus)) : null,
+    collector: collectorHealth
+      ? {
+          label: `Collector ${formatStatusLabel(collectorHealth.status)}`,
+          detail: `IBKR ${formatCollectorAccountMode(collectorHealth.ibkr_account_mode)}`,
+          tone: collectorHealth.status === "connected" ? "ok" : collectorStatusTone(collectorHealth.status)
+        }
+      : null,
+    qualitySummary: {
+      validQuoteRows: snapshot.rows.length - missingBidAskRows - crossedQuoteRows,
+      crossedQuoteRows,
+      missingBidAskRows,
+      nonOkCalcRows: snapshot.rows.filter((row) => row.calc_status !== "ok").length
+    },
+    mode: {
+      label: `${formatStatusLabel(snapshot.mode)} mode`,
+      detail: `${formatStatusLabel(activeDashboard)} dashboard`,
+      tone: modeMatchesSurface ? "ok" : "warning"
+    }
+  };
+}
+
 export function formatStrikeRange(range: [number, number] | null): string {
   if (range == null) {
     return "—";
@@ -284,6 +409,63 @@ export function formatSnapshotTime(value: string): string {
     timeZone: "America/New_York",
     timeZoneName: "short"
   }).format(new Date(value));
+}
+
+function marketDate(value: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "America/New_York",
+    year: "numeric"
+  }).formatToParts(new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value;
+
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function getFreshnessDisplay(freshnessMs: number): OperationalStatusDisplay {
+  const label = `${formatFreshnessDuration(freshnessMs)} ${freshnessMs <= 5_000 ? "fresh" : "stale"}`;
+  if (freshnessMs <= 5_000) {
+    return { label, tone: "ok" };
+  }
+  if (freshnessMs <= 30_000) {
+    return { label, tone: "warning" };
+  }
+  return { label, tone: "error" };
+}
+
+function formatFreshnessDuration(freshnessMs: number): string {
+  if (freshnessMs < 1_000) {
+    return `${freshnessMs}ms`;
+  }
+  if (freshnessMs < 60_000) {
+    return `${Number((freshnessMs / 1_000).toFixed(1))}s`;
+  }
+  return `${Number((freshnessMs / 60_000).toFixed(1))}m`;
+}
+
+function getCoverageDisplay(status: CoverageStatus): OperationalStatusDisplay {
+  if (status === "full") {
+    return { label: "Full chain", tone: "ok" };
+  }
+  return {
+    label: coverageStatusLabel(status),
+    tone: status === "empty" ? "error" : "warning"
+  };
+}
+
+function prefixStatusDisplay(prefix: string, display: OperationalStatusDisplay): OperationalStatusDisplay {
+  return {
+    label: `${prefix} ${display.label}`,
+    tone: display.tone
+  };
+}
+
+function formatCollectorAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {
+  if (accountMode === "unknown") {
+    return "Unknown";
+  }
+  return formatStatusLabel(accountMode);
 }
 
 export function sortRowsByStrike(rows: AnalyticsRow[]): AnalyticsRow[] {
@@ -345,6 +527,94 @@ export function deriveMarketMap(snapshot: AnalyticsSnapshot): MarketMap {
   };
 }
 
+export function deriveLevelHistoryEntry(
+  snapshot: AnalyticsSnapshot,
+  activeDashboard: DashboardSurface = "realtime"
+): LevelHistoryEntry {
+  const marketMap = deriveMarketMap(snapshot);
+
+  return {
+    resetKey: [activeDashboard, snapshot.mode, snapshot.session_id, snapshot.expiry].join("|"),
+    snapshotTime: snapshot.snapshot_time,
+    levels: {
+      spot: snapshot.spot,
+      callIvLowStrike: marketMap.callIvLow?.strike ?? null,
+      putIvLowStrike: marketMap.putIvLow?.strike ?? null,
+      gammaPeakStrike: marketMap.gammaPeak?.strike ?? null,
+      vannaFlipStrike: marketMap.vannaFlip?.strike ?? null
+    }
+  };
+}
+
+export function updateLevelHistory(
+  history: LevelHistoryEntry[],
+  nextEntry: LevelHistoryEntry,
+  maxEntries = 12
+): LevelHistoryEntry[] {
+  const boundedMax = Math.max(1, maxEntries);
+  const previousEntry = history.at(-1);
+
+  if (previousEntry == null || previousEntry.resetKey !== nextEntry.resetKey) {
+    return [nextEntry];
+  }
+
+  const nextHistory =
+    previousEntry.snapshotTime === nextEntry.snapshotTime ? [...history.slice(0, -1), nextEntry] : [...history, nextEntry];
+
+  return nextHistory.slice(-boundedMax);
+}
+
+export function deriveLevelMovements(history: LevelHistoryEntry[]): LevelMovements {
+  const currentEntry = history.at(-1) ?? null;
+  const previousEntry = history.length > 1 ? history.at(-2) ?? null : null;
+
+  return {
+    spot: deriveLevelMovement(previousEntry?.levels.spot ?? null, currentEntry?.levels.spot ?? null),
+    callIvLowStrike: deriveLevelMovement(
+      previousEntry?.levels.callIvLowStrike ?? null,
+      currentEntry?.levels.callIvLowStrike ?? null
+    ),
+    putIvLowStrike: deriveLevelMovement(
+      previousEntry?.levels.putIvLowStrike ?? null,
+      currentEntry?.levels.putIvLowStrike ?? null
+    ),
+    gammaPeakStrike: deriveLevelMovement(
+      previousEntry?.levels.gammaPeakStrike ?? null,
+      currentEntry?.levels.gammaPeakStrike ?? null
+    ),
+    vannaFlipStrike: deriveLevelMovement(
+      previousEntry?.levels.vannaFlipStrike ?? null,
+      currentEntry?.levels.vannaFlipStrike ?? null
+    )
+  };
+}
+
+export function deriveMarketIntelligence(snapshot: AnalyticsSnapshot): MarketIntelligence {
+  const gammaLevels = aggregateByStrike(snapshot.rows, "custom_gamma");
+  const vannaLevels = aggregateByStrike(snapshot.rows, "custom_vanna");
+  const iv = getAtmMetricValue(snapshot, "custom_iv") ?? average(compactNumbers(snapshot.rows.map((row) => row.custom_iv)));
+  const timeToCloseYears = timeToSpxCloseYears(snapshot.snapshot_time, snapshot.expiry);
+
+  return {
+    expectedMove: {
+      iv,
+      timeToCloseYears,
+      halfSigma: expectedMoveBand(snapshot.spot, iv, timeToCloseYears, 0.5),
+      oneSigma: expectedMoveBand(snapshot.spot, iv, timeToCloseYears, 1)
+    },
+    walls: {
+      positiveGamma: findLargestPositiveLevel(gammaLevels),
+      negativeGamma: findLargestNegativeLevel(gammaLevels),
+      vanna: findLargestAbsLevel(vannaLevels)
+    },
+    regimes: {
+      gamma: deriveGammaRegime(compactNumbers(snapshot.rows.map((row) => row.custom_gamma))),
+      vanna: deriveVannaRegime(compactNumbers(snapshot.rows.map((row) => row.custom_vanna))),
+      ivSmileBias: deriveIvSmileBias(snapshot)
+    }
+  };
+}
+
 export function getAtmMetricValue(
   snapshot: AnalyticsSnapshot,
   metricKey: "custom_iv" | "custom_gamma" | "custom_vanna"
@@ -366,6 +636,25 @@ export function getAtmMetricValue(
 
 function compactNumbers(values: Array<number | null>): number[] {
   return values.filter((value): value is number => value != null);
+}
+
+function deriveLevelMovement(previous: number | null, current: number | null): LevelMovement {
+  if (previous == null || current == null) {
+    return {
+      previous,
+      current,
+      delta: null,
+      direction: "Unavailable"
+    };
+  }
+
+  const delta = current - previous;
+  return {
+    previous,
+    current,
+    delta,
+    direction: delta > 0 ? "Up" : delta < 0 ? "Down" : "Flat"
+  };
 }
 
 function average(values: number[]): number | null {
@@ -422,11 +711,188 @@ function findLargestAbsLevel(levels: MarketLevel[]): MarketLevel | null {
   return levels.reduce((largest, level) => (Math.abs(level.value) >= Math.abs(largest.value) ? level : largest));
 }
 
+function findLargestPositiveLevel(levels: MarketLevel[]): MarketLevel | null {
+  const positiveLevels = levels.filter((level) => level.value > 0);
+  if (positiveLevels.length === 0) {
+    return null;
+  }
+  return positiveLevels.reduce((largest, level) => (level.value > largest.value ? level : largest));
+}
+
+function findLargestNegativeLevel(levels: MarketLevel[]): MarketLevel | null {
+  const negativeLevels = levels.filter((level) => level.value < 0);
+  if (negativeLevels.length === 0) {
+    return null;
+  }
+  return negativeLevels.reduce((largest, level) => (level.value < largest.value ? level : largest));
+}
+
 function findLargestValueLevel(levels: MarketLevel[]): MarketLevel | null {
   if (levels.length === 0) {
     return null;
   }
   return levels.reduce((largest, level) => (level.value >= largest.value ? level : largest));
+}
+
+function expectedMoveBand(spot: number, iv: number | null, timeToCloseYears: number, sigma: number): ExpectedMoveBand {
+  if (iv == null) {
+    return { move: null, range: null };
+  }
+
+  const clampedTimeToCloseYears = Number.isFinite(timeToCloseYears) ? Math.max(0, timeToCloseYears) : 0;
+  const move = spot * iv * Math.sqrt(clampedTimeToCloseYears) * sigma;
+  return {
+    move,
+    range: [spot - move, spot + move]
+  };
+}
+
+function timeToSpxCloseYears(snapshotTime: string, expiry: string): number {
+  const snapshotDate = new Date(snapshotTime);
+  if (!isValidDate(snapshotDate)) {
+    return 0;
+  }
+
+  const closeTime = marketCloseUtc(expiry);
+  if (closeTime == null) {
+    return 0;
+  }
+
+  const remainingMs = Math.max(0, closeTime.getTime() - snapshotDate.getTime());
+  return remainingMs / MS_PER_YEAR;
+}
+
+function marketCloseUtc(expiry: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+    return null;
+  }
+
+  const [year, month, day] = expiry.split("-").map(Number);
+  if (year == null || month == null || day == null) {
+    return null;
+  }
+
+  const localCloseAsUtc = Date.UTC(year!, month! - 1, day!, 16, 0, 0, 0);
+  if (!Number.isFinite(localCloseAsUtc)) {
+    return null;
+  }
+
+  const expiryDate = new Date(localCloseAsUtc);
+  if (
+    expiryDate.getUTCFullYear() !== year ||
+    expiryDate.getUTCMonth() !== month - 1 ||
+    expiryDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  let utcGuess = localCloseAsUtc;
+
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    const offsetMs = getTimeZoneOffsetMs(new Date(utcGuess), "America/New_York");
+    if (offsetMs == null) {
+      return null;
+    }
+    utcGuess = localCloseAsUtc - offsetMs;
+  }
+
+  const closeDate = new Date(utcGuess);
+  return isValidDate(closeDate) ? closeDate : null;
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string): number | null {
+  if (!isValidDate(date)) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+    minute: "2-digit",
+    month: "2-digit",
+    second: "2-digit",
+    timeZone,
+    year: "numeric"
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value;
+  const localAsUtcParts = [
+    Number(part("year")),
+    Number(part("month")) - 1,
+    Number(part("day")),
+    Number(part("hour")),
+    Number(part("minute")),
+    Number(part("second"))
+  ];
+  if (localAsUtcParts.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+
+  const localAsUtc = Date.UTC(
+    localAsUtcParts[0]!,
+    localAsUtcParts[1]!,
+    localAsUtcParts[2]!,
+    localAsUtcParts[3]!,
+    localAsUtcParts[4]!,
+    localAsUtcParts[5]!
+  );
+
+  return localAsUtc - date.getTime();
+}
+
+function isValidDate(date: Date): boolean {
+  return Number.isFinite(date.getTime());
+}
+
+function deriveGammaRegime(values: number[]): GammaRegime {
+  const absGamma = sumAbs(values);
+  if (absGamma === 0) {
+    return "Unstable";
+  }
+
+  const ratio = sum(values) / absGamma;
+  if (ratio > REGIME_RATIO_THRESHOLD) {
+    return "Pinning";
+  }
+  if (ratio < -REGIME_RATIO_THRESHOLD) {
+    return "Trending";
+  }
+  return "Unstable";
+}
+
+function deriveVannaRegime(values: number[]): VannaRegime {
+  const absVanna = sumAbs(values);
+  if (absVanna === 0) {
+    return "Mixed";
+  }
+
+  const ratio = sum(values) / absVanna;
+  if (ratio > REGIME_RATIO_THRESHOLD) {
+    return "Supportive";
+  }
+  if (ratio < -REGIME_RATIO_THRESHOLD) {
+    return "Suppressive";
+  }
+  return "Mixed";
+}
+
+function deriveIvSmileBias(snapshot: AnalyticsSnapshot): IvSmileBias {
+  const leftAverage = average(compactNumbers(snapshot.rows.filter((row) => row.strike < snapshot.spot).map((row) => row.custom_iv)));
+  const rightAverage = average(
+    compactNumbers(snapshot.rows.filter((row) => row.strike > snapshot.spot).map((row) => row.custom_iv))
+  );
+
+  if (leftAverage == null || rightAverage == null) {
+    return "Balanced";
+  }
+
+  if (leftAverage - rightAverage > IV_SMILE_BIAS_THRESHOLD) {
+    return "Left-skew";
+  }
+  if (rightAverage - leftAverage > IV_SMILE_BIAS_THRESHOLD) {
+    return "Right-skew";
+  }
+  return "Balanced";
 }
 
 function findZeroCrossing(levels: MarketLevel[]): MarketLevel | null {

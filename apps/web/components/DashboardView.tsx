@@ -1,14 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { ChartInspectionBar } from "./ChartInspectionBar";
 import { DashboardChart } from "./DashboardChart";
+import { DataQualityPanel } from "./DataQualityPanel";
+import { LevelMovementPanel } from "./LevelMovementPanel";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
+import { deriveStrikeInspection } from "../lib/chartInspection";
 import {
   type ChainSide,
   type LiveTransportStatus,
+  deriveLevelHistoryEntry,
+  deriveLevelMovements,
   deriveOperationalNotices,
+  deriveMarketIntelligence,
   deriveMarketMap,
   filterChainRowsBySide,
   formatGammaDiff,
@@ -27,7 +34,8 @@ import {
   groupRowsByStrike,
   nearestStrike,
   sortRowsByStrike,
-  summarizeSnapshot
+  summarizeSnapshot,
+  updateLevelHistory
 } from "../lib/dashboardMetrics";
 
 interface DashboardViewProps {
@@ -60,14 +68,20 @@ export function DashboardView({
   scenarioPanel
 }: DashboardViewProps) {
   const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
+  const [inspectedStrike, setInspectedStrike] = useState<number | null>(null);
+  const [levelHistory, setLevelHistory] = useState(() => [deriveLevelHistoryEntry(snapshot, activeDashboard)]);
   const summary = summarizeSnapshot(snapshot);
   const rows = sortRowsByStrike(snapshot.rows);
+  const sharedStrikeDomain = deriveSharedStrikeDomain(rows);
+  const inspection = deriveStrikeInspection(rows, inspectedStrike, snapshot.spot);
   const chainRows = groupRowsByStrike(rows);
   const visibleChainRows = filterChainRowsBySide(chainRows, chainSide);
   const showCalls = chainSide === "all" || chainSide === "calls";
   const showPuts = chainSide === "all" || chainSide === "puts";
   const atmStrike = nearestStrike(snapshot);
   const marketMap = deriveMarketMap(snapshot);
+  const marketIntelligence = deriveMarketIntelligence(snapshot);
+  const levelMovements = deriveLevelMovements(levelHistory);
   const atmIv = getAtmMetricValue(snapshot, "custom_iv");
   const atmGamma = getAtmMetricValue(snapshot, "custom_gamma");
   const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
@@ -75,6 +89,12 @@ export function DashboardView({
   const maxOpenInterest = Math.max(0, ...rows.map((row) => row.open_interest ?? 0));
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
+  const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
+  const handleClearInspection = () => setInspectedStrike(null);
+
+  useEffect(() => {
+    setLevelHistory((history) => updateLevelHistory(history, deriveLevelHistoryEntry(snapshot, activeDashboard), 12));
+  }, [activeDashboard, snapshot]);
 
   return (
     <main className="dashboardShell">
@@ -152,6 +172,13 @@ export function DashboardView({
         </div>
       </section>
 
+      <DataQualityPanel
+        snapshot={snapshot}
+        collectorHealth={collectorHealth}
+        transportStatus={transportStatus}
+        activeDashboard={activeDashboard}
+      />
+
       {operationalNotices.length > 0 ? (
         <section className="operationalNotices" aria-label="Operational notices">
           {operationalNotices.map((notice) => (
@@ -183,6 +210,8 @@ export function DashboardView({
       </section>
 
       <MarketMapPanel marketMap={marketMap} />
+      <MarketIntelligencePanel intelligence={marketIntelligence} />
+      <LevelMovementPanel movements={levelMovements} historyCount={levelHistory.length} />
 
       <section className="chartGrid" aria-label="Analytics charts">
         <DashboardChart
@@ -194,6 +223,11 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmIv}
+          sharedStrikeDomain={sharedStrikeDomain}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
         <DashboardChart
           rows={rows}
@@ -204,6 +238,11 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmGamma}
+          sharedStrikeDomain={sharedStrikeDomain}
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
         <DashboardChart
           rows={rows}
@@ -214,9 +253,16 @@ export function DashboardView({
           spot={snapshot.spot}
           forward={snapshot.forward}
           atmValue={atmVanna}
+          sharedStrikeDomain={sharedStrikeDomain}
           showZeroLine
+          inspectedStrike={inspectedStrike}
+          inspection={inspection}
+          onInspectStrike={handleInspectStrike}
+          onClearInspection={handleClearInspection}
         />
       </section>
+
+      {inspection ? <ChartInspectionBar inspection={inspection} onClear={handleClearInspection} /> : null}
 
       <section className="chainSection" aria-label="Option chain">
         <div className="chainToolbar">
@@ -306,6 +352,14 @@ export function DashboardView({
       </section>
     </main>
   );
+}
+
+function deriveSharedStrikeDomain(rows: AnalyticsSnapshot["rows"]): [number, number] | null {
+  if (rows.length === 0) {
+    return null;
+  }
+  const strikes = rows.map((row) => row.strike);
+  return [Math.min(...strikes), Math.max(...strikes)];
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -408,6 +462,76 @@ function MarketMapItem({
   );
 }
 
+function MarketIntelligencePanel({ intelligence }: { intelligence: ReturnType<typeof deriveMarketIntelligence> }) {
+  return (
+    <section className="marketIntelligencePanel" aria-label="Market intelligence">
+      <div className="sectionHeader">
+        <div>
+          <h2>MARKET INTELLIGENCE</h2>
+          <p>Expected ranges, walls, and regime labels from the current snapshot.</p>
+        </div>
+      </div>
+      <div className="marketIntelligenceGrid">
+        <MarketIntelligenceItem
+          label="0.5σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.halfSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.halfSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="1σ range"
+          value={formatExpectedMoveRange(intelligence.expectedMove.oneSigma.range)}
+          detail={formatExpectedMoveDetail(intelligence.expectedMove.oneSigma.move)}
+          tone="move"
+        />
+        <MarketIntelligenceItem
+          label="Positive gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.positiveGamma)}
+          detail={formatMarketLevel(intelligence.walls.positiveGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Negative gamma wall"
+          value={formatMarketStrikeValue(intelligence.walls.negativeGamma)}
+          detail={formatMarketLevel(intelligence.walls.negativeGamma, "decimal")}
+          tone="gamma"
+        />
+        <MarketIntelligenceItem
+          label="Vanna wall"
+          value={formatMarketStrikeValue(intelligence.walls.vanna)}
+          detail={formatMarketLevel(intelligence.walls.vanna, "decimal")}
+          tone="vanna"
+        />
+        <MarketIntelligenceItem label="Gamma regime" value={intelligence.regimes.gamma} detail="Net gamma / abs gamma" />
+        <MarketIntelligenceItem label="Vanna regime" value={intelligence.regimes.vanna} detail="Net vanna / abs vanna" />
+        <MarketIntelligenceItem label="IV smile bias" value={intelligence.regimes.ivSmileBias} detail="Below spot vs above spot" />
+      </div>
+    </section>
+  );
+}
+
+function MarketIntelligenceItem({
+  label,
+  value,
+  detail,
+  tone
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "move" | "gamma" | "vanna";
+}) {
+  const modifier = tone ? ` marketIntelligenceItem-${tone}` : "";
+
+  return (
+    <div className={`marketIntelligenceItem${modifier}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function formatMarketLevel(
   level: ReturnType<typeof deriveMarketMap>["callIvLow"],
   valueKind: "percent" | "decimal"
@@ -425,6 +549,30 @@ function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow
   }
 
   return `${formatPrice(level.strike)} strike`;
+}
+
+function formatMarketStrikeValue(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  return formatPrice(level.strike);
+}
+
+function formatExpectedMoveRange(range: [number, number] | null): string {
+  if (range == null) {
+    return "—";
+  }
+
+  return `${formatPrice(range[0])}–${formatPrice(range[1])}`;
+}
+
+function formatExpectedMoveDetail(move: number | null): string {
+  if (move == null) {
+    return "Move unavailable";
+  }
+
+  return `±${formatPrice(move)} pts`;
 }
 
 function vannaFlipLabel(level: ReturnType<typeof deriveMarketMap>["vannaFlip"]): string {
