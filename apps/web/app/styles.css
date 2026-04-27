@@ -1546,7 +1546,7 @@ h1 {
 }
 
 .chartInspectionTooltipHeader span,
-.chartInspectionTooltipGrid > span:nth-child(3n + 1) {
+.chartInspectionTooltipGrid tbody th {
   color: var(--muted);
   font-size: 11px;
   font-weight: 900;
@@ -1567,21 +1567,36 @@ h1 {
 }
 
 .chartInspectionTooltipGrid {
-  display: grid;
-  gap: 7px 14px;
-  grid-template-columns: minmax(54px, 0.7fr) repeat(2, minmax(74px, 1fr));
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
 }
 
-.chartInspectionTooltipGrid strong {
+.chartInspectionTooltipGrid thead th {
   color: var(--text);
   font-size: 12px;
   font-weight: 900;
+  padding: 0 7px 7px;
+  text-align: left;
 }
 
-.chartInspectionTooltipGrid span {
+.chartInspectionTooltipGrid tbody th,
+.chartInspectionTooltipGrid td {
   font-size: 12px;
   font-weight: 820;
   min-width: 0;
+  padding: 3px 7px;
+  text-align: left;
+}
+
+.chartInspectionTooltipGrid th:first-child,
+.chartInspectionTooltipGrid td:first-child {
+  padding-left: 0;
+}
+
+.chartInspectionTooltipGrid th:last-child,
+.chartInspectionTooltipGrid td:last-child {
+  padding-right: 0;
 }
 
 .chartLegend-call-iv i {

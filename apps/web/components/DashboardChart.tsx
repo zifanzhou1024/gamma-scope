@@ -63,6 +63,8 @@ export function DashboardChart({
   const showVannaZeroLine = metricKey === "custom_vanna" && showZeroLine && isInYDomain(0, domainPoints);
   const inspectedStrikeInDomain = inspectedStrike != null && isInStrikeDomain(inspectedStrike, strikeHitZones);
   const isInspectable = Boolean(onInspectStrike);
+  const chartRole = isInspectable ? "group" : "img";
+  const chartLabel = isInspectable ? `${chartTitle} interactive strike inspection` : undefined;
 
   return (
     <section className="chartPanel" aria-label={chartTitle}>
@@ -85,7 +87,8 @@ export function DashboardChart({
       <svg
         className={`chart chart-${tone}`}
         viewBox={`0 0 ${FRAME.width} ${FRAME.height}`}
-        role="img"
+        role={chartRole}
+        aria-label={chartLabel}
         onMouseLeave={onClearInspection}
       >
         <title>{chartTitle}</title>
@@ -275,29 +278,35 @@ function InspectionTooltip({ inspection }: { inspection: StrikeInspection }) {
         <strong>{formatStrike(inspection.strike)}</strong>
         <small>{inspection.distanceLabel}</small>
       </div>
-      <div className="chartInspectionTooltipGrid" role="table" aria-label="Call and put inspection values">
-        <span />
-        <strong>Call</strong>
-        <strong>Put</strong>
-        <InspectionTooltipRow label="Bid" callValue={inspection.call.bid} putValue={inspection.put.bid} />
-        <InspectionTooltipRow label="Ask" callValue={inspection.call.ask} putValue={inspection.put.ask} />
-        <InspectionTooltipRow label="Mid" callValue={inspection.call.mid} putValue={inspection.put.mid} />
-        <InspectionTooltipRow label="IV" callValue={inspection.call.iv} putValue={inspection.put.iv} />
-        <InspectionTooltipRow label="Gamma" callValue={inspection.call.gamma} putValue={inspection.put.gamma} />
-        <InspectionTooltipRow label="Vanna" callValue={inspection.call.vanna} putValue={inspection.put.vanna} />
-        <InspectionTooltipRow label="OI" callValue={inspection.call.openInterest} putValue={inspection.put.openInterest} />
-      </div>
+      <table className="chartInspectionTooltipGrid" aria-label="Call and put inspection values">
+        <thead>
+          <tr>
+            <th scope="col">Metric</th>
+            <th scope="col">Call</th>
+            <th scope="col">Put</th>
+          </tr>
+        </thead>
+        <tbody>
+          <InspectionTooltipRow label="Bid" callValue={inspection.call.bid} putValue={inspection.put.bid} />
+          <InspectionTooltipRow label="Ask" callValue={inspection.call.ask} putValue={inspection.put.ask} />
+          <InspectionTooltipRow label="Mid" callValue={inspection.call.mid} putValue={inspection.put.mid} />
+          <InspectionTooltipRow label="IV" callValue={inspection.call.iv} putValue={inspection.put.iv} />
+          <InspectionTooltipRow label="Gamma" callValue={inspection.call.gamma} putValue={inspection.put.gamma} />
+          <InspectionTooltipRow label="Vanna" callValue={inspection.call.vanna} putValue={inspection.put.vanna} />
+          <InspectionTooltipRow label="OI" callValue={inspection.call.openInterest} putValue={inspection.put.openInterest} />
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function InspectionTooltipRow({ label, callValue, putValue }: { label: string; callValue: string; putValue: string }) {
   return (
-    <>
-      <span>{label}</span>
-      <span>{callValue}</span>
-      <span>{putValue}</span>
-    </>
+    <tr>
+      <th scope="row">{label}</th>
+      <td>{callValue}</td>
+      <td>{putValue}</td>
+    </tr>
   );
 }
 

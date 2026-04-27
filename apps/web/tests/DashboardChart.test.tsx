@@ -234,6 +234,8 @@ describe("DashboardChart", () => {
       <DashboardChart rows={baseRows} title="Gamma by strike" metricKey="custom_gamma" tone="violet" valueKind="decimal" />
     );
 
+    expect(markup).toContain('role="img"');
+    expect(markup).not.toContain('role="group"');
     expect(markup).not.toContain("data-chart-hit-strike");
     expect(markup).not.toContain("Inspect 5,200");
   });
@@ -251,9 +253,13 @@ describe("DashboardChart", () => {
       />
     );
 
+    expect(markup).toContain('role="group"');
+    expect(markup).toContain('aria-label="GAMMA BY STRIKE interactive strike inspection"');
+    expect(markup).not.toContain('role="img"');
     expect(markup).toContain('data-chart-hit-strike="5190"');
     expect(markup).toContain('data-chart-hit-strike="5200"');
     expect(markup).toContain('data-chart-hit-strike="5210"');
+    expect(markup).toMatch(/<rect[^>]*data-chart-hit-strike="5200"[^>]*role="button"[^>]*aria-label="Inspect 5,200"/);
     expect(markup).toContain("Inspect 5,200");
   });
 
@@ -344,6 +350,16 @@ describe("DashboardChart", () => {
     expect(markup).toContain("Strike");
     expect(markup).toContain("5,200");
     expect(markup).toContain("+1 pts from spot");
+    expect(markup).toContain('<table class="chartInspectionTooltipGrid" aria-label="Call and put inspection values">');
+    expect(markup).toContain("<thead>");
+    expect(markup).toContain("<tbody>");
+    expect(markup).toContain('<th scope="col">Metric</th>');
+    expect(markup).toContain('<th scope="col">Call</th>');
+    expect(markup).toContain('<th scope="col">Put</th>');
+    expect(markup).toContain('<th scope="row">Bid</th>');
+    expect(markup).toContain("<td>18.80%</td>");
+    expect(markup).toContain("<td>20.50%</td>");
+    expect(markup).not.toContain('role="table"');
     expect(markup).toContain("Call");
     expect(markup).toContain("Put");
     expect(markup).toContain("Bid");
