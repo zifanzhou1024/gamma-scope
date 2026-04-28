@@ -220,7 +220,7 @@ class PostgresHeatmapRepository:
                             contract_id, "right", strike, open_interest, observed_at,
                             captured_at, source_snapshot_time, locked
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (market_date, symbol, trading_class, expiration_date, contract_id)
                         DO UPDATE
                         SET "right" = EXCLUDED."right",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from gammascope_api.heatmap.dependencies import (
     get_heatmap_repository,
     reset_heatmap_repository_override,
@@ -9,6 +11,7 @@ from gammascope_api.heatmap.repository import (
     HEATMAP_SCHEMA_SQL,
     HeatmapOiBaselineRecord,
     InMemoryHeatmapRepository,
+    PostgresHeatmapRepository,
 )
 from gammascope_api.heatmap import repository as repository_module
 
@@ -210,6 +213,17 @@ def test_heatmap_cell_record_extracts_snake_case_payload_metrics() -> None:
     }
 
 
+def test_postgres_oi_baseline_insert_placeholders_match_parameters() -> None:
+    repo = _RecordingPostgresHeatmapRepository()
+
+    repo.upsert_oi_baseline([_baseline("SPXW-2026-04-28-C-7200", 14, "2026-04-28T13:25:00Z")])
+
+    insert_sql, insert_params = repo.executions[1]
+
+    assert "INSERT INTO heatmap_oi_baselines" in insert_sql
+    assert _values_placeholder_count(insert_sql) == len(insert_params)
+
+
 def test_heatmap_repository_override_and_reset() -> None:
     override = InMemoryHeatmapRepository()
 
@@ -269,3 +283,62 @@ def _table_sql(table_name: str) -> str:
     start = HEATMAP_SCHEMA_SQL.index(start_marker)
     end = HEATMAP_SCHEMA_SQL.index(");", start)
     return HEATMAP_SCHEMA_SQL[start:end]
+
+
+def _values_placeholder_count(sql: str) -> int:
+    values_start = sql.index("VALUES (") + len("VALUES (")
+    values_end = sql.index(")", values_start)
+    return sql[values_start:values_end].count("%s")
+
+
+class _RecordingPostgresHeatmapRepository(PostgresHeatmapRepository):
+    def __init__(self) -> None:
+        super().__init__("postgresql://unused")
+        self.executions: list[tuple[str, tuple[object, ...]]] = []
+
+    def _connect(self) -> "_RecordingConnection":
+        return _RecordingConnection(self)
+
+
+class _RecordingConnection:
+    def __init__(self, repository: _RecordingPostgresHeatmapRepository) -> None:
+        self.repository = repository
+
+    def __enter__(self) -> "_RecordingConnection":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def cursor(self) -> "_RecordingCursor":
+        return _RecordingCursor(self.repository)
+
+
+class _RecordingCursor:
+    def __init__(self, repository: _RecordingPostgresHeatmapRepository) -> None:
+        self.repository = repository
+
+    def __enter__(self) -> "_RecordingCursor":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple[object, ...] = ()) -> None:
+        self.repository.executions.append((sql, params))
+
+    def fetchone(self) -> tuple[object, ...]:
+        return (
+            "2026-04-28",
+            "SPX",
+            "SPXW",
+            "2026-04-28",
+            "SPXW-2026-04-28-C-7200",
+            "call",
+            7200.0,
+            14,
+            datetime(2026, 4, 28, 13, 25, tzinfo=UTC),
+            datetime(2026, 4, 28, 13, 25, tzinfo=UTC),
+            datetime(2026, 4, 28, 13, 25, tzinfo=UTC),
+            True,
+        )
