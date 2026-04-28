@@ -7,13 +7,15 @@ from zoneinfo import ZoneInfo
 
 
 NEW_YORK_TZ = ZoneInfo("America/New_York")
+SUPPORTED_METRICS = {"gex", "vex"}
 
 
 def percentile(values: list[float], pct: float) -> float:
-    if not values:
+    finite_values = [value for value in values if isfinite(value)]
+    if not finite_values:
         return 0
 
-    ordered = sorted(values)
+    ordered = sorted(finite_values)
     if len(ordered) == 1:
         return ordered[0]
 
@@ -27,16 +29,19 @@ def percentile(values: list[float], pct: float) -> float:
 
 
 def color_norms_by_strike(rows: list[Any], metric: str) -> dict[float, float]:
-    values = [_metric_value(row, metric) for row in rows]
+    _validate_metric(metric)
+
+    strike_values = _finite_strike_values(rows, metric)
+    values = [value for _, value in strike_values]
     abs_values = [abs(value) for value in values]
     scale_base = percentile(abs_values, 95)
 
     if scale_base <= 0:
-        return {_strike(row): 0 for row in rows}
+        return {strike: 0 for strike, _ in strike_values}
 
     return {
-        _strike(row): min(1, sqrt(abs(_metric_value(row, metric)) / scale_base))
-        for row in rows
+        strike: min(1, sqrt(abs(value) / scale_base))
+        for strike, value in strike_values
     }
 
 
@@ -66,12 +71,27 @@ def _to_datetime(value: datetime | str) -> datetime:
 
 def _metric_value(row: Any, metric: str) -> float:
     value = _row_value(row, metric)
-    numeric = float(value)
-    return numeric if isfinite(numeric) else 0
+    return float(value)
 
 
 def _strike(row: Any) -> float:
-    return _row_value(row, "strike")
+    return float(_row_value(row, "strike"))
+
+
+def _finite_strike_values(rows: list[Any], metric: str) -> list[tuple[float, float]]:
+    strike_values = []
+    for row in rows:
+        strike = _strike(row)
+        value = _metric_value(row, metric)
+        if not isfinite(strike) or not isfinite(value):
+            continue
+        strike_values.append((strike, value))
+    return strike_values
+
+
+def _validate_metric(metric: str) -> None:
+    if metric not in SUPPORTED_METRICS:
+        raise ValueError(f"unsupported heatmap metric: {metric}")
 
 
 def _row_value(row: Any, key: str) -> Any:

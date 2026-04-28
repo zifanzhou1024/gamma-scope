@@ -56,10 +56,58 @@ def test_derive_nodes_returns_empty_shape_for_empty_rows() -> None:
     }
 
 
+def test_derive_nodes_rejects_unsupported_metric() -> None:
+    with pytest.raises(ValueError, match="unsupported heatmap metric: charm"):
+        derive_nodes([StrikeExposure(strike=7200, gex=100)], spot=7200, metric="charm")  # type: ignore[arg-type]
+
+
+def test_derive_nodes_returns_empty_shape_when_metric_has_no_signal() -> None:
+    empty_shape = {
+        "king": None,
+        "positiveKing": None,
+        "negativeKing": None,
+        "aboveWall": None,
+        "belowWall": None,
+    }
+
+    assert derive_nodes(
+        [StrikeExposure(strike=7190, gex=0), StrikeExposure(strike=7210, gex=0)],
+        spot=7200,
+        metric="gex",
+    ) == empty_shape
+    assert derive_nodes(
+        [StrikeExposure(strike=7190, gex=float("nan")), StrikeExposure(strike=7210, gex=float("inf"))],
+        spot=7200,
+        metric="gex",
+    ) == empty_shape
+
+
+def test_derive_nodes_skips_non_finite_strikes_and_metric_values() -> None:
+    rows = [
+        StrikeExposure(strike=float("nan"), gex=500),
+        StrikeExposure(strike=float("inf"), gex=-600),
+        StrikeExposure(strike=7190, gex=float("-inf")),
+        StrikeExposure(strike=7210, gex=200),
+    ]
+
+    assert derive_nodes(rows, spot=7200, metric="gex") == {
+        "king": {"strike": 7210, "value": 200},
+        "positiveKing": {"strike": 7210, "value": 200},
+        "negativeKing": None,
+        "aboveWall": {"strike": 7210, "value": 200},
+        "belowWall": None,
+    }
+
+
 def test_percentile_interpolates_and_returns_zero_for_empty_values() -> None:
     assert percentile([], 80) == 0
     assert percentile([10, 20, 30, 40], 80) == pytest.approx(34)
     assert percentile([0, 100], 95) == pytest.approx(95)
+
+
+def test_percentile_ignores_non_finite_values() -> None:
+    assert percentile([float("nan"), float("inf"), float("-inf")], 80) == 0
+    assert percentile([10, float("nan"), 20, float("inf"), 30], 50) == pytest.approx(20)
 
 
 def test_color_norms_by_strike_uses_percentile_scale_and_sqrt_curve() -> None:
@@ -82,6 +130,23 @@ def test_color_norms_by_strike_maps_all_zero_values_to_zero() -> None:
     rows = [StrikeExposure(strike=7190, gex=0), StrikeExposure(strike=7200, gex=0)]
 
     assert color_norms_by_strike(rows, "gex") == {7190: 0, 7200: 0}
+
+
+def test_color_norms_by_strike_rejects_unsupported_metric() -> None:
+    with pytest.raises(ValueError, match="unsupported heatmap metric: charm"):
+        color_norms_by_strike([StrikeExposure(strike=7200, gex=100)], "charm")
+
+
+def test_color_norms_by_strike_skips_non_finite_strikes_and_metric_values() -> None:
+    rows = [
+        StrikeExposure(strike=float("nan"), gex=500),
+        StrikeExposure(strike=float("inf"), gex=600),
+        StrikeExposure(strike=7190, gex=float("nan")),
+        StrikeExposure(strike=7200, gex=float("inf")),
+        StrikeExposure(strike=7210, gex=100),
+    ]
+
+    assert color_norms_by_strike(rows, "gex") == {7210: 1}
 
 
 def test_market_date_new_york_prevents_utc_midnight_drift() -> None:

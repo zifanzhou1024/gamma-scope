@@ -8,6 +8,7 @@ from gammascope_api.heatmap.normalization import percentile
 
 HeatmapMetric = Literal["gex", "vex"]
 NodeValue = dict[str, float] | None
+SUPPORTED_METRICS = {"gex", "vex"}
 
 
 class HeatmapNodes(TypedDict):
@@ -28,10 +29,14 @@ EMPTY_NODES: HeatmapNodes = {
 
 
 def derive_nodes(rows: list[Any], spot: float, metric: HeatmapMetric) -> HeatmapNodes:
+    _validate_metric(metric)
     if not rows:
         return EMPTY_NODES.copy()
 
-    ranked_rows = [(_strike(row), _metric_value(row, metric)) for row in rows]
+    ranked_rows = _ranked_rows(rows, metric)
+    if not ranked_rows:
+        return EMPTY_NODES.copy()
+
     threshold = percentile([abs(value) for _, value in ranked_rows], 80)
 
     king = max(ranked_rows, key=lambda row: abs(row[1]))
@@ -64,14 +69,29 @@ def _node(row: tuple[float, float] | None) -> NodeValue:
     return {"strike": strike, "value": value}
 
 
+def _ranked_rows(rows: list[Any], metric: HeatmapMetric) -> list[tuple[float, float]]:
+    ranked_rows = []
+    for row in rows:
+        strike = _strike(row)
+        value = _metric_value(row, metric)
+        if not isfinite(strike) or not isfinite(value) or value == 0:
+            continue
+        ranked_rows.append((strike, value))
+    return ranked_rows
+
+
+def _validate_metric(metric: str) -> None:
+    if metric not in SUPPORTED_METRICS:
+        raise ValueError(f"unsupported heatmap metric: {metric}")
+
+
 def _metric_value(row: Any, metric: str) -> float:
     value = _row_value(row, metric)
-    numeric = float(value)
-    return numeric if isfinite(numeric) else 0
+    return float(value)
 
 
 def _strike(row: Any) -> float:
-    return _row_value(row, "strike")
+    return float(_row_value(row, "strike"))
 
 
 def _row_value(row: Any, key: str) -> Any:
