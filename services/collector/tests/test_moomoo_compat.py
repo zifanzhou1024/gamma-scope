@@ -4,7 +4,11 @@ import json
 from datetime import date
 
 from gammascope_api.contracts.generated.collector_events import CollectorEvents
-from gammascope_collector.moomoo_compat import moomoo_rows_to_spx_events, synthetic_ibkr_con_id
+from gammascope_collector.moomoo_compat import (
+    moomoo_rows_to_spx_events,
+    moomoo_rows_to_symbol_events,
+    synthetic_ibkr_con_id,
+)
 from gammascope_collector.moomoo_snapshot import MoomooOptionRow
 
 MAX_SYNTHETIC_CON_ID = 2_147_483_647
@@ -92,6 +96,54 @@ def test_moomoo_rows_to_spx_events_filters_non_spx_and_validates_events() -> Non
     ]
     for event in events:
         CollectorEvents.model_validate(event)
+
+
+def test_moomoo_rows_to_symbol_events_publishes_spy_rows() -> None:
+    events = moomoo_rows_to_symbol_events(
+        session_id="moomoo-spy-0dte-live",
+        collector_id="collector-1",
+        symbol="SPY",
+        spot=715.25,
+        rows=[
+            _row("SPY", "US.SPY260427C00715000", "CALL", 715),
+            _row("QQQ", "US.QQQ260427C00665000", "CALL", 665),
+        ],
+        status="connected",
+        message="ok",
+    )
+
+    assert [_event_type(event) for event in events] == [
+        "CollectorHealth",
+        "UnderlyingTick",
+        "ContractDiscovered",
+        "OptionTick",
+    ]
+    assert {event["symbol"] for event in events if "symbol" in event} == {"SPY"}
+    for event in events:
+        CollectorEvents.model_validate(event)
+
+
+def test_moomoo_rows_to_symbol_events_publishes_ndx_and_iwm_rows() -> None:
+    for symbol, spot, strike in [("NDX", 18300.0, 18300), ("IWM", 277.14, 277)]:
+        events = moomoo_rows_to_symbol_events(
+            session_id=f"moomoo-{symbol.lower()}-0dte-live",
+            collector_id="collector-1",
+            symbol=symbol,
+            spot=spot,
+            rows=[_row(symbol, f"US.{symbol}260427C00100000", "CALL", strike)],
+            status="connected",
+            message="ok",
+        )
+
+        assert [_event_type(event) for event in events] == [
+            "CollectorHealth",
+            "UnderlyingTick",
+            "ContractDiscovered",
+            "OptionTick",
+        ]
+        assert {event["symbol"] for event in events if "symbol" in event} == {symbol}
+        for event in events:
+            CollectorEvents.model_validate(event)
 
 
 def test_moomoo_rows_to_spx_events_uses_cboe_exchange_for_contract_discovered() -> None:

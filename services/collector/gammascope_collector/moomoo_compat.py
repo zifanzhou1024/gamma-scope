@@ -33,7 +33,31 @@ def moomoo_rows_to_spx_events(
     status: str,
     message: str,
 ) -> list[dict[str, object]]:
-    spx_rows = [row for row in rows if row.symbol == "SPX" and _positive_float_or_none(row.strike) is not None]
+    return moomoo_rows_to_symbol_events(
+        session_id=session_id,
+        collector_id=collector_id,
+        symbol="SPX",
+        spot=spot,
+        rows=rows,
+        status=status,
+        message=message,
+    )
+
+
+def moomoo_rows_to_symbol_events(
+    session_id: str,
+    collector_id: str,
+    symbol: str,
+    spot: float | None,
+    rows: Iterable[MoomooOptionRow],
+    status: str,
+    message: str,
+) -> list[dict[str, object]]:
+    publishable_rows = [
+        row
+        for row in rows
+        if row.symbol == symbol and _positive_float_or_none(row.strike) is not None
+    ]
     spot = _finite_float_or_none(spot)
     event_time = utc_now()
     events = [
@@ -45,21 +69,21 @@ def moomoo_rows_to_spx_events(
             event_time=event_time,
         )
     ]
-    if spot is None or not spx_rows:
+    if spot is None or not publishable_rows:
         return events
 
     events.append(
         underlying_tick_event(
             session_id=session_id,
-            symbol="SPX",
+            symbol=symbol,
             bid=None,
             ask=None,
             last=spot,
             event_time=event_time,
         )
     )
-    events.extend(_contract_event(session_id, row, event_time) for row in spx_rows)
-    events.extend(_option_tick_event(session_id, row, event_time) for row in spx_rows)
+    events.extend(_contract_event(session_id, row, event_time) for row in publishable_rows)
+    events.extend(_option_tick_event(session_id, row, event_time) for row in publishable_rows)
     return events
 
 
@@ -72,7 +96,7 @@ def _contract_event(session_id: str, row: MoomooOptionRow, event_time: datetime)
     return contract_discovered_event(
         session_id=session_id,
         ibkr_con_id=synthetic_ibkr_con_id(row.option_code),
-        symbol="SPX",
+        symbol=row.symbol,
         expiry=expiry,
         right=right,
         strike=strike,
@@ -91,7 +115,7 @@ def _option_tick_event(session_id: str, row: MoomooOptionRow, event_time: dateti
         raise ValueError(f"Unsupported Moomoo strike: {row.strike}")
     return option_tick_event(
         session_id=session_id,
-        contract_id=contract_id("SPX", expiry, right, strike),
+        contract_id=contract_id(row.symbol, expiry, right, strike),
         bid=_finite_float_or_none(row.bid_price),
         ask=_finite_float_or_none(row.ask_price),
         last=_finite_float_or_none(row.last_price),
@@ -138,4 +162,4 @@ def _positive_float_or_none(value: object) -> float | None:
     return result
 
 
-__all__ = ["moomoo_rows_to_spx_events", "synthetic_ibkr_con_id"]
+__all__ = ["moomoo_rows_to_spx_events", "moomoo_rows_to_symbol_events", "synthetic_ibkr_con_id"]

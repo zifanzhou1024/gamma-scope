@@ -23,7 +23,7 @@ export interface ContractDiscovered {
   session_id: string;
   contract_id: string;
   ibkr_con_id: number;
-  symbol: "SPX";
+  symbol: "SPX" | "SPY" | "QQQ" | "NDX" | "IWM";
   expiry: string;
   right: "call" | "put";
   strike: number;
@@ -36,7 +36,7 @@ export interface UnderlyingTick {
   schema_version: "1.0.0";
   source: "ibkr";
   session_id: string;
-  symbol: "SPX";
+  symbol: "SPX" | "SPY" | "QQQ" | "NDX" | "IWM";
   spot: number | null;
   bid: number | null;
   ask: number | null;

@@ -1027,6 +1027,98 @@ def test_main_publish_mode_publishes_moomoo_spx_compatibility_events(
     assert len(captured_events) == 6
 
 
+def test_main_publish_mode_publishes_spx_spy_qqq_ndx_and_iwm_compatibility_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..SPX": [
+                _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),
+                _option("US.SPXW260427P07050000", strike=7050, option_type="PUT", name="SPXW 7050P"),
+            ],
+            "US.SPY": [
+                _option("US.SPY260427C00715000", strike=715, option_type="CALL", name="SPY 715C"),
+                _option("US.SPY260427P00715000", strike=715, option_type="PUT", name="SPY 715P"),
+            ],
+            "US.QQQ": [
+                _option("US.QQQ260427C00665000", strike=665, option_type="CALL", name="QQQ 665C"),
+                _option("US.QQQ260427P00665000", strike=665, option_type="PUT", name="QQQ 665P"),
+            ],
+            "US..NDX": [
+                _option("US.NDX260427C18300000", strike=18300, option_type="CALL", name="NDX 18300C"),
+                _option("US.NDX260427P18300000", strike=18300, option_type="PUT", name="NDX 18300P"),
+            ],
+            "US.IWM": [
+                _option("US.IWM260427C00277000", strike=277, option_type="CALL", name="IWM 277C"),
+                _option("US.IWM260427P00277000", strike=277, option_type="PUT", name="IWM 277P"),
+            ],
+        },
+        snapshots={
+            "US.SPXW260427C07050000": {"code": "US.SPXW260427C07050000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.SPXW260427P07050000": {"code": "US.SPXW260427P07050000", "bid_price": 1.2, "ask_price": 1.6},
+            "US.SPY260427C00715000": {"code": "US.SPY260427C00715000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.SPY260427P00715000": {"code": "US.SPY260427P00715000", "bid_price": 1.2, "ask_price": 1.6},
+            "US.QQQ260427C00665000": {"code": "US.QQQ260427C00665000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.QQQ260427P00665000": {"code": "US.QQQ260427P00665000", "bid_price": 1.2, "ask_price": 1.6},
+            "US.NDX260427C18300000": {"code": "US.NDX260427C18300000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.NDX260427P18300000": {"code": "US.NDX260427P18300000", "bid_price": 1.2, "ask_price": 1.6},
+            "US.IWM260427C00277000": {"code": "US.IWM260427C00277000", "bid_price": 1.1, "ask_price": 1.3},
+            "US.IWM260427P00277000": {"code": "US.IWM260427P00277000", "bid_price": 1.2, "ask_price": 1.6},
+        },
+    )
+    captured_events: list[dict[str, object]] = []
+
+    def fake_publish(events: Iterable[dict[str, object]], *, api_base: str) -> PublishSummary:
+        captured_events.extend(events)
+        return PublishSummary(
+            endpoint=f"{api_base}/api/spx/0dte/collector/events/bulk",
+            accepted_count=len(captured_events),
+            event_types=["CollectorHealth" if "collector_id" in event else "MarketEvent" for event in captured_events],
+        )
+
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.publish_events_bulk", fake_publish)
+
+    main(
+        [
+            "--publish",
+            "--api",
+            "http://testserver",
+            "--collector-id",
+            "test-moomoo",
+            "--expiry",
+            "2026-04-27",
+            "--spot",
+            "SPX=7050",
+            "--spot",
+            "SPY=715",
+            "--spot",
+            "QQQ=665",
+            "--spot",
+            "IWM=277",
+            "--spot",
+            "RUT=2050",
+            "--spot",
+            "NDX=18300",
+            "--max-loops",
+            "1",
+        ],
+        client_factory=lambda _host, _port: client,
+    )
+
+    assert {
+        event["session_id"]
+        for event in captured_events
+        if "session_id" in event
+    } == {
+        "moomoo-spx-0dte-live",
+        "moomoo-spy-0dte-live",
+        "moomoo-qqq-0dte-live",
+        "moomoo-ndx-0dte-live",
+        "moomoo-iwm-0dte-live",
+    }
+    assert {event["symbol"] for event in captured_events if "symbol" in event} == {"SPX", "SPY", "QQQ", "NDX", "IWM"}
+
+
 def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1164,7 +1256,7 @@ def test_main_publish_mode_publishes_each_snapshot_loop(
     assert payload["publish"]["accepted_count"] == 6
 
 
-def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
+def test_main_publish_mode_publishes_spy_session_when_no_spx_rows(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1214,10 +1306,9 @@ def test_main_publish_mode_publishes_degraded_health_only_when_no_spx_rows(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "connected"
-    assert payload["publish"]["accepted_count"] == 1
-    assert payload["publish"]["event_types"] == ["CollectorHealth"]
-    assert len(captured_events) == 1
-    assert captured_events[0]["status"] == "degraded"
+    assert payload["publish"]["accepted_count"] == 5
+    assert {event["session_id"] for event in captured_events if "session_id" in event} == {"moomoo-spy-0dte-live"}
+    assert {event["symbol"] for event in captured_events if "symbol" in event} == {"SPY"}
 
 
 def test_publish_spx_compatibility_snapshot_degrades_health_for_non_finite_spx_spot(

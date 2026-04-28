@@ -211,6 +211,19 @@ Publish SPX compatibility events into the local FastAPI ingestion path. By defau
 
 The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds during active market/pre-open windows, reduces to once per minute from 5:00 PM to 8:30 AM New York time, refreshes the SPX spot proxy every loop, infers the SPX spot from same-strike call/put mids, and chunks requests to at most 400 option codes. The default expiry is chosen in New York time: today's 0DTE until 4:05 PM, then the next weekday session so expired 0DTE chains are not reused overnight. Pass `--expiry YYYY-MM-DD` only when you intentionally want to pin a smoke test to a specific expiry. It uses `get_option_chain()` at startup and again if the automatic expiry changes while the collector is running.
 
+### SPX 0DTE Exposure Heatmap
+
+The latest-ladder heatmap page is available at `http://localhost:3000/heatmap` when the web app is running.
+
+The backend API is:
+
+    GET /api/spx/0dte/heatmap/latest?metric=gex
+    GET /api/spx/0dte/heatmap/latest?metric=vex
+
+The first implementation uses signed OI proxy exposure: call open interest contributes positive exposure and put open interest contributes negative exposure. Moomoo open interest captured at or after 09:25 New York time is used as the daily baseline when available. Before that baseline is locked, heatmap payloads are marked provisional.
+
+Heatmap snapshots are persisted to Postgres in full-resolution tables, with 5-minute bucket rows maintained for fast future history and replay work. The first page intentionally shows the latest ladder only; replay UI integration can build on the persisted heatmap history later.
+
 ### Local Replay Baseline Import
 
 For a local-only replay baseline import, copy the parquet pair into the ignored `.gammascope/` directory and run the helper:

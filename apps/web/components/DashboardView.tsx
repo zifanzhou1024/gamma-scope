@@ -133,9 +133,9 @@ export function DashboardView({
             >
               Replay
             </a>
-            <span className="topNavTab topNavTab-disabled" aria-disabled="true">
+            <a className="topNavTab" href="/heatmap">
               Heatmap
-            </span>
+            </a>
           </nav>
         </div>
         <div className="topBarUtility">

@@ -46,6 +46,14 @@ class CollectorHealth(BaseModel):
     received_time: AwareDatetime
 
 
+class Symbol(Enum):
+    SPX = 'SPX'
+    SPY = 'SPY'
+    QQQ = 'QQQ'
+    NDX = 'NDX'
+    IWM = 'IWM'
+
+
 class Right(Enum):
     call = 'call'
     put = 'put'
@@ -60,7 +68,7 @@ class ContractDiscovered(BaseModel):
     session_id: constr(min_length=1)
     contract_id: constr(min_length=1)
     ibkr_con_id: int
-    symbol: Literal['SPX']
+    symbol: Symbol
     expiry: constr(pattern=r'^\d{4}-\d{2}-\d{2}$')
     right: Right
     strike: PositiveFloat
@@ -84,7 +92,7 @@ class UnderlyingTick(BaseModel):
     schema_version: Literal['1.0.0']
     source: Literal['ibkr']
     session_id: constr(min_length=1)
-    symbol: Literal['SPX']
+    symbol: Symbol
     spot: float | None
     bid: float | None
     ask: float | None
