@@ -96,6 +96,30 @@ def test_aggregate_exposure_skips_missing_baseline_or_greeks_and_tags_row() -> N
     assert "missing_greek" in row.tags
 
 
+def test_aggregate_exposure_tags_contract_missing_baseline_and_greek() -> None:
+    rows = aggregate_exposure_by_strike(
+        [
+            _contract(
+                contract_id="SPX-2026-04-28-C-7200",
+                right="call",
+                strike=7200,
+                open_interest=None,
+                gamma=None,
+                vanna=0.03,
+            ),
+        ],
+        spot=7000,
+    )
+
+    row = rows[0]
+    assert row.gex == 0
+    assert row.vex == 0
+    assert row.call_gex == 0
+    assert row.call_vex == 0
+    assert "missing_oi_baseline" in row.tags
+    assert "missing_greek" in row.tags
+
+
 def test_aggregate_exposure_orders_strikes_ascending() -> None:
     rows = aggregate_exposure_by_strike(
         [

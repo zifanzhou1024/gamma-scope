@@ -40,11 +40,15 @@ def aggregate_exposure_by_strike(contracts: list[HeatmapContractInput], *, spot:
     for contract in contracts:
         row = rows_by_strike.setdefault(contract.strike, StrikeExposure(strike=contract.strike))
 
+        missing_input = False
         if contract.baseline_open_interest is None:
             _append_tag(row, "missing_oi_baseline")
-            continue
+            missing_input = True
         if contract.custom_gamma is None or contract.custom_vanna is None:
             _append_tag(row, "missing_greek")
+            missing_input = True
+
+        if missing_input:
             continue
 
         signed_oi = contract.baseline_open_interest if contract.right == "call" else -contract.baseline_open_interest
