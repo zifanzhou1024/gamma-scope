@@ -7,9 +7,10 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, time as wall_time, timedelta
 from statistics import median
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from gammascope_collector.moomoo_config import (
     DEFAULT_SPX_SESSION_ID,
@@ -43,6 +44,14 @@ class MoomooQuoteClient(Protocol):
 
 ClientFactory = Callable[[str, int], MoomooQuoteClient]
 SnapshotResultHandler = Callable[["MoomooSnapshotResult"], None]
+ExpiryProvider = Callable[[], date]
+IntervalSecondsProvider = Callable[[], float]
+
+MARKET_TIMEZONE = ZoneInfo("America/New_York")
+SLOW_CADENCE_INTERVAL_SECONDS = 60.0
+SLOW_CADENCE_START = wall_time(17, 0)
+SLOW_CADENCE_END = wall_time(8, 30)
+NEXT_EXPIRY_SWITCH_TIME = wall_time(16, 5)
 
 
 @dataclass(frozen=True)
@@ -176,6 +185,25 @@ def select_atm_strikes(strikes: Sequence[float], *, spot: float, down: int, up: 
     start = max(0, nearest_index - down)
     end = min(len(ordered), nearest_index + up + 1)
     return ordered[start:end]
+
+
+def market_cadence_interval_seconds(base_interval_seconds: float, *, now: datetime | None = None) -> float:
+    market_now = _market_datetime(now)
+    if market_now.weekday() >= 5:
+        return SLOW_CADENCE_INTERVAL_SECONDS
+    if market_now.time() >= SLOW_CADENCE_START or market_now.time() < SLOW_CADENCE_END:
+        return SLOW_CADENCE_INTERVAL_SECONDS
+    return base_interval_seconds
+
+
+def resolve_moomoo_target_expiry(now: datetime | None = None) -> date:
+    market_now = _market_datetime(now)
+    target_date = market_now.date()
+    if market_now.weekday() >= 5:
+        return _next_weekday(target_date)
+    if market_now.time() >= NEXT_EXPIRY_SWITCH_TIME:
+        return _next_weekday(target_date + timedelta(days=1))
+    return target_date
 
 
 def discover_symbol_contracts(
@@ -374,14 +402,21 @@ def run_moomoo_snapshot_loop(
     client: MoomooQuoteClient,
     config: MoomooCollectorConfig,
     *,
-    expiry: date,
+    expiry: date | None,
+    expiry_provider: ExpiryProvider | None = None,
+    interval_seconds_provider: IntervalSecondsProvider | None = None,
     max_loops: int | None = None,
     on_result: SnapshotResultHandler | None = None,
 ) -> MoomooSnapshotResult:
     result: MoomooSnapshotResult | None = None
-    snapshot_context = _discover_snapshot_context(client, config, expiry=expiry)
+    snapshot_context: _SnapshotContext | None = None
+    active_expiry: date | None = None
     loops = 0
     while max_loops is None or loops < max_loops:
+        target_expiry = _target_expiry(expiry, expiry_provider)
+        if snapshot_context is None or active_expiry != target_expiry:
+            snapshot_context = _discover_snapshot_context(client, config, expiry=target_expiry)
+            active_expiry = target_expiry
         started_at = time.perf_counter()
         result = _collect_snapshot_from_context(client, snapshot_context)
         if on_result is not None:
@@ -389,8 +424,16 @@ def run_moomoo_snapshot_loop(
         elapsed = time.perf_counter() - started_at
         loops += 1
         if max_loops is None or loops < max_loops:
-            time.sleep(max(0, config.refresh_interval_seconds - elapsed))
+            interval_seconds = (
+                interval_seconds_provider()
+                if interval_seconds_provider is not None
+                else config.refresh_interval_seconds
+            )
+            time.sleep(max(0, interval_seconds - elapsed))
     if result is None:
+        target_expiry = _target_expiry(expiry, expiry_provider)
+        if snapshot_context is None or active_expiry != target_expiry:
+            snapshot_context = _discover_snapshot_context(client, config, expiry=target_expiry)
         result = _collect_snapshot_from_context(client, snapshot_context)
     return result
 
@@ -433,7 +476,12 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     parser.add_argument("--api", default="http://127.0.0.1:8000")
     parser.add_argument("--collector-id", default="local-moomoo")
     parser.add_argument("--session-id", default=None, help="Stable SPX dashboard session id for published events.")
-    parser.add_argument("--expiry", type=_parse_date, required=True)
+    parser.add_argument(
+        "--expiry",
+        type=_parse_date,
+        default=None,
+        help="Target option expiry. Defaults to the current/next New York market session.",
+    )
     parser.add_argument("--spot", action="append", default=[])
     parser.add_argument("--interval-seconds", type=float, default=2.0)
     parser.add_argument("--max-loops", type=int, default=0, help="Number of loops to run; 0 runs continuously.")
@@ -470,6 +518,8 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
             client,
             config,
             expiry=args.expiry,
+            expiry_provider=None if args.expiry is not None else resolve_moomoo_target_expiry,
+            interval_seconds_provider=lambda: market_cadence_interval_seconds(config.refresh_interval_seconds),
             max_loops=loop_limit,
             on_result=handle_result if args.publish or loop_limit is None else None,
         )
@@ -496,6 +546,27 @@ def _normalize_max_loops(value: int) -> int | None:
         raise ValueError("--max-loops must be greater than or equal to 0")
     if value == 0:
         return None
+    return value
+
+
+def _target_expiry(expiry: date | None, expiry_provider: ExpiryProvider | None) -> date:
+    target = expiry_provider() if expiry_provider is not None else expiry
+    if target is None:
+        raise ValueError("expiry is required when no expiry provider is configured")
+    return target
+
+
+def _market_datetime(now: datetime | None) -> datetime:
+    if now is None:
+        return datetime.now(MARKET_TIMEZONE)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=MARKET_TIMEZONE)
+    return now.astimezone(MARKET_TIMEZONE)
+
+
+def _next_weekday(value: date) -> date:
+    while value.weekday() >= 5:
+        value += timedelta(days=1)
     return value
 
 

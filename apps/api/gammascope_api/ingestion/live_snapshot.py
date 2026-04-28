@@ -46,7 +46,17 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
         return None
 
     snapshot_time = state.last_event_time() or underlying["event_time"]
-    expiry = str(contracts[0]["expiry"])
+    expiry = _active_expiry(contracts=contracts, option_ticks=option_ticks)
+    if expiry is None:
+        return None
+    contracts = [contract for contract in contracts if str(contract["expiry"]) == expiry]
+    active_contract_ids = {str(contract["contract_id"]) for contract in contracts}
+    option_ticks = {
+        contract_id: option_tick for contract_id, option_tick in option_ticks.items() if contract_id in active_contract_ids
+    }
+    if not contracts or not option_ticks:
+        return None
+
     spot = _spot_from_underlying(underlying)
     if spot is None or spot <= 0:
         return None
@@ -87,6 +97,23 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
         "scenario_params": None,
         "rows": rows,
     }
+
+
+def _active_expiry(*, contracts: list[dict[str, Any]], option_ticks: dict[str, dict[str, Any]]) -> str | None:
+    ticked_contracts = [
+        contract for contract in contracts if str(contract["contract_id"]) in option_ticks and contract.get("expiry") is not None
+    ]
+    if not ticked_contracts:
+        return None
+    active_contract = max(
+        ticked_contracts,
+        key=lambda contract: (
+            str(option_ticks[str(contract["contract_id"])].get("event_time") or ""),
+            str(contract.get("event_time") or ""),
+            str(contract["expiry"]),
+        ),
+    )
+    return str(active_contract["expiry"])
 
 
 def _apply_analytics_memory(*, session_id: str, row: dict[str, Any]) -> None:

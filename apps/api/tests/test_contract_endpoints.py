@@ -329,6 +329,41 @@ def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
     assert all(row["custom_vanna"] is not None for row in payload["rows"])
 
 
+def test_latest_snapshot_prefers_newer_ticked_expiry_when_state_contains_expired_contracts() -> None:
+    session_id = "moomoo-spx-0dte-live"
+    old_time = "2026-04-27T20:04:00Z"
+    new_time = "2026-04-28T02:53:00Z"
+    old_call = "SPX-2026-04-27-C-5200"
+    old_put = "SPX-2026-04-27-P-5200"
+    new_call = "SPX-2026-04-28-C-5200"
+    new_put = "SPX-2026-04-28-P-5200"
+
+    response = client.post(
+        "/api/spx/0dte/collector/events/bulk",
+        json=[
+            _health_event(old_time),
+            _underlying_event(session_id, old_time, 5200.25),
+            _contract_event(session_id, old_call, "call", old_time, expiry="2026-04-27"),
+            _contract_event(session_id, old_put, "put", old_time, expiry="2026-04-27"),
+            _option_event(session_id, old_call, old_time),
+            _option_event(session_id, old_put, old_time),
+            _health_event(new_time),
+            _underlying_event(session_id, new_time, 5201.25),
+            _contract_event(session_id, new_call, "call", new_time, expiry="2026-04-28"),
+            _contract_event(session_id, new_put, "put", new_time, expiry="2026-04-28"),
+            _option_event(session_id, new_call, new_time),
+            _option_event(session_id, new_put, new_time),
+        ],
+    )
+    assert response.status_code == 200
+
+    payload = client.get("/api/spx/0dte/snapshot/latest").json()
+
+    assert payload["mode"] == "live"
+    assert payload["expiry"] == "2026-04-28"
+    assert {row["contract_id"] for row in payload["rows"]} == {new_call, new_put}
+
+
 def test_live_snapshot_reuses_last_good_custom_analytics_when_current_quote_is_unusable() -> None:
     session_id = "live-spx-analytics-memory"
     contract_id = "SPX-2026-04-24-C-5200"
@@ -1017,7 +1052,14 @@ def _underlying_event(session_id: str, event_time: str, spot: float) -> dict[str
     }
 
 
-def _contract_event(session_id: str, contract_id: str, right: str, event_time: str) -> dict[str, object]:
+def _contract_event(
+    session_id: str,
+    contract_id: str,
+    right: str,
+    event_time: str,
+    *,
+    expiry: str = "2026-04-24",
+) -> dict[str, object]:
     return {
         "schema_version": "1.0.0",
         "source": "ibkr",
@@ -1025,7 +1067,7 @@ def _contract_event(session_id: str, contract_id: str, right: str, event_time: s
         "contract_id": contract_id,
         "ibkr_con_id": 900000,
         "symbol": "SPX",
-        "expiry": "2026-04-24",
+        "expiry": expiry,
         "right": right,
         "strike": 5200,
         "multiplier": 100,

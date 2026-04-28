@@ -83,6 +83,26 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toMatch(/option[^>]*value="moomoo"[^>]*selected=""/);
   });
 
+  it("renders the theme switch on the live dashboard header", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "live-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<LiveDashboardModule.LiveDashboard initialSnapshot={snapshot} />);
+
+    const topBarStart = markup.indexOf("class=\"topBar\"");
+    const themeToggleIndex = markup.indexOf("data-theme-toggle");
+    const adminUtilityIndex = markup.indexOf("class=\"adminUtility\"");
+
+    expect(topBarStart).toBeGreaterThanOrEqual(0);
+    expect(themeToggleIndex).toBeGreaterThan(topBarStart);
+    expect(themeToggleIndex).toBeLessThan(adminUtilityIndex);
+    expect(markup).toContain("Theme");
+    expect(markup).toContain("Dark");
+  });
+
   it("keeps replay import hidden while showing top-bar admin status on the live route", () => {
     const snapshot = {
       ...seedSnapshot,

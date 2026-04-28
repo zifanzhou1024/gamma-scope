@@ -75,6 +75,23 @@ describe("DashboardView", () => {
     expect(markup).toContain("Option chain");
   });
 
+  it("renders the theme switch in the header before the dense status rail", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+
+    const topBarStart = markup.indexOf("class=\"topBar\"");
+    const sourceSelectorIndex = markup.indexOf("class=\"sourceSelector\"");
+    const themeToggleIndex = markup.indexOf("data-theme-toggle");
+    const statusRailIndex = markup.indexOf("class=\"statusRail\"");
+
+    expect(topBarStart).toBeGreaterThanOrEqual(0);
+    expect(sourceSelectorIndex).toBeGreaterThan(topBarStart);
+    expect(themeToggleIndex).toBeGreaterThan(sourceSelectorIndex);
+    expect(themeToggleIndex).toBeLessThan(statusRailIndex);
+    expect(markup).toContain("Theme");
+    expect(markup).toContain("Dark");
+  });
+
   it("renders market map levels and expanded exposure metrics", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
@@ -104,12 +121,12 @@ describe("DashboardView", () => {
       expiry: "2026-04-23",
       snapshot_time: "2026-04-23T18:00:00Z",
       rows: [
-        { ...snapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: -0.2, custom_vanna: 0.01 },
-        { ...snapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: -0.15, custom_vanna: 0.02 },
-        { ...snapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.3 },
-        { ...snapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.2 },
-        { ...snapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.3, custom_vanna: 0.05 },
-        { ...snapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.2, custom_vanna: 0.04 }
+        { ...snapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: 0.01, custom_vanna: 0.01, open_interest: 100 },
+        { ...snapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: 0.02, custom_vanna: 0.02, open_interest: 300 },
+        { ...snapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.01, custom_vanna: -0.3, open_interest: 100 },
+        { ...snapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.01, custom_vanna: -0.2, open_interest: 100 },
+        { ...snapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.015, custom_vanna: 0.05, open_interest: 100 },
+        { ...snapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.005, custom_vanna: 0.04, open_interest: 100 }
       ]
     } satisfies AnalyticsSnapshot;
     const markup = renderToStaticMarkup(<DashboardView snapshot={intelligenceSnapshot} />);
@@ -120,8 +137,10 @@ describe("DashboardView", () => {
     expect(markup).toContain("1σ range");
     expect(markup).toContain("Positive gamma wall");
     expect(markup).toContain("5,220.00");
+    expect(markup).toContain("$27.0M / 1%");
     expect(markup).toContain("Negative gamma wall");
     expect(markup).toContain("5,180.00");
+    expect(markup).toContain("-$135.2M / 1%");
     expect(markup).toContain("Vanna wall");
     expect(markup).toContain("Gamma regime");
     expect(markup).toContain("Pinning");
@@ -223,11 +242,15 @@ describe("DashboardView", () => {
   it("renders option-chain filters as pressed-state buttons with All selected by default", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+    const filtersStart = markup.indexOf("class=\"chainFilters\"");
+    const filtersEnd = markup.indexOf("<table", filtersStart);
+    const filtersMarkup = markup.slice(filtersStart, filtersEnd);
 
-    expect(markup.match(/<button/g) ?? []).toHaveLength(3);
-    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>.*All<\/button>/);
-    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Calls<\/button>/);
-    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Puts<\/button>/);
+    expect(filtersStart).toBeGreaterThanOrEqual(0);
+    expect(filtersMarkup.match(/<button/g) ?? []).toHaveLength(3);
+    expect(filtersMarkup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>.*All<\/button>/);
+    expect(filtersMarkup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Calls<\/button>/);
+    expect(filtersMarkup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>.*Puts<\/button>/);
   });
 
   it("renders charts from the latest snapshot while the option chain can use a slower snapshot", async () => {

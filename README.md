@@ -202,14 +202,14 @@ Start Moomoo OpenD locally and confirm it is listening on:
 
 Run one snapshot loop. SPX uses live `US.SPY` from Moomoo as its discovery baseline (`SPY * 10.035`), then replaces the published SPX spot with an option-implied value from live SPX call/put pairs when snapshots are available. Manual spot is still available for index symbols without a live proxy:
 
-    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot RUT=2050 --spot NDX=18300 --max-loops 1
+    pnpm collector:moomoo-snapshot -- --spot RUT=2050 --spot NDX=18300 --max-loops 1
 
 Publish SPX compatibility events into the local FastAPI ingestion path. By default, the collector runs continuously and publishes each 2-second snapshot loop into the stable `moomoo-spx-0dte-live` dashboard session; pass `--max-loops 1` only for a bounded smoke test:
 
     pnpm dev:api
-    pnpm collector:moomoo-snapshot -- --expiry 2026-04-27 --spot RUT=2050 --spot NDX=18300 --publish
+    pnpm collector:moomoo-snapshot -- --spot RUT=2050 --spot NDX=18300 --publish
 
-The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds when running multiple loops, refreshes the SPX spot proxy every loop, infers the SPX spot from same-strike call/put mids, and chunks requests to at most 400 option codes. It uses `get_option_chain()` only for startup contract discovery.
+The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds during active market/pre-open windows, reduces to once per minute from 5:00 PM to 8:30 AM New York time, refreshes the SPX spot proxy every loop, infers the SPX spot from same-strike call/put mids, and chunks requests to at most 400 option codes. The default expiry is chosen in New York time: today's 0DTE until 4:05 PM, then the next weekday session so expired 0DTE chains are not reused overnight. Pass `--expiry YYYY-MM-DD` only when you intentionally want to pin a smoke test to a specific expiry. It uses `get_option_chain()` at startup and again if the automatic expiry changes while the collector is running.
 
 ### Local Replay Baseline Import
 

@@ -103,6 +103,26 @@ describe("ReplayDashboard", () => {
     expect(markup).toMatch(/option[^>]*value="moomoo"[^>]*selected=""/);
   });
 
+  it("renders the theme switch on the replay dashboard header", () => {
+    const snapshot = {
+      ...seedSnapshot,
+      session_id: "replay-dashboard-session",
+      snapshot_time: "2026-04-24T16:15:00Z"
+    } satisfies AnalyticsSnapshot;
+
+    const markup = renderToStaticMarkup(<ReplayDashboardModule.ReplayDashboard initialSnapshot={snapshot} />);
+
+    const topBarStart = markup.indexOf("class=\"topBar\"");
+    const themeToggleIndex = markup.indexOf("data-theme-toggle");
+    const adminUtilityIndex = markup.indexOf("class=\"adminUtility\"");
+
+    expect(topBarStart).toBeGreaterThanOrEqual(0);
+    expect(themeToggleIndex).toBeGreaterThan(topBarStart);
+    expect(themeToggleIndex).toBeLessThan(adminUtilityIndex);
+    expect(markup).toContain("Theme");
+    expect(markup).toContain("Dark");
+  });
+
   it("loads persisted source preference on the replay dashboard", async () => {
     window.localStorage.setItem(DATA_SOURCE_STORAGE_KEY, "ibkr");
     const snapshot = {

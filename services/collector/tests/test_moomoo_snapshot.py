@@ -4,7 +4,8 @@ import json
 import subprocess
 import sys
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -18,7 +19,9 @@ from gammascope_collector.moomoo_snapshot import (
     collect_moomoo_snapshot_once,
     discover_symbol_contracts,
     main,
+    market_cadence_interval_seconds,
     normalize_snapshot_record,
+    resolve_moomoo_target_expiry,
     run_moomoo_snapshot_loop,
     select_atm_strikes,
 )
@@ -110,6 +113,27 @@ def test_select_atm_strikes_keeps_asymmetric_down_up_window() -> None:
     strikes = select_atm_strikes([7030, 7040, 7050, 7060, 7070, 7080], spot=7054, down=1, up=2)
 
     assert strikes == [7040.0, 7050.0, 7060.0, 7070.0]
+
+
+def test_market_cadence_interval_slows_after_close_until_premarket_buffer() -> None:
+    eastern = ZoneInfo("America/New_York")
+
+    assert market_cadence_interval_seconds(2.0, now=datetime(2026, 4, 27, 16, 59, tzinfo=eastern)) == 2.0
+    assert market_cadence_interval_seconds(2.0, now=datetime(2026, 4, 27, 17, 0, tzinfo=eastern)) == 60.0
+    assert market_cadence_interval_seconds(2.0, now=datetime(2026, 4, 28, 0, 1, tzinfo=eastern)) == 60.0
+    assert market_cadence_interval_seconds(2.0, now=datetime(2026, 4, 28, 8, 29, tzinfo=eastern)) == 60.0
+    assert market_cadence_interval_seconds(2.0, now=datetime(2026, 4, 28, 8, 30, tzinfo=eastern)) == 2.0
+
+
+def test_resolve_moomoo_target_expiry_switches_after_405_without_midnight_double_advance() -> None:
+    eastern = ZoneInfo("America/New_York")
+
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 27, 16, 4, tzinfo=eastern)) == date(2026, 4, 27)
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 27, 16, 5, tzinfo=eastern)) == date(2026, 4, 28)
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 27, 23, 59, tzinfo=eastern)) == date(2026, 4, 28)
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 28, 0, 1, tzinfo=eastern)) == date(2026, 4, 28)
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 24, 16, 5, tzinfo=eastern)) == date(2026, 4, 27)
+    assert resolve_moomoo_target_expiry(datetime(2026, 4, 25, 12, 0, tzinfo=eastern)) == date(2026, 4, 27)
 
 
 def test_discover_symbol_contracts_filters_family_and_selects_calls_and_puts_for_target_expiry() -> None:
@@ -683,6 +707,53 @@ def test_run_moomoo_snapshot_loop_sleeps_only_remaining_interval(
     assert sleeps == [0.75]
 
 
+def test_run_moomoo_snapshot_loop_rediscovers_when_dynamic_expiry_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US.SPY": [
+                _option("US.SPY260427C00500000", strike=500, option_type="CALL", expiry="2026-04-27"),
+                _option("US.SPY260428C00500000", strike=500, option_type="CALL", expiry="2026-04-28"),
+            ]
+        },
+        snapshots={
+            "US.SPY260427C00500000": {"code": "US.SPY260427C00500000", "last_price": 1.0},
+            "US.SPY260428C00500000": {"code": "US.SPY260428C00500000", "last_price": 2.0},
+        },
+    )
+    config = MoomooCollectorConfig(
+        refresh_interval_seconds=1,
+        universe=[
+            MoomooSymbolConfig(
+                symbol="SPY",
+                owner_code="US.SPY",
+                strike_window_down=0,
+                strike_window_up=0,
+                manual_spot=500,
+            )
+        ],
+    )
+    expiry_values = iter([date(2026, 4, 27), date(2026, 4, 28)])
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.time.sleep", lambda _seconds: None)
+
+    result = run_moomoo_snapshot_loop(
+        client,
+        config,
+        expiry=None,
+        expiry_provider=lambda: next(expiry_values),
+        interval_seconds_provider=lambda: 1,
+        max_loops=2,
+    )
+
+    assert client.option_chain_calls == [
+        ("US.SPY", "2026-04-27", "2026-04-27"),
+        ("US.SPY", "2026-04-28", "2026-04-28"),
+    ]
+    assert client.snapshot_calls == [["US.SPY260427C00500000"], ["US.SPY260428C00500000"]]
+    assert {row.expiry for row in result.rows} == {date(2026, 4, 28)}
+
+
 def test_main_prints_error_json_when_client_factory_cannot_create_client(capsys: pytest.CaptureFixture[str]) -> None:
     def fail_client_factory(_host: str, _port: int) -> FakeQuoteClient:
         raise RuntimeError("client factory unavailable")
@@ -694,6 +765,25 @@ def test_main_prints_error_json_when_client_factory_cannot_create_client(capsys:
     output = capsys.readouterr().out
     assert '"status":"error"' in output
     assert "client factory unavailable" in output
+
+
+def test_main_allows_dynamic_expiry_when_expiry_is_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("gammascope_collector.moomoo_snapshot.resolve_moomoo_target_expiry", lambda: date(2026, 4, 28))
+    clients: list[FakeQuoteClient] = []
+
+    def make_client(_host: str, _port: int) -> FakeQuoteClient:
+        client = FakeQuoteClient()
+        clients.append(client)
+        return client
+
+    main(["--max-loops", "1"], client_factory=make_client)
+
+    assert clients[0].closed is True
+    output = capsys.readouterr().out
+    assert '"status":"degraded"' in output
 
 
 def test_collect_moomoo_snapshot_once_degrades_when_snapshot_returns_fewer_known_codes() -> None:

@@ -265,25 +265,62 @@ describe("dashboard metrics", () => {
       ...marketMapSnapshot,
       spot: 5200,
       rows: [
-        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: -0.2, custom_vanna: 0.01 },
-        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: -0.15, custom_vanna: 0.02 },
-        { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.3 },
-        { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.1, custom_vanna: -0.2 },
-        { ...seedSnapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.3, custom_vanna: 0.05 },
-        { ...seedSnapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.2, custom_vanna: 0.04 }
+        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: 0.01, custom_vanna: 0.01, open_interest: 100 },
+        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: 0.02, custom_vanna: 0.02, open_interest: 300 },
+        { ...seedSnapshot.rows[2]!, strike: 5200, right: "call" as const, custom_iv: 0.2, custom_gamma: 0.01, custom_vanna: -0.3, open_interest: 100 },
+        { ...seedSnapshot.rows[3]!, strike: 5200, right: "put" as const, custom_iv: 0.2, custom_gamma: 0.01, custom_vanna: -0.2, open_interest: 100 },
+        { ...seedSnapshot.rows[4]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.015, custom_vanna: 0.05, open_interest: 100 },
+        { ...seedSnapshot.rows[5]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.005, custom_vanna: 0.04, open_interest: 100 }
       ]
     };
 
     const intelligence = deriveMarketIntelligence(snapshot);
 
-    expect(intelligence.walls.positiveGamma).toMatchObject({ strike: 5220, value: 0.5 });
-    expect(intelligence.walls.negativeGamma).toMatchObject({ strike: 5180, value: -0.35 });
+    expect(intelligence.walls.positiveGamma).toMatchObject({ strike: 5220, value: expect.closeTo(27040000) });
+    expect(intelligence.walls.negativeGamma).toMatchObject({ strike: 5180, value: expect.closeTo(-135200000) });
     expect(intelligence.walls.vanna).toMatchObject({ strike: 5200, value: -0.5 });
     expect(intelligence.regimes).toEqual({
       gamma: "Pinning",
       vanna: "Suppressive",
       ivSmileBias: "Left-skew"
     });
+  });
+
+  it("derives negative signed GEX walls from put open interest when raw gammas are non-negative", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5200,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_iv: 0.24, custom_gamma: 0.01, custom_vanna: 0.01, open_interest: 100 },
+        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_iv: 0.23, custom_gamma: 0.02, custom_vanna: 0.02, open_interest: 300 },
+        { ...seedSnapshot.rows[2]!, strike: 5220, right: "call" as const, custom_iv: 0.18, custom_gamma: 0.015, custom_vanna: 0.05, open_interest: 100 },
+        { ...seedSnapshot.rows[3]!, strike: 5220, right: "put" as const, custom_iv: 0.19, custom_gamma: 0.005, custom_vanna: 0.04, open_interest: 100 }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.walls.positiveGamma).toMatchObject({ strike: 5220, value: expect.closeTo(27040000) });
+    expect(intelligence.walls.negativeGamma).toMatchObject({ strike: 5180, value: expect.closeTo(-135200000) });
+    expect(intelligence.regimes.gamma).toBe("Pinning");
+  });
+
+  it("does not create signed GEX walls from rows missing gamma or open interest", () => {
+    const snapshot = {
+      ...marketMapSnapshot,
+      spot: 5200,
+      rows: [
+        { ...seedSnapshot.rows[0]!, strike: 5180, right: "call" as const, custom_gamma: null, custom_vanna: 0.01, open_interest: 100 },
+        { ...seedSnapshot.rows[1]!, strike: 5180, right: "put" as const, custom_gamma: 0.02, custom_vanna: 0.02, open_interest: null },
+        { ...seedSnapshot.rows[2]!, strike: 5220, right: "call" as const, custom_gamma: null, custom_vanna: 0.05, open_interest: null }
+      ]
+    };
+
+    const intelligence = deriveMarketIntelligence(snapshot);
+
+    expect(intelligence.walls.positiveGamma).toBeNull();
+    expect(intelligence.walls.negativeGamma).toBeNull();
+    expect(intelligence.walls.vanna).toMatchObject({ strike: 5220, value: 0.05 });
   });
 
   it("returns ATM aggregate values for chart headers", () => {

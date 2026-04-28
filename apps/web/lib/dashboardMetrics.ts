@@ -11,6 +11,8 @@ type CollectorStatus = CollectorHealth["status"];
 const REGIME_RATIO_THRESHOLD = 0.2;
 const IV_SMILE_BIAS_THRESHOLD = 0.01;
 const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
+const SPX_CONTRACT_MULTIPLIER = 100;
+const GEX_ONE_PERCENT_MOVE = 0.01;
 
 export type ComparisonTone = "ok" | "warning" | "muted";
 export type OperationalTone = "ok" | "warning" | "error" | "muted";
@@ -625,7 +627,7 @@ export function deriveLevelMovements(history: LevelHistoryEntry[]): LevelMovemen
 }
 
 export function deriveMarketIntelligence(snapshot: AnalyticsSnapshot): MarketIntelligence {
-  const gammaLevels = aggregateByStrike(snapshot.rows, "custom_gamma");
+  const signedGexLevels = aggregateSignedGexByStrike(snapshot.rows, snapshot.spot);
   const vannaLevels = aggregateByStrike(snapshot.rows, "custom_vanna");
   const iv = getAtmMetricValue(snapshot, "custom_iv") ?? average(compactNumbers(snapshot.rows.map((row) => row.custom_iv)));
   const timeToCloseYears = timeToSpxCloseYears(snapshot.snapshot_time, snapshot.expiry);
@@ -638,8 +640,8 @@ export function deriveMarketIntelligence(snapshot: AnalyticsSnapshot): MarketInt
       oneSigma: expectedMoveBand(snapshot.spot, iv, timeToCloseYears, 1)
     },
     walls: {
-      positiveGamma: findLargestPositiveLevel(gammaLevels),
-      negativeGamma: findLargestNegativeLevel(gammaLevels),
+      positiveGamma: findLargestPositiveLevel(signedGexLevels),
+      negativeGamma: findLargestNegativeLevel(signedGexLevels),
       vanna: findLargestAbsLevel(vannaLevels)
     },
     regimes: {
@@ -716,6 +718,25 @@ function aggregateByStrike(rows: AnalyticsRow[], key: "custom_gamma" | "custom_v
       continue;
     }
     levels.set(row.strike, (levels.get(row.strike) ?? 0) + value);
+  }
+
+  return [...levels.entries()]
+    .map(([strike, value]) => ({ strike, value }))
+    .sort((a, b) => a.strike - b.strike);
+}
+
+function aggregateSignedGexByStrike(rows: AnalyticsRow[], spot: number): MarketLevel[] {
+  const levels = new Map<number, number>();
+  const spotScale = SPX_CONTRACT_MULTIPLIER * spot * spot * GEX_ONE_PERCENT_MOVE;
+
+  for (const row of rows) {
+    if (row.custom_gamma == null || row.open_interest == null) {
+      continue;
+    }
+
+    const sign = row.right === "put" ? -1 : 1;
+    const signedGex = sign * row.custom_gamma * row.open_interest * spotScale;
+    levels.set(row.strike, (levels.get(row.strike) ?? 0) + signedGex);
   }
 
   return [...levels.entries()]

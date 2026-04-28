@@ -7,6 +7,7 @@ import { DashboardChart } from "./DashboardChart";
 import { DataQualityPanel } from "./DataQualityPanel";
 import { LevelMovementPanel } from "./LevelMovementPanel";
 import { SourceSelector } from "./SourceSelector";
+import { ThemeToggle } from "./ThemeToggle";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import type { CollectorHealth } from "../lib/clientCollectorStatusSource";
 import { deriveStrikeInspection } from "../lib/chartInspection";
@@ -139,6 +140,7 @@ export function DashboardView({
         </div>
         <div className="topBarUtility">
           <SourceSelector value={selectedDataSource} onChange={onSelectedDataSourceChange} />
+          <ThemeToggle />
           <div className="sourcePreferenceLabel" aria-label="Preferred data source">
             Preferred {formatDataSourcePreference(selectedDataSource)}
           </div>
@@ -528,13 +530,13 @@ function MarketIntelligencePanel({ intelligence }: { intelligence: ReturnType<ty
         <MarketIntelligenceItem
           label="Positive gamma wall"
           value={formatMarketStrikeValue(intelligence.walls.positiveGamma)}
-          detail={formatMarketLevel(intelligence.walls.positiveGamma, "decimal")}
+          detail={formatGexWallDetail(intelligence.walls.positiveGamma)}
           tone="gamma"
         />
         <MarketIntelligenceItem
           label="Negative gamma wall"
           value={formatMarketStrikeValue(intelligence.walls.negativeGamma)}
-          detail={formatMarketLevel(intelligence.walls.negativeGamma, "decimal")}
+          detail={formatGexWallDetail(intelligence.walls.negativeGamma)}
           tone="gamma"
         />
         <MarketIntelligenceItem
@@ -582,6 +584,25 @@ function formatMarketLevel(
   }
 
   return valueKind === "percent" ? formatPercent(level.value) : formatNumber(level.value, 4);
+}
+
+function formatGexWallDetail(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
+  if (level == null) {
+    return "—";
+  }
+
+  const magnitude = Math.abs(level.value);
+  const prefix = level.value < 0 ? "-$" : "$";
+  if (magnitude >= 1_000_000_000) {
+    return `${prefix}${(magnitude / 1_000_000_000).toFixed(1)}B / 1%`;
+  }
+  if (magnitude >= 1_000_000) {
+    return `${prefix}${(magnitude / 1_000_000).toFixed(1)}M / 1%`;
+  }
+  if (magnitude >= 1_000) {
+    return `${prefix}${(magnitude / 1_000).toFixed(1)}K / 1%`;
+  }
+  return `${prefix}${magnitude.toFixed(0)} / 1%`;
 }
 
 function formatMarketStrike(level: ReturnType<typeof deriveMarketMap>["callIvLow"]): string {
