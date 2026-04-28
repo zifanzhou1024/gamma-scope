@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import UTC, datetime, time
 from typing import Any, Protocol
 
@@ -232,6 +232,10 @@ class PostgresHeatmapRepository:
                             locked = EXCLUDED.locked,
                             updated_at = NOW()
                         WHERE heatmap_oi_baselines.locked = FALSE
+                          AND (
+                              EXCLUDED.locked = TRUE
+                              OR EXCLUDED.source_snapshot_time >= heatmap_oi_baselines.source_snapshot_time
+                          )
                         RETURNING market_date, symbol, trading_class, expiration_date,
                                   contract_id, "right", strike, open_interest, observed_at,
                                   captured_at, source_snapshot_time, locked
@@ -314,9 +318,11 @@ class PostgresHeatmapRepository:
         trading_class = str(_payload_value(normalized, "trading_class", "tradingClass"))
         expiration_date = str(_payload_value(normalized, "expiration_date", "expirationDate"))
         spot = float(_payload_value(normalized, "spot"))
-        oi_baseline_status = _optional_str(_payload_value(normalized, "oi_baseline_status", "oiBaselineStatus"))
+        oi_baseline_status = _optional_str(
+            _payload_value(normalized, "oi_baseline_status", "oiBaselineStatus", default=None)
+        )
         oi_baseline_captured_at = _optional_datetime(
-            _payload_value(normalized, "oi_baseline_captured_at", "oiBaselineCapturedAt")
+            _payload_value(normalized, "oi_baseline_captured_at", "oiBaselineCapturedAt", default=None)
         )
         row_count = len(normalized.get("rows", []))
 
@@ -453,14 +459,14 @@ class PostgresHeatmapRepository:
 
 def _normalized_baseline(record: HeatmapOiBaselineRecord) -> HeatmapOiBaselineRecord:
     observed_at = _format_datetime(_parse_datetime(record.observed_at))
-    captured_at = _format_datetime(_parse_datetime(record.captured_at or record.observed_at))
-    source_snapshot_time = _format_datetime(_parse_datetime(record.source_snapshot_time or record.observed_at))
+    captured_at = _format_datetime(_parse_datetime(record.captured_at or record.source_snapshot_time or record.observed_at))
+    source_snapshot_time = _format_datetime(_parse_datetime(record.source_snapshot_time or record.captured_at or record.observed_at))
     return replace(
         record,
         observed_at=observed_at,
         captured_at=captured_at,
         source_snapshot_time=source_snapshot_time,
-        locked=record.locked or _is_lock_time(observed_at),
+        locked=record.locked or _is_lock_time(source_snapshot_time),
     )
 
 
@@ -480,7 +486,7 @@ def _should_replace_provisional(
 ) -> bool:
     if incoming.locked:
         return True
-    return _parse_datetime(incoming.observed_at) >= _parse_datetime(existing.observed_at)
+    return _parse_datetime(incoming.source_snapshot_time) >= _parse_datetime(existing.source_snapshot_time)
 
 
 def _is_lock_time(value: str) -> bool:
@@ -574,10 +580,15 @@ def _row_value(row: Any, *keys: str) -> Any:
     return None
 
 
-def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+_MISSING = object()
+
+
+def _payload_value(payload: dict[str, Any], *keys: str, default: Any = _MISSING) -> Any:
     for key in keys:
         if key in payload:
             return payload[key]
+    if default is not _MISSING:
+        return default
     raise KeyError(keys[0])
 
 
@@ -596,7 +607,19 @@ def _optional_datetime(value: Any) -> datetime | None:
 def _jsonb(payload: Any) -> Any:
     from psycopg.types.json import Jsonb
 
-    return Jsonb(payload)
+    return Jsonb(_json_safe_payload(payload))
+
+
+def _json_safe_payload(payload: Any) -> Any:
+    if is_dataclass(payload) and not isinstance(payload, type):
+        return _json_safe_payload(asdict(payload))
+    if isinstance(payload, dict):
+        return {key: _json_safe_payload(value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [_json_safe_payload(value) for value in payload]
+    if isinstance(payload, tuple):
+        return [_json_safe_payload(value) for value in payload]
+    return payload
 
 
 def _parse_datetime(value: str) -> datetime:

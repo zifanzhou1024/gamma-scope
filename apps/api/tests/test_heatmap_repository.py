@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from gammascope_api.heatmap.dependencies import (
@@ -63,6 +64,60 @@ def test_oi_baseline_round_trips_contract_metadata() -> None:
     assert baselines[0].captured_at == "2026-04-28T13:25:02Z"
     assert baselines[0].source_snapshot_time == "2026-04-28T13:25:00Z"
     assert baselines[0].observed_at == "2026-04-28T13:20:00Z"
+
+
+def test_source_snapshot_time_locks_baseline_even_when_observed_at_is_before_lock_time() -> None:
+    repo = InMemoryHeatmapRepository()
+
+    repo.upsert_oi_baseline(
+        [
+            _baseline(
+                "SPXW-2026-04-28-C-7200",
+                14,
+                "2026-04-28T13:20:00Z",
+                captured_at="2026-04-28T13:25:02Z",
+                source_snapshot_time="2026-04-28T13:25:00Z",
+            ),
+            _baseline(
+                "SPXW-2026-04-28-C-7200",
+                18,
+                "2026-04-28T13:35:00Z",
+                captured_at="2026-04-28T13:35:02Z",
+                source_snapshot_time="2026-04-28T13:35:00Z",
+            ),
+        ]
+    )
+
+    baselines = repo.oi_baseline("2026-04-28", "SPX", "SPXW", "2026-04-28")
+
+    assert len(baselines) == 1
+    assert baselines[0].open_interest == 14
+    assert baselines[0].observed_at == "2026-04-28T13:20:00Z"
+    assert baselines[0].source_snapshot_time == "2026-04-28T13:25:00Z"
+    assert baselines[0].locked is True
+
+
+def test_provisional_baseline_ignores_older_source_snapshot_time_update() -> None:
+    repo = InMemoryHeatmapRepository()
+
+    repo.upsert_oi_baseline(
+        [
+            _baseline("SPXW-2026-04-28-C-7200", 14, "2026-04-28T13:20:00Z"),
+            _baseline(
+                "SPXW-2026-04-28-C-7200",
+                9,
+                "2026-04-28T13:21:00Z",
+                source_snapshot_time="2026-04-28T13:19:00Z",
+            ),
+        ]
+    )
+
+    baselines = repo.oi_baseline("2026-04-28", "SPX", "SPXW", "2026-04-28")
+
+    assert len(baselines) == 1
+    assert baselines[0].open_interest == 14
+    assert baselines[0].source_snapshot_time == "2026-04-28T13:20:00Z"
+    assert baselines[0].locked is False
 
 
 def test_oi_baseline_returns_multiple_contracts_for_expiration() -> None:
@@ -224,6 +279,49 @@ def test_postgres_oi_baseline_insert_placeholders_match_parameters() -> None:
     assert _values_placeholder_count(insert_sql) == len(insert_params)
 
 
+def test_postgres_oi_baseline_conflict_predicate_matches_provisional_replacement_semantics() -> None:
+    repo = _RecordingPostgresHeatmapRepository()
+
+    repo.upsert_oi_baseline([_baseline("SPXW-2026-04-28-C-7200", 14, "2026-04-28T13:25:00Z")])
+
+    insert_sql, _insert_params = repo.executions[1]
+
+    assert "WHERE heatmap_oi_baselines.locked = FALSE" in insert_sql
+    assert "EXCLUDED.locked = TRUE" in insert_sql
+    assert "EXCLUDED.source_snapshot_time >= heatmap_oi_baselines.source_snapshot_time" in insert_sql
+
+
+def test_postgres_snapshot_allows_missing_optional_baseline_metadata() -> None:
+    repo = _RecordingPostgresHeatmapRepository()
+    payload = _snapshot_payload(rows=[])
+    payload.pop("oiBaselineStatus")
+    payload.pop("oiBaselineCapturedAt")
+
+    repo.upsert_heatmap_snapshot(payload)
+
+    snapshot_sql, snapshot_params = repo.executions[1]
+
+    assert "INSERT INTO heatmap_snapshots" in snapshot_sql
+    assert snapshot_params[7] is None
+    assert snapshot_params[8] is None
+
+
+def test_json_safe_payload_normalizes_dataclass_rows() -> None:
+    row = _SnapshotRow(strike=7200, gex=10.5, callGex=6.0, tags=["zero_gamma"])
+    payload = _snapshot_payload(rows=[row])
+
+    safe_payload = repository_module._json_safe_payload(payload)
+
+    assert safe_payload["rows"] == [
+        {
+            "strike": 7200,
+            "gex": 10.5,
+            "callGex": 6.0,
+            "tags": ["zero_gamma"],
+        }
+    ]
+
+
 def test_heatmap_repository_override_and_reset() -> None:
     override = InMemoryHeatmapRepository()
 
@@ -263,7 +361,7 @@ def _baseline(
     )
 
 
-def _snapshot_payload(*, rows: list[dict[str, object]]) -> dict[str, object]:
+def _snapshot_payload(*, rows: list[object]) -> dict[str, object]:
     return {
         "sessionId": "session-1",
         "lastSyncedAt": "2026-04-28T14:09:59Z",
@@ -283,6 +381,14 @@ def _table_sql(table_name: str) -> str:
     start = HEATMAP_SCHEMA_SQL.index(start_marker)
     end = HEATMAP_SCHEMA_SQL.index(");", start)
     return HEATMAP_SCHEMA_SQL[start:end]
+
+
+@dataclass(frozen=True)
+class _SnapshotRow:
+    strike: float
+    gex: float
+    callGex: float
+    tags: list[str]
 
 
 def _values_placeholder_count(sql: str) -> int:
@@ -328,6 +434,15 @@ class _RecordingCursor:
         self.repository.executions.append((sql, params))
 
     def fetchone(self) -> tuple[object, ...]:
+        last_sql = self.repository.executions[-1][0]
+        if "INSERT INTO heatmap_snapshots" in last_sql:
+            return (
+                1,
+                "session-1",
+                datetime(2026, 4, 28, 14, 9, 59, tzinfo=UTC),
+                "baseline",
+                0,
+            )
         return (
             "2026-04-28",
             "SPX",
