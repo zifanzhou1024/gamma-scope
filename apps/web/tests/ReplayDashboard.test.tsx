@@ -77,7 +77,8 @@ describe("ReplayDashboard", () => {
     expect(markup).toContain("ARCHIVE TRANSPORT");
     expect(markup).toMatch(/<a[^>]*href="\/"[^>]*>Realtime<\/a>/);
     expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*aria-current="page"[^>]*>Replay<\/a>/);
-    expect(markup).toMatch(/aria-disabled="true"[^>]*>Heatmap<\/span>/);
+    expect(markup).toMatch(/<a[^>]*href="\/heatmap"[^>]*>Heatmap<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/heatmap"[^>]*aria-current="page"[^>]*>Heatmap<\/a>/);
     expect(markup).toContain("Replay session");
     expect(markup).not.toContain("Previous replay timestamp");
     expect(markup).toContain("LOAD");

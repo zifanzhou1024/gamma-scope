@@ -55,7 +55,8 @@ describe("LiveDashboard scenario panel", () => {
     expect(markup).toContain("SPX 0DTE analytics");
     expect(markup).toMatch(/<a[^>]*href="\/"[^>]*aria-current="page"[^>]*>Realtime<\/a>/);
     expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*>Replay<\/a>/);
-    expect(markup).toMatch(/aria-disabled="true"[^>]*>Heatmap<\/span>/);
+    expect(markup).toMatch(/<a[^>]*href="\/heatmap"[^>]*>Heatmap<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/heatmap"[^>]*aria-current="page"[^>]*>Heatmap<\/a>/);
     expect(markup).toMatch(/class="adminUtility"[\s\S]*<button[^>]*aria-expanded="false"[^>]*>Admin<\/button>/);
     expect(markup).toContain("Spot shift");
     expect(markup).toContain("Saved views");
