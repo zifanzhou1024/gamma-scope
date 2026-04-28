@@ -124,10 +124,7 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
             <thead>
               <tr>
                 <th>Strike</th>
-                <th>Net {metric.toUpperCase()}</th>
-                <th>Call {metric.toUpperCase()}</th>
-                <th>Put {metric.toUpperCase()}</th>
-                <th>Nodes</th>
+                <th>{metric.toUpperCase()}</th>
               </tr>
             </thead>
             <tbody>
@@ -142,16 +139,18 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
                     <strong>{formatNumber(row.strike, Number.isInteger(row.strike) ? 0 : 2)}</strong>
                     {row.strike === nearestSpotRow?.strike ? <span>Spot</span> : null}
                   </td>
-                  <td className={`heatmapCell ${exposureToneClass(row.displayValue, row.displayColorNorm)}`}>
-                    {row.displayFormattedValue}
-                  </td>
-                  <td>{formatCompactCurrency(row.displayCallValue)}</td>
-                  <td>{formatCompactCurrency(row.displayPutValue)}</td>
-                  <td>
-                    <div className="heatmapRowTags">
-                      {row.displayTags.map((tag) => (
-                        <span key={tag}>{formatTag(tag)}</span>
-                      ))}
+                  <td
+                    className={`heatmapCell ${exposureToneClass(row.displayValue, row.displayColorNorm)}`}
+                    title={componentTooltip(row, metric)}
+                    aria-label={componentTooltip(row, metric)}
+                  >
+                    <div className="heatmapCellInner">
+                      <div className="heatmapRowTags">
+                        {row.displayTags.map((tag) => (
+                          <span key={tag}>{formatTag(tag)}</span>
+                        ))}
+                      </div>
+                      <strong>{row.displayFormattedValue}</strong>
                     </div>
                   </td>
                 </tr>
@@ -192,6 +191,16 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes 
     displayColorNorm: row.colorNormGex,
     displayTags: displayTagsForMetric(row, nodes)
   };
+}
+
+function componentTooltip(row: DisplayRow, metric: HeatmapMetric): string {
+  const label = metric.toUpperCase();
+
+  return [
+    `Net ${label}: ${row.displayFormattedValue}`,
+    `Call ${label}: ${formatCompactCurrency(row.displayCallValue)}`,
+    `Put ${label}: ${formatCompactCurrency(row.displayPutValue)}`
+  ].join("\n");
 }
 
 function displayTagsForMetric(row: HeatmapRow, nodes: HeatmapNodes | null): string[] {

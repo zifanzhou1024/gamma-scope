@@ -371,9 +371,9 @@ h1 {
 .heatmapLayout {
   align-items: start;
   display: grid;
-  gap: 16px;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  padding-top: 16px;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  padding-top: 12px;
 }
 
 .heatmapTableWrap {
@@ -384,15 +384,15 @@ h1 {
 
 .heatmapTable {
   border-collapse: collapse;
-  min-width: 780px;
+  min-width: 460px;
   width: 100%;
 }
 
 .heatmapTable th,
 .heatmapTable td {
   border-bottom: 1px solid var(--line-soft);
-  height: 42px;
-  padding: 0 12px;
+  height: 28px;
+  padding: 0 8px;
   text-align: right;
   white-space: nowrap;
 }
@@ -409,9 +409,7 @@ h1 {
 }
 
 .heatmapTable th:first-child,
-.heatmapTable td:first-child,
-.heatmapTable th:last-child,
-.heatmapTable td:last-child {
+.heatmapTable td:first-child {
   text-align: left;
 }
 
@@ -430,7 +428,7 @@ h1 {
 
 .heatmapStrike strong {
   display: block;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .heatmapStrike span {
@@ -445,6 +443,22 @@ h1 {
   border-left: 1px solid rgba(148, 163, 184, 0.12);
   border-right: 1px solid rgba(148, 163, 184, 0.12);
   font-weight: 900;
+  padding: 0;
+}
+
+.heatmapCellInner {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.heatmapCellInner strong {
+  color: inherit;
+  font-size: 12px;
+  margin-left: auto;
 }
 
 .heatmapCell-positive {
@@ -494,7 +508,8 @@ h1 {
 .heatmapRowTags {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .heatmapRowTags span,
@@ -505,46 +520,46 @@ h1 {
 
 .heatmapRowTags span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 850;
-  padding: 3px 6px;
+  padding: 1px 5px;
   text-transform: uppercase;
 }
 
 .heatmapNodePanel {
   border-left: 1px solid var(--line-soft);
-  padding-left: 16px;
+  padding-left: 12px;
 }
 
 .heatmapNodeGrid {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: 1fr;
 }
 
 .heatmapNodeBadge {
   background: rgba(15, 23, 42, 0.36);
-  padding: 10px;
+  padding: 7px 8px;
 }
 
 .heatmapNodeBadge span {
   color: var(--muted);
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 850;
   text-transform: uppercase;
 }
 
 .heatmapNodeBadge strong {
   display: block;
-  font-size: 15px;
-  margin-top: 5px;
+  font-size: 12px;
+  margin-top: 3px;
 }
 
 .heatmapDisclosures {
   color: var(--muted);
   display: grid;
-  font-size: 12px;
+  font-size: 10px;
   gap: 8px;
   line-height: 1.35;
   margin-top: 12px;

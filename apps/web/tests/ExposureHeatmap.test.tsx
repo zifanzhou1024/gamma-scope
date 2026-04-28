@@ -200,6 +200,30 @@ describe("ExposureHeatmap", () => {
     cleanup(root, container);
   });
 
+  it("keeps the ladder focused on one net metric column and moves components into hover detail", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+
+    const headers = Array.from(getHeatmapTable(container).querySelectorAll("th")).map((header) => header.textContent);
+    expect(headers).toEqual(["Strike", "GEX"]);
+    expect(getHeatmapTable(container).textContent).not.toContain("Call GEX");
+    expect(getHeatmapTable(container).textContent).not.toContain("Put GEX");
+    expect(getRow(container, 5200).textContent).not.toContain("$760K");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Call GEX: $760K");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Put GEX: $490K");
+
+    clickButton(container, "VEX");
+
+    const vexHeaders = Array.from(getHeatmapTable(container).querySelectorAll("th")).map((header) => header.textContent);
+    expect(vexHeaders).toEqual(["Strike", "VEX"]);
+    expect(getHeatmapTable(container).textContent).not.toContain("Call VEX");
+    expect(getHeatmapTable(container).textContent).not.toContain("Put VEX");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Call VEX: $210K");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Put VEX: $130K");
+
+    cleanup(root, container);
+  });
+
   it("switches displayed metric locally from GEX to VEX without refetching", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -415,6 +439,12 @@ function getRow(container: HTMLElement, strike: number): HTMLElement {
   const row = container.querySelector<HTMLElement>(`[data-heatmap-row="${strike}"]`);
   expect(row).not.toBeNull();
   return row as HTMLElement;
+}
+
+function getMetricCell(container: HTMLElement, strike: number): HTMLElement {
+  const cell = getRow(container, strike).querySelector<HTMLElement>(".heatmapCell");
+  expect(cell).not.toBeNull();
+  return cell as HTMLElement;
 }
 
 function cleanup(root: Root, container: HTMLElement) {
