@@ -145,6 +145,30 @@ const backendNodeRulesPayload = {
   ]
 } as HeatmapPayload;
 
+const interpolatedPercentilePayload = {
+  ...basePayload,
+  spot: 100,
+  nodes: {
+    king: null,
+    positiveKing: null,
+    negativeKing: null,
+    aboveWall: null,
+    belowWall: null
+  },
+  rows: [
+    nodeRuleRow(70, 1),
+    nodeRuleRow(75, 2),
+    nodeRuleRow(80, 3),
+    nodeRuleRow(85, 4),
+    nodeRuleRow(88, 5),
+    nodeRuleRow(90, -100),
+    nodeRuleRow(94, 6),
+    nodeRuleRow(99, -7),
+    nodeRuleRow(101, 40),
+    nodeRuleRow(110, 100)
+  ]
+} as HeatmapPayload;
+
 describe("ExposureHeatmap", () => {
   afterEach(() => {
     document.body.innerHTML = "";
@@ -279,7 +303,7 @@ describe("ExposureHeatmap", () => {
     expect(getNodePanel(container).textContent).toContain("King110 $1K");
     expect(getNodePanel(container).textContent).toContain("Positive king110 $1K");
     expect(getNodePanel(container).textContent).toContain("Negative king98 -$920");
-    expect(getNodePanel(container).textContent).toContain("Above wall101 $900");
+    expect(getNodePanel(container).textContent).toContain("Above wall110 $1K");
     expect(getNodePanel(container).textContent).toContain("Below wall98 -$920");
     expect(getNodePanel(container).textContent).not.toContain("90 $0");
     expect(getNodePanel(container).textContent).not.toContain("120 $Infinity");
@@ -288,8 +312,21 @@ describe("ExposureHeatmap", () => {
     expect(getRow(container, 110).textContent).toContain("Positive King");
     expect(getRow(container, 98).textContent).toContain("Negative King");
     expect(getRow(container, 98).textContent).toContain("Below Wall");
-    expect(getRow(container, 101).textContent).toContain("Above Wall");
+    expect(getRow(container, 110).textContent).toContain("Above Wall");
     expect(getRow(container, 90).textContent).not.toContain("King");
+
+    cleanup(root, container);
+  });
+
+  it("uses interpolated 80th percentile for wall eligibility", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={interpolatedPercentilePayload} />);
+
+    expect(getNodePanel(container).textContent).toContain("Above wall110 $100");
+    expect(getNodePanel(container).textContent).toContain("Below wall90 -$100");
+    expect(getNodePanel(container).textContent).not.toContain("Above wall101 $40");
+    expect(getRow(container, 110).textContent).toContain("Above Wall");
+    expect(getRow(container, 101).textContent).not.toContain("Above Wall");
 
     cleanup(root, container);
   });

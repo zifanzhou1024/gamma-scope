@@ -269,8 +269,16 @@ function percentile80(values: number[]): number {
   }
 
   const sortedValues = [...values].sort((first, second) => first - second);
-  const index = Math.ceil(sortedValues.length * 0.8) - 1;
-  return sortedValues[Math.max(0, Math.min(sortedValues.length - 1, index))];
+  const rank = (sortedValues.length - 1) * 0.8;
+  const lowerIndex = Math.floor(rank);
+  const upperIndex = Math.ceil(rank);
+
+  if (lowerIndex === upperIndex) {
+    return sortedValues[lowerIndex];
+  }
+
+  const weight = rank - lowerIndex;
+  return sortedValues[lowerIndex] + (sortedValues[upperIndex] - sortedValues[lowerIndex]) * weight;
 }
 
 function deriveMetricTags(strike: number, nodes: HeatmapNodes | null): string[] {
