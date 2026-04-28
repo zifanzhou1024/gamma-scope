@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Literal
 
 
@@ -8,6 +9,7 @@ OptionRight = Literal["call", "put"]
 
 CONTRACT_MULTIPLIER_SPX = 100
 GEX_ONE_PERCENT_MOVE = 0.01
+VEX_ONE_VOL_POINT = 0.01
 
 
 @dataclass(frozen=True)
@@ -32,10 +34,15 @@ class StrikeExposure:
     tags: list[str] = field(default_factory=list)
 
 
-def aggregate_exposure_by_strike(contracts: list[HeatmapContractInput], *, spot: float) -> list[StrikeExposure]:
+def aggregate_exposure_by_strike(
+    contracts: list[HeatmapContractInput], spot: float, metric_mode: str = "proxy"
+) -> list[StrikeExposure]:
+    if metric_mode != "proxy":
+        raise ValueError(f"unsupported heatmap metric_mode: {metric_mode}")
+
     rows_by_strike: dict[float, StrikeExposure] = {}
     spot_gex_scale = CONTRACT_MULTIPLIER_SPX * spot * spot * GEX_ONE_PERCENT_MOVE
-    spot_vex_scale = CONTRACT_MULTIPLIER_SPX * spot
+    spot_vex_scale = CONTRACT_MULTIPLIER_SPX * spot * VEX_ONE_VOL_POINT
 
     for contract in contracts:
         row = rows_by_strike.setdefault(contract.strike, StrikeExposure(strike=contract.strike))
@@ -44,8 +51,14 @@ def aggregate_exposure_by_strike(contracts: list[HeatmapContractInput], *, spot:
         if contract.baseline_open_interest is None:
             _append_tag(row, "missing_oi_baseline")
             missing_input = True
+        elif not isfinite(contract.baseline_open_interest):
+            _append_tag(row, "invalid_oi_baseline")
+            missing_input = True
         if contract.custom_gamma is None or contract.custom_vanna is None:
             _append_tag(row, "missing_greek")
+            missing_input = True
+        elif not isfinite(contract.custom_gamma) or not isfinite(contract.custom_vanna):
+            _append_tag(row, "invalid_greek")
             missing_input = True
 
         if missing_input:
