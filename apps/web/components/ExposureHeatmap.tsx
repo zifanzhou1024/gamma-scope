@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
-import type { HeatmapMetric, HeatmapPayload, HeatmapRow } from "../lib/clientHeatmapSource";
+import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { HeatmapMetric, HeatmapNodes, HeatmapPayload, HeatmapRow } from "../lib/clientHeatmapSource";
 import { exposureToneClass, formatHeatmapStatus, formatHeatmapTime } from "../lib/heatmapFormat";
 import { HeatmapNodePanel } from "./HeatmapNodePanel";
 import { HeatmapToolbar } from "./HeatmapToolbar";
@@ -16,20 +16,42 @@ interface DisplayRow extends HeatmapRow {
   displayCallValue: number;
   displayPutValue: number;
   displayColorNorm: number;
+  displayTags: string[];
 }
 
 export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
   const [metric, setMetric] = useState<HeatmapMetric>(initialPayload?.metric ?? "gex");
   const [strikeRange, setStrikeRange] = useState(40);
+  const [renderAllRows, setRenderAllRows] = useState(false);
+  const [pendingScrollStrike, setPendingScrollStrike] = useState<number | null>(null);
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
+
+  const activeNodes = useMemo(() => {
+    if (!initialPayload) {
+      return null;
+    }
+
+    return deriveMetricNodes(initialPayload.rows, initialPayload.spot, metric);
+  }, [initialPayload, metric]);
 
   const rows = useMemo(() => {
     if (!initialPayload) {
       return [];
     }
 
-    return visibleRows(initialPayload.rows, initialPayload.spot, strikeRange).map((row) => displayRow(row, metric));
-  }, [initialPayload, metric, strikeRange]);
+    return visibleRows(initialPayload.rows, initialPayload.spot, strikeRange, renderAllRows).map((row) =>
+      displayRow(row, metric, activeNodes)
+    );
+  }, [activeNodes, initialPayload, metric, renderAllRows, strikeRange]);
+
+  useLayoutEffect(() => {
+    if (pendingScrollStrike === null) {
+      return;
+    }
+
+    scrollToStrike(pendingScrollStrike, rowRefs.current);
+    setPendingScrollStrike(null);
+  }, [pendingScrollStrike, rows]);
 
   if (!initialPayload) {
     return (
@@ -43,13 +65,13 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
             </div>
           </div>
         </header>
-        <section className="heatmapEmpty">Loading latest heatmap ladder.</section>
+        <section className="heatmapEmpty">No heatmap snapshot is available.</section>
       </main>
     );
   }
 
   const nearestSpotRow = nearestRow(rows, initialPayload.spot);
-  const kingStrike = initialPayload.nodes.king?.strike ?? null;
+  const kingStrike = activeNodes?.king?.strike ?? null;
 
   return (
     <main className="dashboardShell heatmapShell">
@@ -88,7 +110,10 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
         onMetricChange={setMetric}
         onStrikeRangeChange={setStrikeRange}
         onCenterSpot={() => scrollToStrike(nearestSpotRow?.strike ?? null, rowRefs.current)}
-        onCenterKing={() => scrollToStrike(kingStrike, rowRefs.current)}
+        onCenterKing={() => {
+          setRenderAllRows(true);
+          setPendingScrollStrike(kingStrike);
+        }}
       />
 
       <section className="heatmapLayout" aria-label="Latest strike ladder">
@@ -122,7 +147,7 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
                   <td>{formatCompactCurrency(row.displayPutValue)}</td>
                   <td>
                     <div className="heatmapRowTags">
-                      {row.tags.map((tag) => (
+                      {row.displayTags.map((tag) => (
                         <span key={tag}>{formatTag(tag)}</span>
                       ))}
                     </div>
@@ -133,7 +158,7 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
           </table>
         </div>
         <HeatmapNodePanel
-          nodes={initialPayload.nodes}
+          nodes={activeNodes ?? initialPayload.nodes}
           positionMode={initialPayload.positionMode}
           oiBaselineStatus={initialPayload.oiBaselineStatus}
           persistenceStatus={initialPayload.persistenceStatus}
@@ -143,7 +168,7 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
   );
 }
 
-function displayRow(row: HeatmapRow, metric: HeatmapMetric): DisplayRow {
+function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes | null): DisplayRow {
   if (metric === "vex") {
     return {
       ...row,
@@ -151,7 +176,8 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric): DisplayRow {
       displayFormattedValue: formatCompactCurrency(row.vex),
       displayCallValue: row.callVex,
       displayPutValue: row.putVex,
-      displayColorNorm: row.colorNormVex
+      displayColorNorm: row.colorNormVex,
+      displayTags: deriveMetricTags(row.strike, nodes)
     };
   }
 
@@ -161,12 +187,18 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric): DisplayRow {
     displayFormattedValue: row.formattedValue,
     displayCallValue: row.callGex,
     displayPutValue: row.putGex,
-    displayColorNorm: row.colorNormGex
+    displayColorNorm: row.colorNormGex,
+    displayTags: deriveMetricTags(row.strike, nodes)
   };
 }
 
-function visibleRows(rows: HeatmapRow[], spot: number, strikeRange: number): HeatmapRow[] {
+function visibleRows(rows: HeatmapRow[], spot: number, strikeRange: number, renderAllRows: boolean): HeatmapRow[] {
   const sortedRows = [...rows].sort((first, second) => first.strike - second.strike);
+
+  if (renderAllRows) {
+    return sortedRows;
+  }
+
   const nearestIndex = sortedRows.reduce((bestIndex, row, index) => {
     const best = sortedRows[bestIndex];
     return Math.abs(row.strike - spot) < Math.abs(best.strike - spot) ? index : bestIndex;
@@ -200,6 +232,101 @@ function scrollToStrike(strike: number | null, refs: Map<number, HTMLTableRowEle
   }
 
   refs.get(strike)?.scrollIntoView({ block: "center", inline: "nearest" });
+}
+
+function deriveMetricNodes(rows: HeatmapRow[], spot: number, metric: HeatmapMetric): HeatmapNodes {
+  const metricRows = rows.map((row) => ({
+    row,
+    value: metric === "gex" ? row.gex : row.vex
+  }));
+  const king = maxBy(metricRows, (entry) => Math.abs(entry.value));
+  const positiveKing = maxBy(
+    metricRows.filter((entry) => entry.value > 0 && entry.row.strike !== king?.row.strike),
+    (entry) => entry.value
+  );
+  const negativeKing = minBy(
+    metricRows.filter((entry) => entry.value < 0 && entry.row.strike !== king?.row.strike),
+    (entry) => entry.value
+  );
+  const wallAnchor = king?.row.strike ?? spot;
+  const headlineStrikes = new Set(
+    [king?.row.strike, positiveKing?.row.strike, negativeKing?.row.strike].filter((strike) => strike !== undefined)
+  );
+  const aboveWall = maxBy(
+    metricRows.filter((entry) => entry.row.strike > wallAnchor && !headlineStrikes.has(entry.row.strike)),
+    (entry) => Math.abs(entry.value)
+  );
+  const belowWall = maxBy(
+    metricRows.filter((entry) => entry.row.strike < wallAnchor && !headlineStrikes.has(entry.row.strike)),
+    (entry) => Math.abs(entry.value)
+  );
+
+  return {
+    king: toNode(king),
+    positiveKing: toNode(positiveKing),
+    negativeKing: toNode(negativeKing),
+    aboveWall: toNode(aboveWall),
+    belowWall: toNode(belowWall)
+  };
+}
+
+function deriveMetricTags(strike: number, nodes: HeatmapNodes | null): string[] {
+  if (!nodes) {
+    return [];
+  }
+
+  const tags: string[] = [];
+
+  if (nodes.king?.strike === strike) {
+    tags.push("king");
+  }
+
+  if (nodes.positiveKing?.strike === strike) {
+    tags.push("positive_king");
+  }
+
+  if (nodes.negativeKing?.strike === strike) {
+    tags.push("negative_king");
+  }
+
+  if (nodes.aboveWall?.strike === strike) {
+    tags.push("above_wall");
+  }
+
+  if (nodes.belowWall?.strike === strike) {
+    tags.push("below_wall");
+  }
+
+  return tags;
+}
+
+type MetricEntry = {
+  row: HeatmapRow;
+  value: number;
+};
+
+function toNode(entry: MetricEntry | null) {
+  return entry ? { strike: entry.row.strike, value: entry.value } : null;
+}
+
+function maxBy(entries: MetricEntry[], score: (entry: MetricEntry) => number): MetricEntry | null {
+  return entries.reduce<MetricEntry | null>((best, entry) => {
+    if (!best || score(entry) > score(best)) {
+      return entry;
+    }
+
+    return best;
+  }, null);
+}
+
+function minBy(entries: MetricEntry[], score: (entry: MetricEntry) => number): MetricEntry | null {
+  return entries.reduce<MetricEntry | null>((best, entry) => {
+    if (!best || score(entry) < score(best)) {
+      return entry;
+    }
+
+    return best;
+  }, null);
 }
 
 function formatNumber(value: number, digits: number): string {

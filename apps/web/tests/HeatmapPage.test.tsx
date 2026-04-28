@@ -19,14 +19,13 @@ describe("HeatmapPage", () => {
         "Content-Type": "application/json"
       }
     })));
-    vi.stubEnv("GAMMASCOPE_API_BASE_URL", "http://analytics.local");
     vi.stubGlobal("React", React);
 
     const { default: HeatmapPage } = await import("../app/heatmap/page");
     const page = await HeatmapPage();
 
     expect(renderToStaticMarkup(page)).toContain("Heatmap page shell");
-    expect(fetch).toHaveBeenCalledWith("http://analytics.local/api/spx/0dte/heatmap/latest?metric=gex", {
+    expect(fetch).toHaveBeenCalledWith("/api/spx/0dte/heatmap/latest?metric=gex", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -35,7 +34,6 @@ describe("HeatmapPage", () => {
     expect(heatmapProps).toHaveBeenCalledWith({ initialPayload: latestPayload });
 
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
     vi.resetModules();
     heatmapProps.mockReset();
   });

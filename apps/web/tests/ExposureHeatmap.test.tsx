@@ -85,6 +85,38 @@ const basePayload = {
   ]
 } satisfies HeatmapPayload;
 
+const metricDivergentPayload = {
+  ...basePayload,
+  spot: 5000,
+  nodes: {
+    king: { strike: 5000, value: 900000 },
+    positiveKing: { strike: 5010, value: 600000 },
+    negativeKing: { strike: 5020, value: -500000 },
+    aboveWall: { strike: 5030, value: 300000 },
+    belowWall: { strike: 4990, value: -250000 }
+  },
+  rows: Array.from({ length: 56 }, (_, index) => {
+    const strike = 4990 + index * 10;
+    return {
+      strike,
+      value: strike === 5000 ? 900000 : strike === 5020 ? -500000 : 10000,
+      formattedValue: strike === 5000 ? "$900K" : strike === 5020 ? "-$500K" : "$10K",
+      callValue: 1000,
+      putValue: 1000,
+      colorNorm: strike === 5000 ? 1 : 0.1,
+      gex: strike === 5000 ? 900000 : strike === 5020 ? -500000 : 10000,
+      vex: strike === 5500 ? 1100000 : strike === 5490 ? -700000 : strike === 5480 ? 800000 : strike === 5470 ? 500000 : strike === 5510 ? -450000 : 20000,
+      callGex: 1000,
+      putGex: 1000,
+      callVex: 1000,
+      putVex: 1000,
+      colorNormGex: strike === 5000 ? 1 : 0.1,
+      colorNormVex: strike === 5500 ? 1 : 0.1,
+      tags: strike === 5000 ? ["king"] : strike === 5030 ? ["above_wall"] : strike === 4990 ? ["below_wall"] : []
+    };
+  })
+} satisfies HeatmapPayload;
+
 describe("ExposureHeatmap", () => {
   afterEach(() => {
     document.body.innerHTML = "";
@@ -152,6 +184,63 @@ describe("ExposureHeatmap", () => {
 
     cleanup(root, container);
   });
+
+  it("derives node badges and row tags from the selected metric without refetching", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={metricDivergentPayload} />);
+
+    expect(getNodePanel(container).textContent).toContain("5000 $900K");
+    expect(getRow(container, 5000).textContent).toContain("King");
+
+    clickButton(container, "VEX");
+
+    expect(getNodePanel(container).textContent).toContain("5500 $1.1M");
+    expect(getNodePanel(container).textContent).toContain("5480 $800K");
+    expect(getNodePanel(container).textContent).toContain("5490 -$700K");
+    expect(getNodePanel(container).textContent).toContain("5510 -$450K");
+    expect(getRow(container, 5000).textContent).not.toContain("King");
+    clickButton(container, "Center king");
+    expect(getRow(container, 5500).textContent).toContain("King");
+    expect(getRow(container, 5470).textContent).toContain("Below Wall");
+    expect(getRow(container, 5510).textContent).toContain("Above Wall");
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    cleanup(root, container);
+  });
+
+  it("renders and centers the selected metric king when it is outside the current spot window", async () => {
+    const scrolledRows: string[] = [];
+    Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function scrollIntoView(this: HTMLElement) {
+        scrolledRows.push(this.dataset.heatmapRow ?? "");
+      }
+    });
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={metricDivergentPayload} />);
+
+    expect(container.querySelector("[data-heatmap-row=\"5500\"]")).toBeNull();
+
+    clickButton(container, "VEX");
+    clickButton(container, "Center king");
+
+    expect(container.querySelector("[data-heatmap-row=\"5500\"]")).not.toBeNull();
+    expect(scrolledRows).toEqual(["5500"]);
+
+    cleanup(root, container);
+  });
+
+  it("renders a clear unavailable state when no snapshot is provided", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={null} />);
+
+    expect(container.textContent).toContain("No heatmap snapshot is available.");
+    expect(container.textContent).not.toContain("Loading latest heatmap ladder.");
+
+    cleanup(root, container);
+  });
 });
 
 function renderHeatmap(element: React.ReactElement) {
@@ -179,6 +268,18 @@ function getHeatmapTable(container: HTMLElement): HTMLTableElement {
   const table = container.querySelector<HTMLTableElement>(".heatmapTable");
   expect(table).not.toBeNull();
   return table as HTMLTableElement;
+}
+
+function getNodePanel(container: HTMLElement): HTMLElement {
+  const panel = container.querySelector<HTMLElement>(".heatmapNodePanel");
+  expect(panel).not.toBeNull();
+  return panel as HTMLElement;
+}
+
+function getRow(container: HTMLElement, strike: number): HTMLElement {
+  const row = container.querySelector<HTMLElement>(`[data-heatmap-row="${strike}"]`);
+  expect(row).not.toBeNull();
+  return row as HTMLElement;
 }
 
 function cleanup(root: Root, container: HTMLElement) {
