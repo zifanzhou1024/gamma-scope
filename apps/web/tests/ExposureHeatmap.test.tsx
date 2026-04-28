@@ -5,8 +5,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import type { HeatmapPayload } from "../lib/clientHeatmapSource";
+// @ts-expect-error Test mock below exposes the storage key without changing the shared component module.
+import { THEME_STORAGE_KEY } from "../components/ThemeToggle";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+vi.mock("../components/ThemeToggle", async () => {
+  const actual = await vi.importActual<typeof import("../components/ThemeToggle")>("../components/ThemeToggle");
+  const themePreference = await vi.importActual<typeof import("../lib/themePreference")>("../lib/themePreference");
+
+  return {
+    ...actual,
+    THEME_STORAGE_KEY: themePreference.THEME_STORAGE_KEY
+  };
+});
 
 const basePayload = {
   sessionId: "heatmap-session",
@@ -172,7 +184,66 @@ const interpolatedPercentilePayload = {
 describe("ExposureHeatmap", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    document.documentElement.removeAttribute("data-theme");
+    window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it("renders the shared theme switch in the heatmap header", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+    await act(async () => undefined);
+
+    const html = container.innerHTML;
+    const headerIndex = html.indexOf("heatmapHeader");
+    const navIndex = html.indexOf("topNavTabs");
+    const themeToggleIndex = html.indexOf("data-theme-toggle");
+    const statusIndex = html.indexOf("Heatmap status");
+    const button = getThemeToggleButton(container);
+
+    expect(headerIndex).toBeGreaterThanOrEqual(0);
+    expect(navIndex).toBeGreaterThan(headerIndex);
+    expect(themeToggleIndex).toBeGreaterThan(navIndex);
+    expect(statusIndex).toBeGreaterThan(themeToggleIndex);
+    expect(button.textContent).toContain("Theme");
+    expect(button.textContent).toContain("Dark");
+
+    cleanup(root, container);
+  });
+
+  it("toggles the shared light theme from the heatmap header", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+    const button = getThemeToggleButton(container);
+    await act(async () => undefined);
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+
+    act(() => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.textContent).toContain("Light");
+
+    cleanup(root, container);
+  });
+
+  it("loads a saved light preference in the heatmap header", async () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, "light");
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+    const button = getThemeToggleButton(container);
+    await act(async () => undefined);
+
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(button.textContent).toContain("Light");
+
+    cleanup(root, container);
   });
 
   it("renders the latest ladder, node badges, and warning disclosures", async () => {
@@ -522,6 +593,14 @@ function clickButton(container: HTMLElement, label: string) {
   act(() => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+}
+
+function getThemeToggleButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>("button[data-theme-toggle]");
+  if (!button) {
+    throw new Error("Missing button[data-theme-toggle]");
+  }
+  return button;
 }
 
 function getHeatmapTable(container: HTMLElement): HTMLTableElement {

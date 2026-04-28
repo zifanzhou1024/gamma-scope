@@ -5,6 +5,7 @@ import type { HeatmapMetric, HeatmapNodes, HeatmapPayload, HeatmapRow, HeatmapSy
 import { exposureToneClass, formatHeatmapStatus, formatHeatmapTime } from "../lib/heatmapFormat";
 import { HeatmapNodePanel } from "./HeatmapNodePanel";
 import { HeatmapToolbar } from "./HeatmapToolbar";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface ExposureHeatmapProps {
   initialPayload?: HeatmapPayload | null;
@@ -73,13 +74,18 @@ export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHea
   if (!primaryPayload) {
     return (
       <main className="dashboardShell heatmapShell">
-        <header className="topBar">
-          <div className="brandLockup">
-            <div className="scopeMark" aria-hidden="true" />
-            <div>
-              <h1>GammaScope</h1>
-              <p>SPX 0DTE heatmap</p>
+        <header className="topBar heatmapHeader">
+          <div className="topBarPrimary">
+            <div className="brandLockup">
+              <div className="scopeMark" aria-hidden="true" />
+              <div>
+                <h1>GammaScope</h1>
+                <p>SPX 0DTE heatmap</p>
+              </div>
             </div>
+          </div>
+          <div className="topBarUtility heatmapHeaderUtility">
+            <ThemeToggle />
           </div>
         </header>
         <section className="heatmapEmpty">No heatmap snapshot is available.</section>
@@ -110,10 +116,13 @@ export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHea
             </a>
           </nav>
         </div>
-        <div className="heatmapHeaderStats" aria-label="Heatmap status">
-          <span>{selectedPayloads.map((payload) => payload.tradingClass).join(" / ")}</span>
-          <span>{formatHeatmapStatus(primaryPayload)}</span>
-          <span>Last synced {formatHeatmapTime(primaryPayload.lastSyncedAt)}</span>
+        <div className="topBarUtility heatmapHeaderUtility">
+          <ThemeToggle />
+          <div className="heatmapHeaderStats" aria-label="Heatmap status">
+            <span>{selectedPayloads.map((payload) => payload.tradingClass).join(" / ")}</span>
+            <span>{formatHeatmapStatus(primaryPayload)}</span>
+            <span>Last synced {formatHeatmapTime(primaryPayload.lastSyncedAt)}</span>
+          </div>
         </div>
       </header>
 
