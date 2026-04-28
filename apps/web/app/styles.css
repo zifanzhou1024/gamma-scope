@@ -3256,6 +3256,10 @@ html[data-theme="light"] .sharedInspectionTable th {
   background: var(--surface-strong);
 }
 
+html[data-theme="light"] .heatmapTable th {
+  background: var(--heatmap-table-head-bg);
+}
+
 html[data-theme="light"] .adminLoginForm input,
 html[data-theme="light"] .importFileGrid input,
 html[data-theme="light"] .archiveTransport button,

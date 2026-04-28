@@ -32,4 +32,13 @@ describe("heatmap theme styles", () => {
     expect(styles).toMatch(/\.heatmapPanel\s*{[\s\S]*background:\s*var\(--heatmap-panel-bg\);/);
     expect(styles).toMatch(/\.heatmapPanelHeader\s*{[\s\S]*background:\s*var\(--heatmap-panel-header-bg\);/);
   });
+
+  it("keeps the light heatmap table header token above generic table styles", () => {
+    const genericLightTableHeaderIndex = styles.indexOf('html[data-theme="light"] th,');
+    const heatmapLightTableHeaderIndex = styles.indexOf('html[data-theme="light"] .heatmapTable th');
+
+    expect(genericLightTableHeaderIndex).toBeGreaterThanOrEqual(0);
+    expect(heatmapLightTableHeaderIndex).toBeGreaterThan(genericLightTableHeaderIndex);
+    expect(styles.slice(heatmapLightTableHeaderIndex)).toMatch(/html\[data-theme="light"\]\s+\.heatmapTable th\s*{[\s\S]*background:\s*var\(--heatmap-table-head-bg\);/);
+  });
 });
