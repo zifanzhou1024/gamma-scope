@@ -61,6 +61,19 @@ def test_build_heatmap_payload_returns_gex_rows_nodes_and_persists() -> None:
     assert bucket["row_count"] == len(payload["rows"])
 
 
+def test_build_heatmap_payload_uses_symbol_as_trading_class_for_non_spx_symbols() -> None:
+    snapshot = _snapshot("2026-04-28T13:25:00Z")
+    snapshot["session_id"] = "moomoo-spy-0dte-live"
+    snapshot["symbol"] = "SPY"
+    snapshot["spot"] = 700
+    snapshot["rows"] = [_contract("SPY-2026-04-28-C-701", "call", 701, 30, 0.0020, 0.10)]
+
+    payload = build_heatmap_payload(snapshot, "gex", InMemoryHeatmapRepository())
+
+    assert payload["symbol"] == "SPY"
+    assert payload["tradingClass"] == "SPY"
+
+
 def test_build_heatmap_payload_uses_vex_active_value_color_and_components() -> None:
     payload = build_heatmap_payload(_snapshot("2026-04-28T13:25:00Z"), "vex", InMemoryHeatmapRepository())
 

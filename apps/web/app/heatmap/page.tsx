@@ -1,9 +1,9 @@
 import { ExposureHeatmap } from "../../components/ExposureHeatmap";
 import { headers } from "next/headers";
-import { loadLatestHeatmap } from "../../lib/serverHeatmapSource";
+import { loadLatestHeatmaps } from "../../lib/serverHeatmapSource";
 
 export default async function HeatmapPage() {
-  const initialPayload = await loadLatestHeatmap(fetch, await headers());
+  const initialPayloads = await loadLatestHeatmaps(fetch, await headers());
 
-  return <ExposureHeatmap initialPayload={initialPayload} />;
+  return <ExposureHeatmap initialPayloads={initialPayloads} />;
 }

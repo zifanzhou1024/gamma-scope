@@ -59,9 +59,16 @@ describe("isHeatmapPayload", () => {
     expect(isHeatmapPayload(heatmapPayload())).toBe(true);
   });
 
+  it("accepts supported multi-panel symbols", () => {
+    expect(isHeatmapPayload(heatmapPayload({ symbol: "SPY", tradingClass: "SPY" }))).toBe(true);
+    expect(isHeatmapPayload(heatmapPayload({ symbol: "QQQ", tradingClass: "QQQ" }))).toBe(true);
+    expect(isHeatmapPayload(heatmapPayload({ symbol: "NDX", tradingClass: "NDX" }))).toBe(true);
+    expect(isHeatmapPayload(heatmapPayload({ symbol: "IWM", tradingClass: "IWM" }))).toBe(true);
+  });
+
   it("rejects malformed payload core fields", () => {
-    expect(isHeatmapPayload({ ...heatmapPayload(), symbol: "NDX" })).toBe(false);
-    expect(isHeatmapPayload({ ...heatmapPayload(), tradingClass: "SPX" })).toBe(false);
+    expect(isHeatmapPayload({ ...heatmapPayload(), symbol: "RUT" })).toBe(false);
+    expect(isHeatmapPayload({ ...heatmapPayload(), tradingClass: "" })).toBe(false);
     expect(isHeatmapPayload({ ...heatmapPayload(), metric: "charm" })).toBe(false);
     expect(isHeatmapPayload({ ...heatmapPayload(), dte: "0" })).toBe(false);
     expect(isHeatmapPayload({ ...heatmapPayload(), oiBaselineStatus: "available" })).toBe(false);

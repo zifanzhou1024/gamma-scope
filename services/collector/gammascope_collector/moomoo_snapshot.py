@@ -52,6 +52,7 @@ SLOW_CADENCE_INTERVAL_SECONDS = 60.0
 SLOW_CADENCE_START = wall_time(17, 0)
 SLOW_CADENCE_END = wall_time(8, 30)
 NEXT_EXPIRY_SWITCH_TIME = wall_time(16, 5)
+HEATMAP_COMPATIBILITY_SYMBOLS = {"SPX", "SPY", "QQQ", "NDX", "IWM"}
 
 
 @dataclass(frozen=True)
@@ -510,7 +511,7 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
         def handle_result(loop_result: MoomooSnapshotResult) -> None:
             nonlocal publish_summary
             if args.publish:
-                publish_summary = _publish_spx_compatibility_snapshot(loop_result, config)
+                publish_summary = _publish_moomoo_compatibility_snapshots(loop_result, config)
             if loop_limit is None:
                 _print_result(loop_result, publish_summary, flush=True)
 
@@ -586,17 +587,40 @@ def _publish_spx_compatibility_snapshot(
     result: MoomooSnapshotResult,
     config: MoomooCollectorConfig,
 ) -> PublishSummary:
-    from gammascope_collector.moomoo_compat import moomoo_rows_to_spx_events
+    return _publish_moomoo_compatibility_snapshots(result, config)
 
-    events = moomoo_rows_to_spx_events(
-        session_id=config.spx_session_id,
-        collector_id=config.collector_id,
-        spot=_spx_spot(result),
-        rows=result.rows,
-        status=_spx_publish_status(result),
-        message=_health_message(result),
-    )
+
+def _publish_moomoo_compatibility_snapshots(
+    result: MoomooSnapshotResult,
+    config: MoomooCollectorConfig,
+) -> PublishSummary:
+    from gammascope_collector.moomoo_compat import moomoo_rows_to_symbol_events
+
+    events: list[dict[str, object]] = []
+    for discovery in result.discoveries:
+        if discovery.symbol not in HEATMAP_COMPATIBILITY_SYMBOLS:
+            continue
+        symbol_rows = [row for row in result.rows if row.symbol == discovery.symbol]
+        if discovery.symbol != "SPX" and not symbol_rows:
+            continue
+        events.extend(
+            moomoo_rows_to_symbol_events(
+                session_id=_compat_session_id(config, discovery.symbol),
+                collector_id=config.collector_id,
+                symbol=discovery.symbol,
+                spot=discovery.spot,
+                rows=result.rows,
+                status=_symbol_publish_status(result, discovery.symbol),
+                message=_health_message(result),
+            )
+        )
     return publish_events_bulk(events, api_base=config.api_base)
+
+
+def _compat_session_id(config: MoomooCollectorConfig, symbol: str) -> str:
+    if symbol == "SPX":
+        return config.spx_session_id
+    return f"moomoo-{symbol.lower()}-0dte-live"
 
 
 def _spx_spot(result: MoomooSnapshotResult) -> float | None:
@@ -607,13 +631,24 @@ def _spx_spot(result: MoomooSnapshotResult) -> float | None:
 
 
 def _spx_publish_status(result: MoomooSnapshotResult) -> str:
+    return _symbol_publish_status(result, "SPX")
+
+
+def _symbol_publish_status(result: MoomooSnapshotResult, symbol: str) -> str:
     if result.status != "connected":
         return result.status
-    if _positive_float_or_none(_spx_spot(result)) is None:
+    if _positive_float_or_none(_symbol_spot(result, symbol)) is None:
         return "degraded"
-    if not any(row.symbol == "SPX" for row in result.rows):
+    if not any(row.symbol == symbol for row in result.rows):
         return "degraded"
     return result.status
+
+
+def _symbol_spot(result: MoomooSnapshotResult, symbol: str) -> float | None:
+    for discovery in result.discoveries:
+        if discovery.symbol == symbol:
+            return discovery.spot
+    return None
 
 
 def _health_message(result: MoomooSnapshotResult) -> str:

@@ -95,10 +95,11 @@ def build_heatmap_payload(
     _tag_node_rows(rows, nodes)
 
     baseline_status = _baseline_status(snapshot_time)
+    trading_class = _trading_class(symbol)
     payload = {
         "sessionId": str(snapshot["session_id"]),
         "symbol": symbol,
-        "tradingClass": TRADING_CLASS_SPXW,
+        "tradingClass": trading_class,
         "dte": _dte(market_date, expiration_date),
         "expirationDate": expiration_date,
         "spot": spot,
@@ -137,7 +138,7 @@ def _baseline_records(
     expiration_date: str,
     repository: HeatmapRepository,
 ) -> list[HeatmapOiBaselineRecord]:
-    existing_records = repository.oi_baseline(market_date, symbol, TRADING_CLASS_SPXW, expiration_date)
+    existing_records = repository.oi_baseline(market_date, symbol, _trading_class(symbol), expiration_date)
     new_records = _baseline_records_from_snapshot(
         snapshot=snapshot,
         snapshot_time=snapshot_time,
@@ -165,7 +166,7 @@ def _baseline_records_from_snapshot(
         HeatmapOiBaselineRecord(
             market_date=market_date,
             symbol=symbol,
-            trading_class=TRADING_CLASS_SPXW,
+            trading_class=_trading_class(symbol),
             expiration_date=expiration_date,
             contract_id=str(row["contract_id"]),
             right=str(row["right"]),
@@ -178,6 +179,10 @@ def _baseline_records_from_snapshot(
         for row in snapshot.get("rows", [])
         if row.get("open_interest") is not None
     ]
+
+
+def _trading_class(symbol: str) -> str:
+    return TRADING_CLASS_SPXW if symbol == "SPX" else symbol
 
 
 def _payload_row(

@@ -26,21 +26,21 @@ def reset_live_snapshot_memory() -> None:
     _analytics_memory.clear()
 
 
-def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
+def build_live_snapshot(state: CollectorState, *, session_id: str | None = None) -> dict[str, Any] | None:
     health = state.latest_health()
-    underlying = state.latest_underlying_tick()
+    underlying = state.latest_underlying_tick(session_id)
     contracts = state.contracts()
     option_ticks = state.option_ticks()
 
     if health is None or underlying is None or not contracts or not option_ticks:
         return None
 
-    session_id = str(underlying["session_id"])
-    contracts = [contract for contract in contracts if str(contract["session_id"]) == session_id]
+    active_session_id = str(underlying["session_id"])
+    contracts = [contract for contract in contracts if str(contract["session_id"]) == active_session_id]
     option_ticks = {
         contract_id: option_tick
         for contract_id, option_tick in option_ticks.items()
-        if str(option_tick["session_id"]) == session_id
+        if str(option_tick["session_id"]) == active_session_id
     }
     if not contracts or not option_ticks:
         return None
@@ -71,19 +71,19 @@ def build_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
         if contract_id not in option_ticks:
             continue
         row = _analytics_row(contract=contract, option_tick=option_ticks[contract_id], spot=spot, tau=tau)
-        _apply_analytics_memory(session_id=session_id, row=row)
+        _apply_analytics_memory(session_id=active_session_id, row=row)
         rows.append(row)
         active_contract_ids.add(contract_id)
 
     if not rows:
         return None
-    _prune_analytics_memory(session_id=session_id, active_contract_ids=active_contract_ids)
+    _prune_analytics_memory(session_id=active_session_id, active_contract_ids=active_contract_ids)
 
     return {
         "schema_version": "1.0.0",
-        "session_id": session_id,
+        "session_id": active_session_id,
         "mode": "live",
-        "symbol": "SPX",
+        "symbol": str(underlying.get("symbol") or "SPX"),
         "expiry": expiry,
         "snapshot_time": snapshot_time,
         "spot": spot,

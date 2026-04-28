@@ -200,6 +200,78 @@ describe("ExposureHeatmap", () => {
     cleanup(root, container);
   });
 
+  it("renders higher strikes above lower strikes", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+
+    expect(getRenderedStrikes(container)).toEqual([5225, 5200, 5175]);
+
+    cleanup(root, container);
+  });
+
+  it("defaults to three visible columns and can add or reorder extra tickers", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const payloads = [
+      basePayload,
+      symbolPayload("SPY", "SPY", 715.17, 715),
+      symbolPayload("QQQ", "QQQ", 664.23, 665),
+      symbolPayload("NDX", "NDX", 18300, 18300),
+      symbolPayload("IWM", "IWM", 277.14, 277)
+    ];
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayloads={payloads} />);
+
+    let panels = Array.from(container.querySelectorAll<HTMLElement>(".heatmapPanel"));
+    expect(panels).toHaveLength(3);
+    expect(panels.map((panel) => panel.querySelector(".heatmapPanelSymbol")?.textContent)).toEqual([
+      "SPXW",
+      "SPY",
+      "QQQ"
+    ]);
+    expect(container.querySelector(".heatmapPanels")?.getAttribute("data-column-count")).toBe("3");
+    expect(panels[1]?.querySelector("[data-heatmap-row=\"715\"]")).not.toBeNull();
+    expect(panels[2]?.querySelector("[data-heatmap-row=\"665\"]")).not.toBeNull();
+
+    clickButton(container, "NDX");
+    clickButton(container, "IWM");
+
+    panels = Array.from(container.querySelectorAll<HTMLElement>(".heatmapPanel"));
+    expect(panels).toHaveLength(5);
+    expect(panels.map((panel) => panel.querySelector(".heatmapPanelSymbol")?.textContent)).toEqual([
+      "SPXW",
+      "SPY",
+      "QQQ",
+      "NDX",
+      "IWM"
+    ]);
+    expect(container.querySelector(".heatmapPanels")?.getAttribute("data-column-count")).toBe("5");
+
+    clickButton(container, "Move NDX left");
+
+    panels = Array.from(container.querySelectorAll<HTMLElement>(".heatmapPanel"));
+    expect(panels.map((panel) => panel.querySelector(".heatmapPanelSymbol")?.textContent)).toEqual([
+      "SPXW",
+      "SPY",
+      "NDX",
+      "QQQ",
+      "IWM"
+    ]);
+
+    cleanup(root, container);
+  });
+
+  it("marks both the nearest spot row and selected metric king row in each ladder", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
+    const markedRow = getRow(container, 5200);
+
+    expect(markedRow.classList.contains("heatmapSpotRow")).toBe(true);
+    expect(markedRow.classList.contains("heatmapKingRow")).toBe(true);
+    expect(markedRow.querySelector(".heatmapRowBadge-spot")?.textContent).toBe("Spot");
+    expect(markedRow.querySelector(".heatmapRowBadge-king")?.textContent).toBe("King");
+
+    cleanup(root, container);
+  });
+
   it("keeps the ladder focused on one net metric column and moves components into hover detail", async () => {
     const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
     const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={basePayload} />);
@@ -209,8 +281,10 @@ describe("ExposureHeatmap", () => {
     expect(getHeatmapTable(container).textContent).not.toContain("Call GEX");
     expect(getHeatmapTable(container).textContent).not.toContain("Put GEX");
     expect(getRow(container, 5200).textContent).not.toContain("$760K");
+    expect(getRow(container, 5200).textContent).toContain("King");
     expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Call GEX: $760K");
     expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Put GEX: $490K");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Tags: King");
 
     clickButton(container, "VEX");
 
@@ -262,7 +336,7 @@ describe("ExposureHeatmap", () => {
     cleanup(root, container);
   });
 
-  it("derives node badges and row tags from the selected metric without refetching", async () => {
+  it("derives node detail from the selected metric without cluttering the ladder", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
@@ -270,6 +344,7 @@ describe("ExposureHeatmap", () => {
 
     expect(getNodePanel(container).textContent).toContain("5000 $900K");
     expect(getRow(container, 5000).textContent).toContain("King");
+    expect(getMetricCell(container, 5000).getAttribute("title")).toContain("Tags: King");
 
     clickButton(container, "VEX");
 
@@ -281,9 +356,9 @@ describe("ExposureHeatmap", () => {
     expect(getRow(container, 5000).textContent).not.toContain("King");
     clickButton(container, "Center king");
     expect(getRow(container, 5500).textContent).toContain("King");
-    expect(getRow(container, 5500).textContent).toContain("Positive King");
-    expect(getRow(container, 5010).textContent).toContain("Above Wall");
-    expect(getRow(container, 4990).textContent).toContain("Below Wall");
+    expect(getMetricCell(container, 5500).getAttribute("title")).toContain("Tags: King, Positive King");
+    expect(getMetricCell(container, 5010).getAttribute("title")).toContain("Tags: Above Wall");
+    expect(getMetricCell(container, 4990).getAttribute("title")).toContain("Tags: Below Wall");
     expect(fetchSpy).not.toHaveBeenCalled();
 
     cleanup(root, container);
@@ -302,14 +377,13 @@ describe("ExposureHeatmap", () => {
     const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={payload} />);
 
     expect(getRow(container, 5200).textContent).toContain("King");
-    expect(getRow(container, 5200).textContent).toContain("Missing Greek");
-    expect(getRow(container, 5200).textContent).toContain("Missing Oi Baseline");
+    expect(getRow(container, 5200).textContent).not.toContain("Missing Greek");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Tags: Missing Greek, Missing Oi Baseline, King");
 
     clickButton(container, "VEX");
 
-    expect(getRow(container, 5200).textContent).not.toContain("King");
-    expect(getRow(container, 5200).textContent).toContain("Missing Greek");
-    expect(getRow(container, 5200).textContent).toContain("Missing Oi Baseline");
+    expect(getMetricCell(container, 5200).getAttribute("title")).not.toContain("King");
+    expect(getMetricCell(container, 5200).getAttribute("title")).toContain("Tags: Missing Greek, Missing Oi Baseline");
 
     cleanup(root, container);
   });
@@ -358,11 +432,8 @@ describe("ExposureHeatmap", () => {
     expect(getNodePanel(container).textContent).not.toContain("90 $0");
     expect(getNodePanel(container).textContent).not.toContain("120 $Infinity");
 
-    expect(getRow(container, 110).textContent).toContain("King");
-    expect(getRow(container, 110).textContent).toContain("Positive King");
-    expect(getRow(container, 98).textContent).toContain("Negative King");
-    expect(getRow(container, 98).textContent).toContain("Below Wall");
-    expect(getRow(container, 110).textContent).toContain("Above Wall");
+    expect(getMetricCell(container, 110).getAttribute("title")).toContain("Tags: King, Positive King, Above Wall");
+    expect(getMetricCell(container, 98).getAttribute("title")).toContain("Tags: Negative King, Below Wall");
     expect(getRow(container, 90).textContent).not.toContain("King");
 
     cleanup(root, container);
@@ -375,7 +446,7 @@ describe("ExposureHeatmap", () => {
     expect(getNodePanel(container).textContent).toContain("Above wall110 $100");
     expect(getNodePanel(container).textContent).toContain("Below wall90 -$100");
     expect(getNodePanel(container).textContent).not.toContain("Above wall101 $40");
-    expect(getRow(container, 110).textContent).toContain("Above Wall");
+    expect(getMetricCell(container, 110).getAttribute("title")).toContain("Tags: Positive King, Above Wall");
     expect(getRow(container, 101).textContent).not.toContain("Above Wall");
 
     cleanup(root, container);
@@ -402,6 +473,34 @@ function nodeRuleRow(strike: number, gex: number) {
   };
 }
 
+function symbolPayload(symbol: "SPY" | "QQQ" | "NDX" | "IWM", tradingClass: string, spot: number, strike: number): HeatmapPayload {
+  return {
+    ...basePayload,
+    sessionId: `moomoo-${symbol.toLowerCase()}-0dte-live`,
+    symbol,
+    tradingClass,
+    spot,
+    rows: [
+      {
+        ...basePayload.rows[1],
+        strike,
+        value: 510000,
+        formattedValue: "$510K",
+        gex: 510000,
+        colorNormGex: 0.72,
+        tags: ["king"]
+      }
+    ],
+    nodes: {
+      king: { strike, value: 510000 },
+      positiveKing: { strike, value: 510000 },
+      negativeKing: null,
+      aboveWall: null,
+      belowWall: null
+    }
+  };
+}
+
 function renderHeatmap(element: React.ReactElement) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -415,7 +514,9 @@ function renderHeatmap(element: React.ReactElement) {
 }
 
 function clickButton(container: HTMLElement, label: string) {
-  const button = Array.from(container.querySelectorAll("button")).find((candidate) => candidate.textContent === label);
+  const button = Array.from(container.querySelectorAll("button")).find((candidate) =>
+    candidate.textContent === label || candidate.getAttribute("aria-label") === label
+  );
   expect(button).not.toBeNull();
 
   act(() => {
@@ -445,6 +546,12 @@ function getMetricCell(container: HTMLElement, strike: number): HTMLElement {
   const cell = getRow(container, strike).querySelector<HTMLElement>(".heatmapCell");
   expect(cell).not.toBeNull();
   return cell as HTMLElement;
+}
+
+function getRenderedStrikes(container: HTMLElement): number[] {
+  return Array.from(container.querySelectorAll<HTMLElement>("[data-heatmap-row]")).map((row) =>
+    Number(row.dataset.heatmapRow)
+  );
 }
 
 function cleanup(root: Root, container: HTMLElement) {

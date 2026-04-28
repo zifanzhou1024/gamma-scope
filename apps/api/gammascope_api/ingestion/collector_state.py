@@ -55,10 +55,17 @@ class CollectorState:
             return None
         return max(self._health_events.values(), key=lambda event: str(event["received_time"]))
 
-    def latest_underlying_tick(self) -> dict[str, Any] | None:
-        if not self._underlying_ticks:
+    def latest_underlying_tick(self, session_id: str | None = None) -> dict[str, Any] | None:
+        underlying_ticks = self._underlying_ticks
+        if session_id is not None:
+            underlying_ticks = {
+                stored_session_id: tick
+                for stored_session_id, tick in underlying_ticks.items()
+                if stored_session_id == session_id
+            }
+        if not underlying_ticks:
             return None
-        return max(self._underlying_ticks.values(), key=lambda event: str(event["event_time"]))
+        return max(underlying_ticks.values(), key=lambda event: str(event["event_time"]))
 
     def contracts(self) -> list[dict[str, Any]]:
         return list(self._contracts.values())

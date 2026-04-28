@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { HeatmapMetric, HeatmapNodes, HeatmapPayload, HeatmapRow } from "../lib/clientHeatmapSource";
+import type { HeatmapMetric, HeatmapNodes, HeatmapPayload, HeatmapRow, HeatmapSymbol } from "../lib/clientHeatmapSource";
 import { exposureToneClass, formatHeatmapStatus, formatHeatmapTime } from "../lib/heatmapFormat";
 import { HeatmapNodePanel } from "./HeatmapNodePanel";
 import { HeatmapToolbar } from "./HeatmapToolbar";
 
 interface ExposureHeatmapProps {
-  initialPayload: HeatmapPayload | null;
+  initialPayload?: HeatmapPayload | null;
+  initialPayloads?: HeatmapPayload[];
 }
 
 interface DisplayRow extends HeatmapRow {
@@ -19,43 +20,57 @@ interface DisplayRow extends HeatmapRow {
   displayTags: string[];
 }
 
-const NODE_TAGS = new Set(["king", "positive_king", "negative_king", "above_wall", "below_wall"]);
+interface HeatmapPanelModel {
+  payload: HeatmapPayload;
+  activeNodes: HeatmapNodes;
+  rows: DisplayRow[];
+  nearestSpotRow: DisplayRow | null;
+}
 
-export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
-  const [metric, setMetric] = useState<HeatmapMetric>(initialPayload?.metric ?? "gex");
+type HeatmapPanelsStyle = React.CSSProperties & {
+  "--heatmap-column-count": number;
+};
+
+const NODE_TAGS = new Set(["king", "positive_king", "negative_king", "above_wall", "below_wall"]);
+const DEFAULT_VISIBLE_SYMBOLS: HeatmapSymbol[] = ["SPX", "SPY", "QQQ"];
+const MAX_VISIBLE_PANELS = 6;
+
+export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHeatmapProps) {
+  const payloads = useMemo(() => {
+    if (initialPayloads) {
+      return initialPayloads;
+    }
+    return initialPayload ? [initialPayload] : [];
+  }, [initialPayload, initialPayloads]);
+  const payloadBySymbol = useMemo(() => new Map(payloads.map((payload) => [payload.symbol, payload])), [payloads]);
+  const [selectedSymbols, setSelectedSymbols] = useState<HeatmapSymbol[]>(() => defaultSelectedSymbols(payloads));
+  const selectedPayloads = useMemo(
+    () => selectedSymbols.map((symbol) => payloadBySymbol.get(symbol)).filter((payload): payload is HeatmapPayload => Boolean(payload)),
+    [payloadBySymbol, selectedSymbols]
+  );
+  const primaryPayload = selectedPayloads[0] ?? payloads[0] ?? null;
+  const [metric, setMetric] = useState<HeatmapMetric>(primaryPayload?.metric ?? "gex");
   const [strikeRange, setStrikeRange] = useState(40);
   const [renderAllRows, setRenderAllRows] = useState(false);
-  const [pendingScrollStrike, setPendingScrollStrike] = useState<number | null>(null);
-  const rowRefs = useRef(new Map<number, HTMLTableRowElement>());
+  const [pendingScrollRows, setPendingScrollRows] = useState<string[]>([]);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>());
 
-  const activeNodes = useMemo(() => {
-    if (!initialPayload) {
-      return null;
-    }
-
-    return deriveMetricNodes(initialPayload.rows, initialPayload.spot, metric);
-  }, [initialPayload, metric]);
-
-  const rows = useMemo(() => {
-    if (!initialPayload) {
-      return [];
-    }
-
-    return visibleRows(initialPayload.rows, initialPayload.spot, strikeRange, renderAllRows).map((row) =>
-      displayRow(row, metric, activeNodes)
-    );
-  }, [activeNodes, initialPayload, metric, renderAllRows, strikeRange]);
+  const panelModels = useMemo(
+    () => selectedPayloads.map((payload) => panelModel(payload, metric, strikeRange, renderAllRows)),
+    [metric, selectedPayloads, renderAllRows, strikeRange]
+  );
+  const panelColumnCount = Math.min(Math.max(panelModels.length, 1), MAX_VISIBLE_PANELS);
 
   useLayoutEffect(() => {
-    if (pendingScrollStrike === null) {
+    if (pendingScrollRows.length === 0) {
       return;
     }
 
-    scrollToStrike(pendingScrollStrike, rowRefs.current);
-    setPendingScrollStrike(null);
-  }, [pendingScrollStrike, rows]);
+    pendingScrollRows.forEach((rowKey) => scrollToRow(rowKey, rowRefs.current));
+    setPendingScrollRows([]);
+  }, [pendingScrollRows, panelModels]);
 
-  if (!initialPayload) {
+  if (!primaryPayload) {
     return (
       <main className="dashboardShell heatmapShell">
         <header className="topBar">
@@ -71,9 +86,6 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
       </main>
     );
   }
-
-  const nearestSpotRow = nearestRow(rows, initialPayload.spot);
-  const kingStrike = activeNodes?.king?.strike ?? null;
 
   return (
     <main className="dashboardShell heatmapShell">
@@ -99,10 +111,9 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
           </nav>
         </div>
         <div className="heatmapHeaderStats" aria-label="Heatmap status">
-          <span>{initialPayload.tradingClass}</span>
-          <span>Spot {formatNumber(initialPayload.spot, 2)}</span>
-          <span>{formatHeatmapStatus(initialPayload)}</span>
-          <span>Last synced {formatHeatmapTime(initialPayload.lastSyncedAt)}</span>
+          <span>{selectedPayloads.map((payload) => payload.tradingClass).join(" / ")}</span>
+          <span>{formatHeatmapStatus(primaryPayload)}</span>
+          <span>Last synced {formatHeatmapTime(primaryPayload.lastSyncedAt)}</span>
         </div>
       </header>
 
@@ -111,62 +122,236 @@ export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
         strikeRange={strikeRange}
         onMetricChange={setMetric}
         onStrikeRangeChange={setStrikeRange}
-        onCenterSpot={() => scrollToStrike(nearestSpotRow?.strike ?? null, rowRefs.current)}
+        onCenterSpot={() =>
+          panelModels.forEach((model) => scrollToRow(rowKey(model.payload, model.nearestSpotRow?.strike ?? null), rowRefs.current))
+        }
         onCenterKing={() => {
           setRenderAllRows(true);
-          setPendingScrollStrike(kingStrike);
+          setPendingScrollRows(
+            panelModels
+              .map((model) => rowKey(model.payload, model.activeNodes.king?.strike ?? null))
+              .filter((key): key is string => key !== null)
+          );
         }}
       />
 
-      <section className="heatmapLayout" aria-label="Latest strike ladder">
-        <div className="heatmapTableWrap">
-          <table className="heatmapTable">
-            <thead>
-              <tr>
-                <th>Strike</th>
-                <th>{metric.toUpperCase()}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.strike}
-                  ref={(element) => setRowRef(rowRefs.current, row.strike, element)}
-                  data-heatmap-row={row.strike}
-                  className={row.strike === nearestSpotRow?.strike ? "heatmapSpotRow" : undefined}
-                >
-                  <td className="heatmapStrike">
-                    <strong>{formatNumber(row.strike, Number.isInteger(row.strike) ? 0 : 2)}</strong>
-                    {row.strike === nearestSpotRow?.strike ? <span>Spot</span> : null}
-                  </td>
-                  <td
-                    className={`heatmapCell ${exposureToneClass(row.displayValue, row.displayColorNorm)}`}
-                    title={componentTooltip(row, metric)}
-                    aria-label={componentTooltip(row, metric)}
-                  >
-                    <div className="heatmapCellInner">
-                      <div className="heatmapRowTags">
-                        {row.displayTags.map((tag) => (
-                          <span key={tag}>{formatTag(tag)}</span>
-                        ))}
-                      </div>
-                      <strong>{row.displayFormattedValue}</strong>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <HeatmapNodePanel
-          nodes={activeNodes ?? initialPayload.nodes}
-          positionMode={initialPayload.positionMode}
-          oiBaselineStatus={initialPayload.oiBaselineStatus}
-          persistenceStatus={initialPayload.persistenceStatus}
-        />
+      <HeatmapTickerControls
+        payloads={payloads}
+        selectedSymbols={selectedSymbols}
+        onToggleSymbol={(symbol) => setSelectedSymbols((current) => toggleSymbol(current, symbol))}
+        onMoveSymbol={(symbol, direction) => setSelectedSymbols((current) => moveSymbol(current, symbol, direction))}
+      />
+
+      <section
+        className="heatmapPanels"
+        aria-label="Latest strike ladders"
+        data-column-count={panelColumnCount}
+        style={{ "--heatmap-column-count": panelColumnCount } as HeatmapPanelsStyle}
+      >
+        {panelModels.map((model) => (
+          <HeatmapPanel
+            key={model.payload.symbol}
+            model={model}
+            metric={metric}
+            rowRefs={rowRefs.current}
+          />
+        ))}
       </section>
     </main>
   );
+}
+
+function HeatmapTickerControls({
+  payloads,
+  selectedSymbols,
+  onToggleSymbol,
+  onMoveSymbol
+}: {
+  payloads: HeatmapPayload[];
+  selectedSymbols: HeatmapSymbol[];
+  onToggleSymbol: (symbol: HeatmapSymbol) => void;
+  onMoveSymbol: (symbol: HeatmapSymbol, direction: -1 | 1) => void;
+}) {
+  if (payloads.length <= 1) {
+    return null;
+  }
+
+  const selectedSet = new Set(selectedSymbols);
+
+  return (
+    <section className="heatmapTickerControls" aria-label="Ticker selection">
+      <div className="heatmapTickerGroup">
+        <span>Tickers</span>
+        <div className="heatmapTickerButtons">
+          {payloads.map((payload) => {
+            const selected = selectedSet.has(payload.symbol);
+            return (
+              <button
+                key={payload.symbol}
+                type="button"
+                aria-pressed={selected}
+                disabled={!selected && selectedSymbols.length >= MAX_VISIBLE_PANELS}
+                onClick={() => onToggleSymbol(payload.symbol)}
+              >
+                {payload.symbol}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="heatmapTickerOrder" aria-label="Ticker order">
+        {selectedSymbols.map((symbol, index) => (
+          <span className="heatmapTickerOrderItem" key={symbol}>
+            <strong>{symbol}</strong>
+            <button
+              type="button"
+              aria-label={`Move ${symbol} left`}
+              title={`Move ${symbol} left`}
+              disabled={index === 0}
+              onClick={() => onMoveSymbol(symbol, -1)}
+            >
+              {"<"}
+            </button>
+            <button
+              type="button"
+              aria-label={`Move ${symbol} right`}
+              title={`Move ${symbol} right`}
+              disabled={index === selectedSymbols.length - 1}
+              onClick={() => onMoveSymbol(symbol, 1)}
+            >
+              {">"}
+            </button>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HeatmapPanel({
+  model,
+  metric,
+  rowRefs
+}: {
+  model: HeatmapPanelModel;
+  metric: HeatmapMetric;
+  rowRefs: Map<string, HTMLTableRowElement>;
+}) {
+  const king = model.activeNodes.king;
+
+  return (
+    <article className="heatmapPanel" aria-label={`${model.payload.symbol} heatmap`}>
+      <header className="heatmapPanelHeader">
+        <button className="heatmapPanelSymbol" type="button">
+          {model.payload.tradingClass}
+        </button>
+        <div className="heatmapPanelSpot">
+          <strong>{formatPanelSpot(model.payload)}</strong>
+          <span>{formatHeatmapStatus(model.payload)}</span>
+        </div>
+      </header>
+      <div className="heatmapPanelKing">
+        <span aria-hidden="true" />
+        <strong>King</strong>
+        <em>{king ? `${formatNumber(king.strike, Number.isInteger(king.strike) ? 0 : 2)} ${formatCompactCurrency(king.value)}` : "-"}</em>
+      </div>
+      <div className="heatmapTableWrap">
+        <table className="heatmapTable">
+          <thead>
+            <tr>
+              <th>Strike</th>
+              <th>{metric.toUpperCase()}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {model.rows.length === 0 ? (
+              <tr>
+                <td className="heatmapUnavailableRow" colSpan={2}>
+                  No snapshot
+                </td>
+              </tr>
+            ) : null}
+            {model.rows.map((row) => (
+              <HeatmapRowView
+                key={row.strike}
+                row={row}
+                model={model}
+                metric={metric}
+                rowRefs={rowRefs}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <HeatmapNodePanel
+        nodes={model.activeNodes}
+        positionMode={model.payload.positionMode}
+        oiBaselineStatus={model.payload.oiBaselineStatus}
+        persistenceStatus={model.payload.persistenceStatus}
+      />
+    </article>
+  );
+}
+
+function HeatmapRowView({
+  row,
+  model,
+  metric,
+  rowRefs
+}: {
+  row: DisplayRow;
+  model: HeatmapPanelModel;
+  metric: HeatmapMetric;
+  rowRefs: Map<string, HTMLTableRowElement>;
+}) {
+  const isSpotRow = row.strike === model.nearestSpotRow?.strike;
+  const isKingRow = row.strike === model.activeNodes.king?.strike;
+
+  return (
+    <tr
+      ref={(element) => setRowRef(rowRefs, rowKey(model.payload, row.strike), element)}
+      data-heatmap-row={row.strike}
+      className={rowClassName(isSpotRow, isKingRow)}
+    >
+      <td className="heatmapStrike">
+        <strong>{formatNumber(row.strike, Number.isInteger(row.strike) ? 0 : 2)}</strong>
+        {isSpotRow || isKingRow ? (
+          <span className="heatmapRowBadges">
+            {isSpotRow ? <em className="heatmapRowBadge heatmapRowBadge-spot">Spot</em> : null}
+            {isKingRow ? <em className="heatmapRowBadge heatmapRowBadge-king">King</em> : null}
+          </span>
+        ) : null}
+      </td>
+      <td
+        className={`heatmapCell ${exposureToneClass(row.displayValue, row.displayColorNorm)}`}
+        title={componentTooltip(row, metric)}
+        aria-label={componentTooltip(row, metric)}
+      >
+        <div className="heatmapCellInner">
+          <strong>{row.displayFormattedValue}</strong>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function panelModel(
+  payload: HeatmapPayload,
+  metric: HeatmapMetric,
+  strikeRange: number,
+  renderAllRows: boolean
+): HeatmapPanelModel {
+  const activeNodes = deriveMetricNodes(payload.rows, payload.spot, metric);
+  const rows = visibleRows(payload.rows, payload.spot, strikeRange, renderAllRows).map((row) =>
+    displayRow(row, metric, activeNodes)
+  );
+
+  return {
+    payload,
+    activeNodes,
+    rows,
+    nearestSpotRow: nearestRow(rows, payload.spot)
+  };
 }
 
 function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes | null): DisplayRow {
@@ -195,12 +380,17 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes 
 
 function componentTooltip(row: DisplayRow, metric: HeatmapMetric): string {
   const label = metric.toUpperCase();
-
-  return [
+  const details = [
     `Net ${label}: ${row.displayFormattedValue}`,
     `Call ${label}: ${formatCompactCurrency(row.displayCallValue)}`,
     `Put ${label}: ${formatCompactCurrency(row.displayPutValue)}`
-  ].join("\n");
+  ];
+
+  if (row.displayTags.length > 0) {
+    details.push(`Tags: ${row.displayTags.map(formatTag).join(", ")}`);
+  }
+
+  return details.join("\n");
 }
 
 function displayTagsForMetric(row: HeatmapRow, nodes: HeatmapNodes | null): string[] {
@@ -210,7 +400,7 @@ function displayTagsForMetric(row: HeatmapRow, nodes: HeatmapNodes | null): stri
 }
 
 function visibleRows(rows: HeatmapRow[], spot: number, strikeRange: number, renderAllRows: boolean): HeatmapRow[] {
-  const sortedRows = [...rows].sort((first, second) => first.strike - second.strike);
+  const sortedRows = [...rows].sort((first, second) => second.strike - first.strike);
 
   if (renderAllRows) {
     return sortedRows;
@@ -225,8 +415,8 @@ function visibleRows(rows: HeatmapRow[], spot: number, strikeRange: number, rend
   return sortedRows.slice(start, end);
 }
 
-function nearestRow(rows: HeatmapRow[], spot: number): HeatmapRow | null {
-  return rows.reduce<HeatmapRow | null>((nearest, row) => {
+function nearestRow<Row extends HeatmapRow>(rows: Row[], spot: number): Row | null {
+  return rows.reduce<Row | null>((nearest, row) => {
     if (!nearest) {
       return row;
     }
@@ -235,20 +425,85 @@ function nearestRow(rows: HeatmapRow[], spot: number): HeatmapRow | null {
   }, null);
 }
 
-function setRowRef(refs: Map<number, HTMLTableRowElement>, strike: number, element: HTMLTableRowElement | null) {
+function defaultSelectedSymbols(payloads: HeatmapPayload[]): HeatmapSymbol[] {
+  const availableSymbols = payloads.map((payload) => payload.symbol);
+  const selected = DEFAULT_VISIBLE_SYMBOLS.filter((symbol) => availableSymbols.includes(symbol));
+
+  for (const symbol of availableSymbols) {
+    if (selected.length >= Math.min(3, availableSymbols.length)) {
+      break;
+    }
+    if (!selected.includes(symbol)) {
+      selected.push(symbol);
+    }
+  }
+
+  return selected.slice(0, MAX_VISIBLE_PANELS);
+}
+
+function toggleSymbol(selectedSymbols: HeatmapSymbol[], symbol: HeatmapSymbol): HeatmapSymbol[] {
+  if (selectedSymbols.includes(symbol)) {
+    return selectedSymbols.length === 1 ? selectedSymbols : selectedSymbols.filter((selectedSymbol) => selectedSymbol !== symbol);
+  }
+
+  if (selectedSymbols.length >= MAX_VISIBLE_PANELS) {
+    return selectedSymbols;
+  }
+
+  return [...selectedSymbols, symbol];
+}
+
+function moveSymbol(selectedSymbols: HeatmapSymbol[], symbol: HeatmapSymbol, direction: -1 | 1): HeatmapSymbol[] {
+  const index = selectedSymbols.indexOf(symbol);
+  const targetIndex = index + direction;
+
+  if (index === -1 || targetIndex < 0 || targetIndex >= selectedSymbols.length) {
+    return selectedSymbols;
+  }
+
+  const nextSymbols = [...selectedSymbols];
+  [nextSymbols[index], nextSymbols[targetIndex]] = [nextSymbols[targetIndex], nextSymbols[index]];
+  return nextSymbols;
+}
+
+function rowClassName(isSpotRow: boolean, isKingRow: boolean): string | undefined {
+  const classNames = [];
+  if (isSpotRow) {
+    classNames.push("heatmapSpotRow");
+  }
+  if (isKingRow) {
+    classNames.push("heatmapKingRow");
+  }
+  return classNames.length > 0 ? classNames.join(" ") : undefined;
+}
+
+function rowKey(payload: HeatmapPayload, strike: number | null): string | null {
+  return strike === null ? null : `${payload.symbol}:${strike}`;
+}
+
+function setRowRef(refs: Map<string, HTMLTableRowElement>, key: string | null, element: HTMLTableRowElement | null) {
+  if (key === null) {
+    return;
+  }
   if (element) {
-    refs.set(strike, element);
+    refs.set(key, element);
   } else {
-    refs.delete(strike);
+    refs.delete(key);
   }
 }
 
-function scrollToStrike(strike: number | null, refs: Map<number, HTMLTableRowElement>) {
-  if (strike === null) {
+function scrollToRow(key: string | null, refs: Map<string, HTMLTableRowElement>) {
+  if (key === null) {
     return;
   }
 
-  refs.get(strike)?.scrollIntoView({ block: "center", inline: "nearest" });
+  refs.get(key)?.scrollIntoView({ block: "center", inline: "nearest" });
+}
+
+function formatPanelSpot(payload: HeatmapPayload): string {
+  return payload.rows.length === 0 && payload.persistenceStatus === "unavailable"
+    ? "-"
+    : `$${formatNumber(payload.spot, 2)}`;
 }
 
 function deriveMetricNodes(rows: HeatmapRow[], spot: number, metric: HeatmapMetric): HeatmapNodes {

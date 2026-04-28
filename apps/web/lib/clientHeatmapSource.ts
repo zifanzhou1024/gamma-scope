@@ -1,4 +1,7 @@
 export type HeatmapMetric = "gex" | "vex";
+export type HeatmapSymbol = "SPX" | "SPY" | "QQQ" | "NDX" | "IWM";
+
+export const HEATMAP_SYMBOLS: HeatmapSymbol[] = ["SPX", "SPY", "QQQ", "NDX", "IWM"];
 
 export type HeatmapPositionMode = "oi_proxy";
 
@@ -39,8 +42,8 @@ export type HeatmapRow = {
 
 export type HeatmapPayload = {
   sessionId: string;
-  symbol: "SPX";
-  tradingClass: "SPXW";
+  symbol: HeatmapSymbol;
+  tradingClass: string;
   dte: number | null;
   expirationDate: string;
   spot: number;
@@ -68,8 +71,8 @@ type Validator = (value: unknown) => boolean;
 
 const TOP_LEVEL_FIELDS: Record<string, Validator> = {
   sessionId: isString,
-  symbol: (value) => value === "SPX",
-  tradingClass: (value) => value === "SPXW",
+  symbol: (value) => isOneOf(value, HEATMAP_SYMBOLS),
+  tradingClass: isNonEmptyString,
   dte: isNullableNumber,
   expirationDate: isString,
   spot: isNumber,
@@ -161,6 +164,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.length > 0;
 }
 
 function isNullableString(value: unknown): value is string | null {

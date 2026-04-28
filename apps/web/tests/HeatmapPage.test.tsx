@@ -27,13 +27,13 @@ describe("HeatmapPage", () => {
     mocks.requestHeaders.mockReturnValue(new Headers());
   });
 
-  it("renders the heatmap shell with the latest ladder payload", async () => {
+  it("renders the heatmap shell with all supported latest ladder payloads", async () => {
     mocks.requestHeaders.mockReturnValue(new Headers({
       cookie: "gammascope_admin=signed-session",
       host: "gammascope.test",
       "x-forwarded-proto": "https"
     }));
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(latestPayload), {
+    vi.stubGlobal("fetch", vi.fn(async (input: string) => new Response(JSON.stringify(payloadForUrl(input)), {
       status: 200,
       headers: {
         "Content-Type": "application/json"
@@ -45,21 +45,42 @@ describe("HeatmapPage", () => {
     const page = await HeatmapPage();
 
     expect(renderToStaticMarkup(page)).toContain("Heatmap page shell");
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex", {
+    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX", {
       cache: "no-store",
       headers: {
         Accept: "application/json",
         Cookie: "gammascope_admin=signed-session"
       }
     });
-    expect(mocks.heatmapProps).toHaveBeenCalledWith({ initialPayload: latestPayload });
+    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPY", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=QQQ", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=NDX", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=IWM", expect.any(Object));
+    expect(mocks.heatmapProps).toHaveBeenCalledWith({
+      initialPayloads: [
+        heatmapPayload("SPX", "SPXW"),
+        heatmapPayload("SPY", "SPY"),
+        heatmapPayload("QQQ", "QQQ"),
+        heatmapPayload("NDX", "NDX"),
+        heatmapPayload("IWM", "IWM")
+      ]
+    });
   });
 });
 
-const latestPayload = {
+function payloadForUrl(input: string) {
+  const symbol = new URL(input).searchParams.get("symbol") ?? "SPX";
+  if (symbol === "SPY" || symbol === "QQQ" || symbol === "NDX" || symbol === "IWM") {
+    return heatmapPayload(symbol, symbol);
+  }
+  return heatmapPayload("SPX", "SPXW");
+}
+
+function heatmapPayload(symbol: "SPX" | "SPY" | "QQQ" | "NDX" | "IWM", tradingClass: string) {
+  return {
   sessionId: "latest-heatmap-session",
-  symbol: "SPX",
-  tradingClass: "SPXW",
+  symbol,
+  tradingClass,
   dte: 0,
   expirationDate: "2026-04-28",
   spot: 5201.25,
@@ -79,4 +100,5 @@ const latestPayload = {
     aboveWall: null,
     belowWall: null
   }
-};
+  };
+}
