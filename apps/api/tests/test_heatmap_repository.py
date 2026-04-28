@@ -10,6 +10,7 @@ from gammascope_api.heatmap.repository import (
     HeatmapOiBaselineRecord,
     InMemoryHeatmapRepository,
 )
+from gammascope_api.heatmap import repository as repository_module
 
 
 def test_first_post_0925_baseline_locks_over_provisional_and_later_updates_do_not_override() -> None:
@@ -29,7 +30,36 @@ def test_first_post_0925_baseline_locks_over_provisional_and_later_updates_do_no
     assert baselines[0].contract_id == "SPXW-2026-04-28-C-7200"
     assert baselines[0].open_interest == 14
     assert baselines[0].observed_at == "2026-04-28T13:25:00Z"
+    assert baselines[0].captured_at == "2026-04-28T13:25:00Z"
+    assert baselines[0].source_snapshot_time == "2026-04-28T13:25:00Z"
     assert baselines[0].locked is True
+
+
+def test_oi_baseline_round_trips_contract_metadata() -> None:
+    repo = InMemoryHeatmapRepository()
+
+    repo.upsert_oi_baseline(
+        [
+            _baseline(
+                "SPXW-2026-04-28-P-7200",
+                14,
+                "2026-04-28T13:20:00Z",
+                right="put",
+                strike=7200,
+                captured_at="2026-04-28T13:25:02Z",
+                source_snapshot_time="2026-04-28T13:25:00Z",
+            )
+        ]
+    )
+
+    baselines = repo.oi_baseline("2026-04-28", "SPX", "SPXW", "2026-04-28")
+
+    assert len(baselines) == 1
+    assert baselines[0].right == "put"
+    assert baselines[0].strike == 7200
+    assert baselines[0].captured_at == "2026-04-28T13:25:02Z"
+    assert baselines[0].source_snapshot_time == "2026-04-28T13:25:00Z"
+    assert baselines[0].observed_at == "2026-04-28T13:20:00Z"
 
 
 def test_oi_baseline_returns_multiple_contracts_for_expiration() -> None:
@@ -80,6 +110,106 @@ def test_heatmap_schema_sql_contains_required_tables_and_unique_constraints() ->
     assert "UNIQUE (session_id, source_snapshot_time, position_mode)" in HEATMAP_SCHEMA_SQL
 
 
+def test_heatmap_schema_sql_structures_baseline_metadata() -> None:
+    baseline_sql = _table_sql("heatmap_oi_baselines")
+    for column in [
+        '"right" TEXT NOT NULL',
+        "strike DOUBLE PRECISION NOT NULL",
+        "captured_at TIMESTAMPTZ NOT NULL",
+        "source_snapshot_time TIMESTAMPTZ NOT NULL",
+    ]:
+        assert column in baseline_sql
+
+
+def test_heatmap_schema_sql_structures_snapshot_metadata() -> None:
+    snapshot_sql = _table_sql("heatmap_snapshots")
+    for column in [
+        "symbol TEXT NOT NULL",
+        "trading_class TEXT NOT NULL",
+        "expiration_date DATE NOT NULL",
+        "spot DOUBLE PRECISION NOT NULL",
+        "oi_baseline_status TEXT",
+        "oi_baseline_captured_at TIMESTAMPTZ",
+    ]:
+        assert column in snapshot_sql
+
+
+def test_heatmap_schema_sql_structures_cell_metrics() -> None:
+    cell_sql = _table_sql("heatmap_cells")
+    for column in [
+        "gex DOUBLE PRECISION",
+        "vex DOUBLE PRECISION",
+        "call_gex DOUBLE PRECISION",
+        "put_gex DOUBLE PRECISION",
+        "call_vex DOUBLE PRECISION",
+        "put_vex DOUBLE PRECISION",
+        "color_norm_gex DOUBLE PRECISION",
+        "color_norm_vex DOUBLE PRECISION",
+        "tags JSONB NOT NULL DEFAULT '[]'::JSONB",
+    ]:
+        assert column in cell_sql
+
+
+def test_heatmap_cell_record_extracts_camel_case_payload_metrics() -> None:
+    row = {
+        "strike": 7200,
+        "gex": 10.5,
+        "vex": -2.25,
+        "callGex": 6.0,
+        "putGex": 4.5,
+        "callVex": -1.0,
+        "putVex": -1.25,
+        "colorNormGex": 0.5,
+        "colorNormVex": -0.25,
+        "tags": ["missing_oi_baseline"],
+    }
+
+    record = repository_module._heatmap_cell_record(row)
+
+    assert record == {
+        "strike": 7200.0,
+        "gex": 10.5,
+        "vex": -2.25,
+        "call_gex": 6.0,
+        "put_gex": 4.5,
+        "call_vex": -1.0,
+        "put_vex": -1.25,
+        "color_norm_gex": 0.5,
+        "color_norm_vex": -0.25,
+        "tags": ["missing_oi_baseline"],
+    }
+
+
+def test_heatmap_cell_record_extracts_snake_case_payload_metrics() -> None:
+    row = {
+        "strike": "7200",
+        "gex": "10.5",
+        "vex": "-2.25",
+        "call_gex": "6.0",
+        "put_gex": "4.5",
+        "call_vex": "-1.0",
+        "put_vex": "-1.25",
+        "color_norm_gex": "0.5",
+        "color_norm_vex": "-0.25",
+        "tags": ("zero_gamma",),
+    }
+
+    record = repository_module._heatmap_cell_record(row)
+
+    assert record == {
+        "strike": 7200.0,
+        "gex": 10.5,
+        "vex": -2.25,
+        "call_gex": 6.0,
+        "put_gex": 4.5,
+        "call_vex": -1.0,
+        "put_vex": -1.25,
+        "color_norm_gex": 0.5,
+        "color_norm_vex": -0.25,
+        "tags": ["zero_gamma"],
+    }
+
+
 def test_heatmap_repository_override_and_reset() -> None:
     override = InMemoryHeatmapRepository()
 
@@ -99,6 +229,10 @@ def _baseline(
     observed_at: str,
     *,
     expiration_date: str = "2026-04-28",
+    right: str = "call",
+    strike: float = 7200,
+    captured_at: str | None = None,
+    source_snapshot_time: str | None = None,
 ) -> HeatmapOiBaselineRecord:
     return HeatmapOiBaselineRecord(
         market_date="2026-04-28",
@@ -106,8 +240,12 @@ def _baseline(
         trading_class="SPXW",
         expiration_date=expiration_date,
         contract_id=contract_id,
+        right=right,
+        strike=strike,
         open_interest=open_interest,
         observed_at=observed_at,
+        captured_at=captured_at or observed_at,
+        source_snapshot_time=source_snapshot_time or observed_at,
     )
 
 
@@ -116,6 +254,18 @@ def _snapshot_payload(*, rows: list[dict[str, object]]) -> dict[str, object]:
         "sessionId": "session-1",
         "lastSyncedAt": "2026-04-28T14:09:59Z",
         "positionMode": "baseline",
+        "symbol": "SPX",
+        "tradingClass": "SPXW",
+        "expirationDate": "2026-04-28",
         "spot": 7000,
+        "oiBaselineStatus": "available",
+        "oiBaselineCapturedAt": "2026-04-28T13:25:00Z",
         "rows": rows,
     }
+
+
+def _table_sql(table_name: str) -> str:
+    start_marker = f"CREATE TABLE IF NOT EXISTS {table_name}"
+    start = HEATMAP_SCHEMA_SQL.index(start_marker)
+    end = HEATMAP_SCHEMA_SQL.index(");", start)
+    return HEATMAP_SCHEMA_SQL[start:end]

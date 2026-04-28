@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS heatmap_oi_baselines (
     trading_class TEXT NOT NULL,
     expiration_date DATE NOT NULL,
     contract_id TEXT NOT NULL,
+    "right" TEXT NOT NULL,
+    strike DOUBLE PRECISION NOT NULL,
     open_interest INTEGER NOT NULL,
     observed_at TIMESTAMPTZ NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    source_snapshot_time TIMESTAMPTZ NOT NULL,
     locked BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -29,6 +33,12 @@ CREATE TABLE IF NOT EXISTS heatmap_snapshots (
     session_id TEXT NOT NULL,
     source_snapshot_time TIMESTAMPTZ NOT NULL,
     position_mode TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    trading_class TEXT NOT NULL,
+    expiration_date DATE NOT NULL,
+    spot DOUBLE PRECISION NOT NULL,
+    oi_baseline_status TEXT,
+    oi_baseline_captured_at TIMESTAMPTZ,
     payload JSONB NOT NULL,
     row_count INTEGER NOT NULL,
     captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -40,6 +50,15 @@ CREATE TABLE IF NOT EXISTS heatmap_cells (
     heatmap_cell_id BIGSERIAL PRIMARY KEY,
     heatmap_snapshot_id BIGINT NOT NULL REFERENCES heatmap_snapshots(heatmap_snapshot_id) ON DELETE CASCADE,
     strike DOUBLE PRECISION,
+    gex DOUBLE PRECISION,
+    vex DOUBLE PRECISION,
+    call_gex DOUBLE PRECISION,
+    put_gex DOUBLE PRECISION,
+    call_vex DOUBLE PRECISION,
+    put_vex DOUBLE PRECISION,
+    color_norm_gex DOUBLE PRECISION,
+    color_norm_vex DOUBLE PRECISION,
+    tags JSONB NOT NULL DEFAULT '[]'::JSONB,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -67,6 +86,10 @@ class HeatmapOiBaselineRecord:
     contract_id: str
     open_interest: int
     observed_at: str
+    right: str = ""
+    strike: float = 0.0
+    captured_at: str = ""
+    source_snapshot_time: str = ""
     locked: bool = False
 
 
@@ -194,18 +217,24 @@ class PostgresHeatmapRepository:
                         """
                         INSERT INTO heatmap_oi_baselines (
                             market_date, symbol, trading_class, expiration_date,
-                            contract_id, open_interest, observed_at, locked
+                            contract_id, "right", strike, open_interest, observed_at,
+                            captured_at, source_snapshot_time, locked
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (market_date, symbol, trading_class, expiration_date, contract_id)
                         DO UPDATE
-                        SET open_interest = EXCLUDED.open_interest,
+                        SET "right" = EXCLUDED."right",
+                            strike = EXCLUDED.strike,
+                            open_interest = EXCLUDED.open_interest,
                             observed_at = EXCLUDED.observed_at,
+                            captured_at = EXCLUDED.captured_at,
+                            source_snapshot_time = EXCLUDED.source_snapshot_time,
                             locked = EXCLUDED.locked,
                             updated_at = NOW()
                         WHERE heatmap_oi_baselines.locked = FALSE
                         RETURNING market_date, symbol, trading_class, expiration_date,
-                                  contract_id, open_interest, observed_at, locked
+                                  contract_id, "right", strike, open_interest, observed_at,
+                                  captured_at, source_snapshot_time, locked
                         """,
                         (
                             normalized.market_date,
@@ -213,8 +242,12 @@ class PostgresHeatmapRepository:
                             normalized.trading_class,
                             normalized.expiration_date,
                             normalized.contract_id,
+                            normalized.right,
+                            normalized.strike,
                             normalized.open_interest,
                             _parse_datetime(normalized.observed_at),
+                            _parse_datetime(normalized.captured_at),
+                            _parse_datetime(normalized.source_snapshot_time),
                             normalized.locked,
                         ),
                     )
@@ -223,7 +256,8 @@ class PostgresHeatmapRepository:
                         cursor.execute(
                             """
                             SELECT market_date, symbol, trading_class, expiration_date,
-                                   contract_id, open_interest, observed_at, locked
+                                   contract_id, "right", strike, open_interest, observed_at,
+                                   captured_at, source_snapshot_time, locked
                             FROM heatmap_oi_baselines
                             WHERE market_date = %s
                               AND symbol = %s
@@ -256,7 +290,8 @@ class PostgresHeatmapRepository:
                 cursor.execute(
                     """
                     SELECT market_date, symbol, trading_class, expiration_date,
-                           contract_id, open_interest, observed_at, locked
+                           contract_id, "right", strike, open_interest, observed_at,
+                           captured_at, source_snapshot_time, locked
                     FROM heatmap_oi_baselines
                     WHERE market_date = %s
                       AND symbol = %s
@@ -275,6 +310,14 @@ class PostgresHeatmapRepository:
         session_id = str(normalized["sessionId"])
         source_snapshot_time = _parse_datetime(str(normalized["lastSyncedAt"]))
         position_mode = str(normalized["positionMode"])
+        symbol = str(_payload_value(normalized, "symbol"))
+        trading_class = str(_payload_value(normalized, "trading_class", "tradingClass"))
+        expiration_date = str(_payload_value(normalized, "expiration_date", "expirationDate"))
+        spot = float(_payload_value(normalized, "spot"))
+        oi_baseline_status = _optional_str(_payload_value(normalized, "oi_baseline_status", "oiBaselineStatus"))
+        oi_baseline_captured_at = _optional_datetime(
+            _payload_value(normalized, "oi_baseline_captured_at", "oiBaselineCapturedAt")
+        )
         row_count = len(normalized.get("rows", []))
 
         with self._connect() as connection:
@@ -282,28 +325,66 @@ class PostgresHeatmapRepository:
                 cursor.execute(
                     """
                     INSERT INTO heatmap_snapshots (
-                        session_id, source_snapshot_time, position_mode, payload, row_count
+                        session_id, source_snapshot_time, position_mode,
+                        symbol, trading_class, expiration_date, spot,
+                        oi_baseline_status, oi_baseline_captured_at,
+                        payload, row_count
                     )
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (session_id, source_snapshot_time, position_mode)
                     DO UPDATE
-                    SET payload = EXCLUDED.payload,
+                    SET symbol = EXCLUDED.symbol,
+                        trading_class = EXCLUDED.trading_class,
+                        expiration_date = EXCLUDED.expiration_date,
+                        spot = EXCLUDED.spot,
+                        oi_baseline_status = EXCLUDED.oi_baseline_status,
+                        oi_baseline_captured_at = EXCLUDED.oi_baseline_captured_at,
+                        payload = EXCLUDED.payload,
                         row_count = EXCLUDED.row_count,
                         updated_at = NOW()
                     RETURNING heatmap_snapshot_id, session_id, source_snapshot_time, position_mode, row_count
                     """,
-                    (session_id, source_snapshot_time, position_mode, _jsonb(normalized), row_count),
+                    (
+                        session_id,
+                        source_snapshot_time,
+                        position_mode,
+                        symbol,
+                        trading_class,
+                        expiration_date,
+                        spot,
+                        oi_baseline_status,
+                        oi_baseline_captured_at,
+                        _jsonb(normalized),
+                        row_count,
+                    ),
                 )
                 record = cursor.fetchone()
                 heatmap_snapshot_id = int(record[0])
                 cursor.execute("DELETE FROM heatmap_cells WHERE heatmap_snapshot_id = %s", (heatmap_snapshot_id,))
                 for row in normalized.get("rows", []):
+                    cell = _heatmap_cell_record(row)
                     cursor.execute(
                         """
-                        INSERT INTO heatmap_cells (heatmap_snapshot_id, strike, payload)
-                        VALUES (%s, %s, %s)
+                        INSERT INTO heatmap_cells (
+                            heatmap_snapshot_id, strike, gex, vex, call_gex, put_gex,
+                            call_vex, put_vex, color_norm_gex, color_norm_vex, tags, payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
-                        (heatmap_snapshot_id, _row_strike(row), _jsonb(row)),
+                        (
+                            heatmap_snapshot_id,
+                            cell["strike"],
+                            cell["gex"],
+                            cell["vex"],
+                            cell["call_gex"],
+                            cell["put_gex"],
+                            cell["call_vex"],
+                            cell["put_vex"],
+                            cell["color_norm_gex"],
+                            cell["color_norm_vex"],
+                            _jsonb(cell["tags"]),
+                            _jsonb(row),
+                        ),
                     )
                 bucket_start = _parse_datetime(five_minute_bucket_start(str(normalized["lastSyncedAt"])))
                 cursor.execute(
@@ -372,7 +453,15 @@ class PostgresHeatmapRepository:
 
 def _normalized_baseline(record: HeatmapOiBaselineRecord) -> HeatmapOiBaselineRecord:
     observed_at = _format_datetime(_parse_datetime(record.observed_at))
-    return replace(record, observed_at=observed_at, locked=record.locked or _is_lock_time(observed_at))
+    captured_at = _format_datetime(_parse_datetime(record.captured_at or record.observed_at))
+    source_snapshot_time = _format_datetime(_parse_datetime(record.source_snapshot_time or record.observed_at))
+    return replace(
+        record,
+        observed_at=observed_at,
+        captured_at=captured_at,
+        source_snapshot_time=source_snapshot_time,
+        locked=record.locked or _is_lock_time(observed_at),
+    )
 
 
 def _baseline_key(record: HeatmapOiBaselineRecord) -> tuple[str, str, str, str, str]:
@@ -422,9 +511,13 @@ def _baseline_from_record(record: tuple[Any, ...]) -> HeatmapOiBaselineRecord:
         trading_class=str(record[2]),
         expiration_date=record[3].isoformat() if hasattr(record[3], "isoformat") else str(record[3]),
         contract_id=str(record[4]),
-        open_interest=int(record[5]),
-        observed_at=_format_datetime(record[6]),
-        locked=bool(record[7]),
+        right=str(record[5]),
+        strike=float(record[6]),
+        open_interest=int(record[7]),
+        observed_at=_format_datetime(record[8]),
+        captured_at=_format_datetime(record[9]),
+        source_snapshot_time=_format_datetime(record[10]),
+        locked=bool(record[11]),
     )
 
 
@@ -436,7 +529,71 @@ def _row_strike(row: Any) -> float | None:
     return None
 
 
-def _jsonb(payload: dict[str, Any]) -> Any:
+def _heatmap_cell_record(row: Any) -> dict[str, Any]:
+    return {
+        "strike": _row_strike(row),
+        "gex": _row_float(row, "gex"),
+        "vex": _row_float(row, "vex"),
+        "call_gex": _row_float(row, "call_gex", "callGex"),
+        "put_gex": _row_float(row, "put_gex", "putGex"),
+        "call_vex": _row_float(row, "call_vex", "callVex"),
+        "put_vex": _row_float(row, "put_vex", "putVex"),
+        "color_norm_gex": _row_float(row, "color_norm_gex", "colorNormGex"),
+        "color_norm_vex": _row_float(row, "color_norm_vex", "colorNormVex"),
+        "tags": _row_tags(row),
+    }
+
+
+def _row_float(row: Any, *keys: str) -> float | None:
+    value = _row_value(row, *keys)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _row_tags(row: Any) -> list[Any]:
+    value = _row_value(row, "tags")
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _row_value(row: Any, *keys: str) -> Any:
+    if isinstance(row, dict):
+        for key in keys:
+            if key in row:
+                return row[key]
+        return None
+    for key in keys:
+        if hasattr(row, key):
+            return getattr(row, key)
+    return None
+
+
+def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    raise KeyError(keys[0])
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    return _parse_datetime(str(value))
+
+
+def _jsonb(payload: Any) -> Any:
     from psycopg.types.json import Jsonb
 
     return Jsonb(payload)
