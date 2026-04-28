@@ -120,8 +120,6 @@ html[data-theme="light"] {
   --heatmap-strike-bg: #f1f5f9;
   --heatmap-table-head-bg: #eef3f8;
   --heatmap-row-hover-bg: #e0f2fe;
-  --heatmap-cell-neutral-bg: rgba(49, 90, 128, 0.24);
-  --heatmap-cell-neutral-text: #334155;
 }
 
 * {

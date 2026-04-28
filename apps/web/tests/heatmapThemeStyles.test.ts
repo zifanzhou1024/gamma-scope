@@ -3,6 +3,27 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
+const lightThemeBlock = styles.match(/html\[data-theme="light"\]\s*{(?<body>[\s\S]*?)\n}/)?.groups?.body ?? "";
+const heatmapCellPaletteTokens = [
+  "--heatmap-cell-neutral-bg",
+  "--heatmap-cell-neutral-text",
+  "--heatmap-positive-1",
+  "--heatmap-positive-1-text",
+  "--heatmap-positive-2",
+  "--heatmap-positive-2-text",
+  "--heatmap-positive-3",
+  "--heatmap-positive-3-text",
+  "--heatmap-positive-4",
+  "--heatmap-positive-4-text",
+  "--heatmap-negative-1",
+  "--heatmap-negative-1-text",
+  "--heatmap-negative-2",
+  "--heatmap-negative-2-text",
+  "--heatmap-negative-3",
+  "--heatmap-negative-3-text",
+  "--heatmap-negative-4",
+  "--heatmap-negative-4-text",
+];
 
 describe("heatmap theme styles", () => {
   it("defines shared heatmap cell palette tokens once", () => {
@@ -22,8 +43,10 @@ describe("heatmap theme styles", () => {
     expect(styles).toMatch(/html\[data-theme="light"\]\s*{[\s\S]*--heatmap-panel-bg:\s*#ffffff;/);
     expect(styles).toMatch(/html\[data-theme="light"\]\s*{[\s\S]*--heatmap-control-bg:\s*#ffffff;/);
     expect(styles).toMatch(/html\[data-theme="light"\]\s*{[\s\S]*--heatmap-table-head-bg:\s*#eef3f8;/);
-    expect(styles).not.toMatch(/html\[data-theme="light"\]\s*{[\s\S]*--heatmap-positive-4:/);
-    expect(styles).not.toMatch(/html\[data-theme="light"\]\s*{[\s\S]*--heatmap-negative-4:/);
+
+    for (const token of heatmapCellPaletteTokens) {
+      expect(lightThemeBlock).not.toContain(`${token}:`);
+    }
   });
 
   it("maps existing heatmap cell classes to the shared palette tokens", () => {
