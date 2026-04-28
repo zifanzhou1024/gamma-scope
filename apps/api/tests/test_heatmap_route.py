@@ -60,6 +60,54 @@ def test_latest_heatmap_route_rejects_invalid_metric() -> None:
     assert response.status_code == 422
 
 
+def test_latest_heatmap_route_fallback_does_not_write_configured_repository() -> None:
+    repository = _RecordingHeatmapRepository()
+    set_heatmap_repository_override(repository)
+
+    response = client.get("/api/spx/0dte/heatmap/latest")
+
+    assert response.status_code == 200
+    assert response.json()["persistenceStatus"] == "skipped"
+    assert repository.baseline_upserts == 0
+    assert repository.snapshot_upserts == 0
+
+
+def test_latest_heatmap_route_private_fallback_does_not_write_configured_repository(monkeypatch) -> None:
+    monkeypatch.setenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", "true")
+    monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
+    repository = _RecordingHeatmapRepository()
+    set_heatmap_repository_override(repository)
+    for event in _collector_events():
+        assert client.post(
+            "/api/spx/0dte/collector/events",
+            json=event,
+            headers={"X-GammaScope-Admin-Token": "local-admin-token"},
+        ).status_code == 200
+
+    response = client.get("/api/spx/0dte/heatmap/latest")
+
+    assert response.status_code == 200
+    assert response.json()["sessionId"] != "live-route-session"
+    assert response.json()["persistenceStatus"] == "skipped"
+    assert repository.baseline_upserts == 0
+    assert repository.snapshot_upserts == 0
+
+
+class _RecordingHeatmapRepository(InMemoryHeatmapRepository):
+    def __init__(self) -> None:
+        super().__init__()
+        self.baseline_upserts = 0
+        self.snapshot_upserts = 0
+
+    def upsert_oi_baseline(self, records):  # type: ignore[no-untyped-def]
+        self.baseline_upserts += 1
+        return super().upsert_oi_baseline(records)
+
+    def upsert_heatmap_snapshot(self, payload):  # type: ignore[no-untyped-def]
+        self.snapshot_upserts += 1
+        return super().upsert_heatmap_snapshot(payload)
+
+
 def _collector_events() -> list[dict]:
     return [
         {

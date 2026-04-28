@@ -27,4 +27,4 @@ def get_latest_heatmap(
             return build_heatmap_payload(live_snapshot, metric, get_heatmap_repository())
 
     snapshot = load_json_fixture("analytics-snapshot.seed.json")
-    return build_heatmap_payload(snapshot, metric, get_heatmap_repository())
+    return build_heatmap_payload(snapshot, metric, get_heatmap_repository(), persist=False)

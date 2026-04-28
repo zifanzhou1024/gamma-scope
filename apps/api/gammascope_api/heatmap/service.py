@@ -24,6 +24,8 @@ def build_heatmap_payload(
     snapshot: dict[str, Any],
     metric: HeatmapMetric,
     repository: HeatmapRepository,
+    *,
+    persist: bool = True,
 ) -> dict[str, Any]:
     if metric not in {"gex", "vex"}:
         raise ValueError(f"unsupported heatmap metric: {metric}")
@@ -35,17 +37,26 @@ def build_heatmap_payload(
     spot = float(snapshot["spot"])
 
     persistence_unavailable = False
-    try:
-        baseline_records = _upsert_baseline_records(
-            snapshot=snapshot,
-            snapshot_time=snapshot_time,
-            market_date=market_date,
-            symbol=symbol,
-            expiration_date=expiration_date,
-            repository=repository,
-        )
-    except Exception:
-        persistence_unavailable = True
+    if persist:
+        try:
+            baseline_records = _baseline_records(
+                snapshot=snapshot,
+                snapshot_time=snapshot_time,
+                market_date=market_date,
+                symbol=symbol,
+                expiration_date=expiration_date,
+                repository=repository,
+            )
+        except Exception:
+            persistence_unavailable = True
+            baseline_records = _baseline_records_from_snapshot(
+                snapshot=snapshot,
+                snapshot_time=snapshot_time,
+                market_date=market_date,
+                symbol=symbol,
+                expiration_date=expiration_date,
+            )
+    else:
         baseline_records = _baseline_records_from_snapshot(
             snapshot=snapshot,
             snapshot_time=snapshot_time,
@@ -103,7 +114,9 @@ def build_heatmap_payload(
         "nodes": nodes,
     }
 
-    if persistence_unavailable:
+    if not persist:
+        payload["persistenceStatus"] = "skipped"
+    elif persistence_unavailable:
         payload["persistenceStatus"] = "unavailable"
     else:
         try:
@@ -115,7 +128,7 @@ def build_heatmap_payload(
     return payload
 
 
-def _upsert_baseline_records(
+def _baseline_records(
     *,
     snapshot: dict[str, Any],
     snapshot_time: str,
@@ -124,16 +137,20 @@ def _upsert_baseline_records(
     expiration_date: str,
     repository: HeatmapRepository,
 ) -> list[HeatmapOiBaselineRecord]:
-    records = _baseline_records_from_snapshot(
+    existing_records = repository.oi_baseline(market_date, symbol, TRADING_CLASS_SPXW, expiration_date)
+    new_records = _baseline_records_from_snapshot(
         snapshot=snapshot,
         snapshot_time=snapshot_time,
         market_date=market_date,
         symbol=symbol,
         expiration_date=expiration_date,
     )
-    if not records:
-        return []
-    return repository.upsert_oi_baseline(records)
+    if new_records:
+        new_records = repository.upsert_oi_baseline(new_records)
+
+    combined_by_contract = {record.contract_id: record for record in existing_records}
+    combined_by_contract.update({record.contract_id: record for record in new_records})
+    return list(combined_by_contract.values())
 
 
 def _baseline_records_from_snapshot(

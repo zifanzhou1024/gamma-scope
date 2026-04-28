@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from gammascope_api.heatmap.repository import InMemoryHeatmapRepository
+from gammascope_api.heatmap.repository import HeatmapOiBaselineRecord, InMemoryHeatmapRepository
 from gammascope_api.heatmap.service import build_heatmap_payload
 
 
@@ -90,6 +90,60 @@ def test_build_heatmap_payload_returns_rows_when_persistence_fails() -> None:
     assert payload["rows"][0]["value"] is not None
 
 
+def test_build_heatmap_payload_reuses_existing_baseline_when_snapshot_oi_is_missing() -> None:
+    repository = InMemoryHeatmapRepository()
+    repository.upsert_oi_baseline(
+        [
+            _baseline(
+                "SPXW-2026-04-28-C-7010",
+                45,
+                "2026-04-28T13:25:00Z",
+                right="call",
+                strike=7010,
+            )
+        ]
+    )
+
+    snapshot = _snapshot("2026-04-28T13:30:00Z")
+    snapshot["rows"] = [_contract("SPXW-2026-04-28-C-7010", "call", 7010, None, 0.0020, 0.10)]
+
+    payload = build_heatmap_payload(snapshot, "gex", repository)
+
+    row = _row(payload, 7010)
+    assert row["gex"] != 0
+    assert "missing_oi_baseline" not in row["tags"]
+
+
+def test_build_heatmap_payload_combines_existing_and_new_baseline_records() -> None:
+    repository = InMemoryHeatmapRepository()
+    repository.upsert_oi_baseline(
+        [
+            _baseline(
+                "SPXW-2026-04-28-P-6990",
+                80,
+                "2026-04-28T13:24:00Z",
+                right="put",
+                strike=6990,
+            )
+        ]
+    )
+    snapshot = _snapshot("2026-04-28T13:25:00Z")
+    snapshot["rows"] = [
+        _contract("SPXW-2026-04-28-P-6990", "put", 6990, None, 0.0020, -0.20),
+        _contract("SPXW-2026-04-28-C-7010", "call", 7010, 30, 0.0020, 0.10),
+    ]
+
+    payload = build_heatmap_payload(snapshot, "gex", repository)
+
+    assert _row(payload, 6990)["gex"] != 0
+    assert _row(payload, 7010)["gex"] != 0
+    baselines = repository.oi_baseline("2026-04-28", "SPX", "SPXW", "2026-04-28")
+    assert {record.contract_id: record.open_interest for record in baselines} == {
+        "SPXW-2026-04-28-P-6990": 80,
+        "SPXW-2026-04-28-C-7010": 30,
+    }
+
+
 class _FailingRepository(InMemoryHeatmapRepository):
     def upsert_oi_baseline(self, records):  # type: ignore[no-untyped-def]
         raise RuntimeError("database unavailable")
@@ -120,7 +174,7 @@ def _contract(
     contract_id: str,
     right: str,
     strike: float,
-    open_interest: int,
+    open_interest: int | None,
     gamma: float,
     vanna: float,
 ) -> dict:
@@ -136,3 +190,26 @@ def _contract(
 
 def _row(payload: dict, strike: float) -> dict:
     return next(row for row in payload["rows"] if row["strike"] == strike)
+
+
+def _baseline(
+    contract_id: str,
+    open_interest: int,
+    observed_at: str,
+    *,
+    right: str,
+    strike: float,
+) -> HeatmapOiBaselineRecord:
+    return HeatmapOiBaselineRecord(
+        market_date="2026-04-28",
+        symbol="SPX",
+        trading_class="SPXW",
+        expiration_date="2026-04-28",
+        contract_id=contract_id,
+        right=right,
+        strike=strike,
+        open_interest=open_interest,
+        observed_at=observed_at,
+        captured_at=observed_at,
+        source_snapshot_time=observed_at,
+    )
