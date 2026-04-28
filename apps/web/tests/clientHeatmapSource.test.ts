@@ -74,6 +74,27 @@ describe("isHeatmapPayload", () => {
     expect(isHeatmapPayload({ ...heatmapPayload(), rows: [row] })).toBe(false);
   });
 
+  it("rejects rows with color norms outside the normalized range", () => {
+    const row = heatmapPayload().rows[0]!;
+
+    expect(isHeatmapPayload({
+      ...heatmapPayload(),
+      rows: [{ ...row, colorNorm: -0.1 }]
+    })).toBe(false);
+    expect(isHeatmapPayload({
+      ...heatmapPayload(),
+      rows: [{ ...row, colorNormGex: 1.1 }]
+    })).toBe(false);
+    expect(isHeatmapPayload({
+      ...heatmapPayload(),
+      rows: [{ ...row, colorNormVex: -0.1 }]
+    })).toBe(false);
+    expect(isHeatmapPayload({
+      ...heatmapPayload(),
+      rows: [{ ...row, colorNormVex: 1.1 }]
+    })).toBe(false);
+  });
+
   it("accepts nullable DTE and nullable OI baseline capture time", () => {
     expect(isHeatmapPayload(heatmapPayload({ dte: null, oiBaselineCapturedAt: null }))).toBe(true);
   });

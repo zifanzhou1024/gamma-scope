@@ -91,15 +91,15 @@ const ROW_FIELDS: Record<string, Validator> = {
   formattedValue: isString,
   callValue: isNumber,
   putValue: isNumber,
-  colorNorm: isNumber,
+  colorNorm: isNormalizedNumber,
   gex: isNumber,
   vex: isNumber,
   callGex: isNumber,
   putGex: isNumber,
   callVex: isNumber,
   putVex: isNumber,
-  colorNormGex: isNumber,
-  colorNormVex: isNumber,
+  colorNormGex: isNormalizedNumber,
+  colorNormVex: isNormalizedNumber,
   tags: isStringArray
 };
 
@@ -169,6 +169,10 @@ function isNullableString(value: unknown): value is string | null {
 
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isNormalizedNumber(value: unknown): value is number {
+  return isNumber(value) && value >= 0 && value <= 1;
 }
 
 function isNullableNumber(value: unknown): value is number | null {
