@@ -190,6 +190,7 @@ describe("ExposureHeatmap", () => {
     expect(container.textContent).toContain("Negative king");
     expect(container.textContent).toContain("Above wall");
     expect(container.textContent).toContain("Below wall");
+    expect(container.textContent).toContain("OI proxy / estimated dealer exposure");
     expect(container.textContent).toContain("Open interest is an intraday proxy");
     expect(container.textContent).toContain("Provisional baseline");
     expect(container.textContent).toContain("Persistence unavailable");
@@ -260,6 +261,31 @@ describe("ExposureHeatmap", () => {
     expect(getRow(container, 5010).textContent).toContain("Above Wall");
     expect(getRow(container, 4990).textContent).toContain("Below Wall");
     expect(fetchSpy).not.toHaveBeenCalled();
+
+    cleanup(root, container);
+  });
+
+  it("preserves backend data-quality tags while deriving node tags for the selected metric", async () => {
+    const payload = {
+      ...basePayload,
+      rows: basePayload.rows.map((row) =>
+        row.strike === 5200
+          ? { ...row, tags: ["king", "missing_greek", "missing_oi_baseline"] }
+          : row
+      )
+    } satisfies HeatmapPayload;
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={payload} />);
+
+    expect(getRow(container, 5200).textContent).toContain("King");
+    expect(getRow(container, 5200).textContent).toContain("Missing Greek");
+    expect(getRow(container, 5200).textContent).toContain("Missing Oi Baseline");
+
+    clickButton(container, "VEX");
+
+    expect(getRow(container, 5200).textContent).not.toContain("King");
+    expect(getRow(container, 5200).textContent).toContain("Missing Greek");
+    expect(getRow(container, 5200).textContent).toContain("Missing Oi Baseline");
 
     cleanup(root, container);
   });

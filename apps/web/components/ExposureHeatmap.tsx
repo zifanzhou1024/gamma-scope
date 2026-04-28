@@ -19,6 +19,8 @@ interface DisplayRow extends HeatmapRow {
   displayTags: string[];
 }
 
+const NODE_TAGS = new Set(["king", "positive_king", "negative_king", "above_wall", "below_wall"]);
+
 export function ExposureHeatmap({ initialPayload }: ExposureHeatmapProps) {
   const [metric, setMetric] = useState<HeatmapMetric>(initialPayload?.metric ?? "gex");
   const [strikeRange, setStrikeRange] = useState(40);
@@ -177,7 +179,7 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes 
       displayCallValue: row.callVex,
       displayPutValue: row.putVex,
       displayColorNorm: row.colorNormVex,
-      displayTags: deriveMetricTags(row.strike, nodes)
+      displayTags: displayTagsForMetric(row, nodes)
     };
   }
 
@@ -188,8 +190,14 @@ function displayRow(row: HeatmapRow, metric: HeatmapMetric, nodes: HeatmapNodes 
     displayCallValue: row.callGex,
     displayPutValue: row.putGex,
     displayColorNorm: row.colorNormGex,
-    displayTags: deriveMetricTags(row.strike, nodes)
+    displayTags: displayTagsForMetric(row, nodes)
   };
+}
+
+function displayTagsForMetric(row: HeatmapRow, nodes: HeatmapNodes | null): string[] {
+  const qualityTags = row.tags.filter((tag) => !NODE_TAGS.has(tag));
+
+  return [...qualityTags, ...deriveMetricTags(row.strike, nodes)];
 }
 
 function visibleRows(rows: HeatmapRow[], spot: number, strikeRange: number, renderAllRows: boolean): HeatmapRow[] {

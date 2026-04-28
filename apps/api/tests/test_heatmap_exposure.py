@@ -58,8 +58,8 @@ def test_aggregate_exposure_uses_signed_oi_proxy_for_gex_and_vex() -> None:
     assert row.call_gex == pytest.approx(10 * 0.002 * spot_scale)
     assert row.put_gex == pytest.approx(-4 * 0.003 * spot_scale)
     assert row.gex == pytest.approx(row.call_gex + row.put_gex)
-    assert row.call_vex == pytest.approx(10 * CONTRACT_MULTIPLIER_SPX * 7000 * 0.03 * 0.01)
-    assert row.put_vex == pytest.approx(-4 * CONTRACT_MULTIPLIER_SPX * 7000 * -0.02 * 0.01)
+    assert row.call_vex == pytest.approx(10 * CONTRACT_MULTIPLIER_SPX * 7000 * 0.03)
+    assert row.put_vex == pytest.approx(-4 * CONTRACT_MULTIPLIER_SPX * 7000 * -0.02)
     assert row.vex == pytest.approx(row.call_vex + row.put_vex)
     assert row.tags == []
 
@@ -81,7 +81,7 @@ def test_aggregate_exposure_accepts_positional_spot_and_default_proxy_mode() -> 
 
     row = rows[0]
     assert row.call_gex == pytest.approx(10 * 0.002 * CONTRACT_MULTIPLIER_SPX * 7000 * 7000 * 0.01)
-    assert row.call_vex == pytest.approx(10 * CONTRACT_MULTIPLIER_SPX * 7000 * 0.03 * 0.01)
+    assert row.call_vex == pytest.approx(10 * CONTRACT_MULTIPLIER_SPX * 7000 * 0.03)
     assert row.tags == []
 
 

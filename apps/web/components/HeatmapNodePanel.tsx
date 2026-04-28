@@ -41,7 +41,9 @@ export function HeatmapNodePanel({
         ))}
       </div>
       <div className="heatmapDisclosures" aria-label="Heatmap disclosures">
-        {positionMode === "oi_proxy" ? <p>Open interest is an intraday proxy for exposure weighting.</p> : null}
+        {positionMode === "oi_proxy" ? (
+          <p>OI proxy / estimated dealer exposure. Open interest is an intraday proxy for exposure weighting.</p>
+        ) : null}
         {oiBaselineStatus === "provisional" ? (
           <p className="heatmapWarning">Provisional baseline: opening OI capture is not locked yet.</p>
         ) : (

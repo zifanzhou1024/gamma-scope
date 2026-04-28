@@ -9,7 +9,6 @@ OptionRight = Literal["call", "put"]
 
 CONTRACT_MULTIPLIER_SPX = 100
 GEX_ONE_PERCENT_MOVE = 0.01
-VEX_ONE_VOL_POINT = 0.01
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,7 @@ def aggregate_exposure_by_strike(
 
     rows_by_strike: dict[float, StrikeExposure] = {}
     spot_gex_scale = CONTRACT_MULTIPLIER_SPX * spot * spot * GEX_ONE_PERCENT_MOVE
-    spot_vex_scale = CONTRACT_MULTIPLIER_SPX * spot * VEX_ONE_VOL_POINT
+    spot_vex_scale = CONTRACT_MULTIPLIER_SPX * spot
 
     for contract in contracts:
         row = rows_by_strike.setdefault(contract.strike, StrikeExposure(strike=contract.strike))
