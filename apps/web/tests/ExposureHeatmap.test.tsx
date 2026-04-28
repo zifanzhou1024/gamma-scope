@@ -117,6 +117,34 @@ const metricDivergentPayload = {
   })
 } satisfies HeatmapPayload;
 
+const backendNodeRulesPayload = {
+  ...basePayload,
+  spot: 100,
+  nodes: {
+    king: null,
+    positiveKing: null,
+    negativeKing: null,
+    aboveWall: null,
+    belowWall: null
+  },
+  rows: [
+    nodeRuleRow(70, 10),
+    nodeRuleRow(75, -20),
+    nodeRuleRow(80, -30),
+    nodeRuleRow(85, 40),
+    nodeRuleRow(88, 50),
+    nodeRuleRow(90, 0),
+    nodeRuleRow(95, Number.NaN),
+    nodeRuleRow(96, -70),
+    nodeRuleRow(98, -920),
+    nodeRuleRow(99, 0),
+    nodeRuleRow(101, 900),
+    nodeRuleRow(102, 60),
+    nodeRuleRow(110, 1000),
+    nodeRuleRow(120, Number.POSITIVE_INFINITY)
+  ]
+} as HeatmapPayload;
+
 describe("ExposureHeatmap", () => {
   afterEach(() => {
     document.body.innerHTML = "";
@@ -197,14 +225,16 @@ describe("ExposureHeatmap", () => {
     clickButton(container, "VEX");
 
     expect(getNodePanel(container).textContent).toContain("5500 $1.1M");
-    expect(getNodePanel(container).textContent).toContain("5480 $800K");
+    expect(getNodePanel(container).textContent).toContain("Positive king5500 $1.1M");
     expect(getNodePanel(container).textContent).toContain("5490 -$700K");
-    expect(getNodePanel(container).textContent).toContain("5510 -$450K");
+    expect(getNodePanel(container).textContent).toContain("Above wall5010 $20K");
+    expect(getNodePanel(container).textContent).toContain("Below wall4990 $20K");
     expect(getRow(container, 5000).textContent).not.toContain("King");
     clickButton(container, "Center king");
     expect(getRow(container, 5500).textContent).toContain("King");
-    expect(getRow(container, 5470).textContent).toContain("Below Wall");
-    expect(getRow(container, 5510).textContent).toContain("Above Wall");
+    expect(getRow(container, 5500).textContent).toContain("Positive King");
+    expect(getRow(container, 5010).textContent).toContain("Above Wall");
+    expect(getRow(container, 4990).textContent).toContain("Below Wall");
     expect(fetchSpy).not.toHaveBeenCalled();
 
     cleanup(root, container);
@@ -241,7 +271,49 @@ describe("ExposureHeatmap", () => {
 
     cleanup(root, container);
   });
+
+  it("matches backend node rules for selected metric nodes and tags", async () => {
+    const { ExposureHeatmap } = await import("../components/ExposureHeatmap");
+    const { container, root } = renderHeatmap(<ExposureHeatmap initialPayload={backendNodeRulesPayload} />);
+
+    expect(getNodePanel(container).textContent).toContain("King110 $1K");
+    expect(getNodePanel(container).textContent).toContain("Positive king110 $1K");
+    expect(getNodePanel(container).textContent).toContain("Negative king98 -$920");
+    expect(getNodePanel(container).textContent).toContain("Above wall101 $900");
+    expect(getNodePanel(container).textContent).toContain("Below wall98 -$920");
+    expect(getNodePanel(container).textContent).not.toContain("90 $0");
+    expect(getNodePanel(container).textContent).not.toContain("120 $Infinity");
+
+    expect(getRow(container, 110).textContent).toContain("King");
+    expect(getRow(container, 110).textContent).toContain("Positive King");
+    expect(getRow(container, 98).textContent).toContain("Negative King");
+    expect(getRow(container, 98).textContent).toContain("Below Wall");
+    expect(getRow(container, 101).textContent).toContain("Above Wall");
+    expect(getRow(container, 90).textContent).not.toContain("King");
+
+    cleanup(root, container);
+  });
 });
+
+function nodeRuleRow(strike: number, gex: number) {
+  return {
+    strike,
+    value: gex,
+    formattedValue: "$0",
+    callValue: 0,
+    putValue: 0,
+    colorNorm: Number.isFinite(gex) ? 0.5 : 0,
+    gex,
+    vex: 0,
+    callGex: 0,
+    putGex: 0,
+    callVex: 0,
+    putVex: 0,
+    colorNormGex: Number.isFinite(gex) ? 0.5 : 0,
+    colorNormVex: 0,
+    tags: []
+  };
+}
 
 function renderHeatmap(element: React.ReactElement) {
   const container = document.createElement("div");

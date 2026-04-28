@@ -235,30 +235,23 @@ function scrollToStrike(strike: number | null, refs: Map<number, HTMLTableRowEle
 }
 
 function deriveMetricNodes(rows: HeatmapRow[], spot: number, metric: HeatmapMetric): HeatmapNodes {
-  const metricRows = rows.map((row) => ({
-    row,
-    value: metric === "gex" ? row.gex : row.vex
-  }));
+  const metricRows = rows
+    .map((row) => ({
+      row,
+      value: metric === "gex" ? row.gex : row.vex
+    }))
+    .filter((entry) => Number.isFinite(entry.value) && entry.value !== 0);
+  const wallThreshold = percentile80(metricRows.map((entry) => Math.abs(entry.value)));
   const king = maxBy(metricRows, (entry) => Math.abs(entry.value));
-  const positiveKing = maxBy(
-    metricRows.filter((entry) => entry.value > 0 && entry.row.strike !== king?.row.strike),
-    (entry) => entry.value
+  const positiveKing = maxBy(metricRows.filter((entry) => entry.value > 0), (entry) => entry.value);
+  const negativeKing = minBy(metricRows.filter((entry) => entry.value < 0), (entry) => entry.value);
+  const aboveWall = closestByStrikeDistance(
+    metricRows.filter((entry) => entry.row.strike > spot && Math.abs(entry.value) >= wallThreshold),
+    spot
   );
-  const negativeKing = minBy(
-    metricRows.filter((entry) => entry.value < 0 && entry.row.strike !== king?.row.strike),
-    (entry) => entry.value
-  );
-  const wallAnchor = king?.row.strike ?? spot;
-  const headlineStrikes = new Set(
-    [king?.row.strike, positiveKing?.row.strike, negativeKing?.row.strike].filter((strike) => strike !== undefined)
-  );
-  const aboveWall = maxBy(
-    metricRows.filter((entry) => entry.row.strike > wallAnchor && !headlineStrikes.has(entry.row.strike)),
-    (entry) => Math.abs(entry.value)
-  );
-  const belowWall = maxBy(
-    metricRows.filter((entry) => entry.row.strike < wallAnchor && !headlineStrikes.has(entry.row.strike)),
-    (entry) => Math.abs(entry.value)
+  const belowWall = closestByStrikeDistance(
+    metricRows.filter((entry) => entry.row.strike < spot && Math.abs(entry.value) >= wallThreshold),
+    spot
   );
 
   return {
@@ -268,6 +261,16 @@ function deriveMetricNodes(rows: HeatmapRow[], spot: number, metric: HeatmapMetr
     aboveWall: toNode(aboveWall),
     belowWall: toNode(belowWall)
   };
+}
+
+function percentile80(values: number[]): number {
+  if (values.length === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const sortedValues = [...values].sort((first, second) => first - second);
+  const index = Math.ceil(sortedValues.length * 0.8) - 1;
+  return sortedValues[Math.max(0, Math.min(sortedValues.length - 1, index))];
 }
 
 function deriveMetricTags(strike: number, nodes: HeatmapNodes | null): string[] {
@@ -322,6 +325,16 @@ function maxBy(entries: MetricEntry[], score: (entry: MetricEntry) => number): M
 function minBy(entries: MetricEntry[], score: (entry: MetricEntry) => number): MetricEntry | null {
   return entries.reduce<MetricEntry | null>((best, entry) => {
     if (!best || score(entry) < score(best)) {
+      return entry;
+    }
+
+    return best;
+  }, null);
+}
+
+function closestByStrikeDistance(entries: MetricEntry[], spot: number): MetricEntry | null {
+  return entries.reduce<MetricEntry | null>((best, entry) => {
+    if (!best || Math.abs(entry.row.strike - spot) < Math.abs(best.row.strike - spot)) {
       return entry;
     }
 
