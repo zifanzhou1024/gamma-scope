@@ -46,8 +46,9 @@ def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau
         right_width = strikes[index + 1] - strikes[index]
         if left_width <= 0 or right_width <= 0:
             return _empty_terminal_distribution_panel("Fitted smile strikes must be strictly increasing.")
-        width = (left_width + right_width) / 2
-        curvature = (calls[index - 1] - 2 * calls[index] + calls[index + 1]) / (width * width)
+        curvature = 2 / (left_width + right_width) * (
+            (calls[index + 1] - calls[index]) / right_width - (calls[index] - calls[index - 1]) / left_width
+        )
         density.append({"x": strikes[index], "y": max(0.0, curvature * exp(rate * tau))})
     if not density:
         return _empty_terminal_distribution_panel("Density could not be estimated.")

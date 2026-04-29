@@ -41,6 +41,14 @@ def test_rich_cheap_panel_compares_actual_mid_to_fitted_fair() -> None:
     assert panel["rows"][0]["label"] in {"Rich", "Cheap", "Inline"}
 
 
+def test_rich_cheap_panel_interpolates_fit_between_grid_points() -> None:
+    iv_panel = {"methods": [{"key": "spline_fit", "points": [{"x": 100, "y": 0.18}, {"x": 110, "y": 0.22}]}]}
+    panel = rich_cheap_panel([row("call", 105, 2.0)], iv_panel=iv_panel, forward=100, tau=1 / 365, rate=0.0)
+
+    assert panel["status"] == "preview"
+    assert panel["rows"][0]["strike"] == 105
+
+
 def test_trade_map_panels_skip_bad_rows_and_invalid_sides() -> None:
     rows = [
         row("call", 105, 2.0),
@@ -58,6 +66,15 @@ def test_trade_map_panels_skip_bad_rows_and_invalid_sides() -> None:
     assert [item["side"] for item in move["rows"]] == ["call"]
     assert [item["side"] for item in decay["rows"]] == ["call"]
     assert [item["side"] for item in rich_cheap["rows"]] == ["call"]
+
+
+def test_trade_map_panels_degrade_on_malformed_row_containers() -> None:
+    iv_panel = {"methods": [{"key": "spline_fit", "points": [{"x": 105, "y": 0.2}]}]}
+
+    for bad_rows in (None, 42, {"strike": 105}):
+        assert move_needed_panel(bad_rows, spot=100, expected_move=10)["status"] == "insufficient_data"
+        assert decay_pressure_panel(bad_rows, minutes_to_expiry=20)["status"] == "insufficient_data"
+        assert rich_cheap_panel(bad_rows, iv_panel=iv_panel, forward=100, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
 
 
 def test_trade_map_panels_degrade_on_invalid_model_inputs() -> None:

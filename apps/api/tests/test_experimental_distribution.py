@@ -1,4 +1,9 @@
+from math import exp
+
+import pytest
+
 from gammascope_api.experimental.distribution import probability_panel, terminal_distribution_panel, skew_tail_panel
+from gammascope_api.experimental.iv_methods import black76_price
 
 
 def fitted_iv_panel() -> dict:
@@ -101,3 +106,25 @@ def test_terminal_distribution_deduplicates_and_sorts_fit_points() -> None:
 
     assert output["status"] == "preview"
     assert [point["x"] for point in output["density"]] == sorted(point["x"] for point in output["density"])
+
+
+def test_terminal_distribution_uses_nonuniform_strike_spacing() -> None:
+    rate = 0.01
+    tau = 1 / 365
+    points = [{"x": 95, "y": 0.24}, {"x": 100, "y": 0.18}, {"x": 112, "y": 0.23}]
+    panel = {"methods": [{"key": "spline_fit", "points": points}]}
+
+    output = terminal_distribution_panel(panel, forward=100, tau=tau, rate=rate)
+
+    calls = [
+        black76_price(forward=100, strike=point["x"], tau=tau, rate=rate, sigma=point["y"], right="call")
+        for point in points
+    ]
+    left_width = points[1]["x"] - points[0]["x"]
+    right_width = points[2]["x"] - points[1]["x"]
+    expected_curvature = 2 / (left_width + right_width) * (
+        (calls[2] - calls[1]) / right_width - (calls[1] - calls[0]) / left_width
+    )
+
+    assert output["status"] == "preview"
+    assert output["density"][0]["y"] == pytest.approx(max(0.0, expected_curvature * exp(rate * tau)))
