@@ -55,7 +55,25 @@ def capture_live_snapshot_from_state(state: CollectorState) -> dict[str, Any]:
 
     recorder = ReplayCaptureRecorder(get_replay_repository(), interval_seconds=capture_interval_seconds())
     try:
-        return recorder.capture(build_live_snapshot(state))
+        snapshots = _live_snapshots_from_state(state)
+        if not snapshots:
+            return {"captured": False, "reason": "snapshot_not_ready"}
+
+        captures = [recorder.capture(snapshot) for snapshot in snapshots]
+        if len(captures) == 1:
+            return captures[0]
+        captured = [capture for capture in captures if capture.get("captured") is True]
+        if captured:
+            return {
+                "captured": True,
+                "captured_count": len(captured),
+                "captures": captures,
+            }
+        return {
+            "captured": False,
+            "reason": str(captures[0].get("reason") or "snapshot_not_ready"),
+            "captures": captures,
+        }
     except Exception as exc:
         _persistence_unavailable_until = now + timedelta(seconds=PERSISTENCE_FAILURE_COOLDOWN_SECONDS)
         return {
@@ -68,6 +86,24 @@ def capture_live_snapshot_from_state(state: CollectorState) -> dict[str, Any]:
 def reset_replay_capture_circuit() -> None:
     global _persistence_unavailable_until
     _persistence_unavailable_until = None
+
+
+def _live_snapshots_from_state(state: CollectorState) -> list[dict[str, Any]]:
+    session_ids = _live_session_ids(state)
+    if not session_ids:
+        snapshot = build_live_snapshot(state)
+        return [] if snapshot is None else [snapshot]
+
+    snapshots: list[dict[str, Any]] = []
+    for session_id in session_ids:
+        snapshot = build_live_snapshot(state, session_id=session_id)
+        if snapshot is not None:
+            snapshots.append(snapshot)
+    return snapshots
+
+
+def _live_session_ids(state: CollectorState) -> list[str]:
+    return sorted(str(session_id) for session_id in state.snapshot().get("underlying_ticks", {}))
 
 
 def _replay_ready_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
