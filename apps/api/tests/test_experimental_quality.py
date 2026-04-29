@@ -1,3 +1,5 @@
+import pytest
+
 from gammascope_api.experimental.quality import grouped_pairs, quote_quality_panel
 
 
@@ -60,3 +62,17 @@ def test_quote_quality_flags_missing_crossed_zero_and_wide_quotes() -> None:
         "zero_bid",
         "wide_spread",
     }
+
+
+def test_quote_quality_flags_malformed_strikes_without_raising() -> None:
+    panel = quote_quality_panel(
+        [
+            row("c-100", "call", 100, 4.9, 5.1),
+            {**row("p-missing", "put", 0, 4.8, 5.0), "strike": None},
+            {**row("c-bad", "call", 0, 2.0, 2.2), "strike": "bad"},
+        ]
+    )
+
+    assert panel["status"] == "preview"
+    assert panel["score"] == pytest.approx(0.3333)
+    assert {flag["code"] for flag in panel["flags"]} == {"invalid_strike"}

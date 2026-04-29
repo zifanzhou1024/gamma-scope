@@ -59,3 +59,24 @@ def test_forward_summary_reports_insufficient_data_without_pairs() -> None:
 
     assert panel["status"] == "insufficient_data"
     assert panel["parityForward"] is None
+
+
+def test_forward_summary_uses_nearest_clean_pair_for_atm_straddle() -> None:
+    snapshot = {
+        "spot": 100.0,
+        "risk_free_rate": 0.0,
+        "snapshot_time": "2026-04-23T19:00:00Z",
+        "expiry": "2026-04-23",
+        "rows": [
+            row("call", 95, 6.0),
+            row("put", 95, 1.0),
+            row("call", 100, 3.5),
+        ],
+    }
+
+    panel = forward_summary_panel(snapshot)
+
+    assert panel["status"] == "ok"
+    assert panel["atmStrike"] == 95
+    assert panel["atmStraddle"] == pytest.approx(7.0)
+    assert panel["expectedRange"] == {"lower": pytest.approx(93.0), "upper": pytest.approx(107.0)}

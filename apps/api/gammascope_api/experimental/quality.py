@@ -10,7 +10,9 @@ MAX_RELATIVE_SPREAD = 0.40
 def grouped_pairs(rows: list[dict[str, Any]]) -> list[StrikePair]:
     grouped: dict[float, dict[str, dict[str, Any] | None]] = {}
     for row in rows:
-        strike = float(row["strike"])
+        strike = optional_float(row.get("strike"))
+        if strike is None:
+            continue
         bucket = grouped.setdefault(strike, {"call": None, "put": None})
         if row.get("right") == "call":
             bucket["call"] = row
@@ -40,9 +42,12 @@ def quote_quality_panel(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def quote_flags(row: dict[str, Any]) -> list[dict[str, Any]]:
     bid = optional_float(row.get("bid"))
     ask = optional_float(row.get("ask"))
-    strike = float(row["strike"])
+    strike = optional_float(row.get("strike"))
     right = str(row.get("right") or "pair")
     flags: list[dict[str, Any]] = []
+
+    if strike is None:
+        return [_flag(0.0, right, "invalid_strike", "Strike is missing or invalid.")]
 
     if bid is None or ask is None:
         return [_flag(strike, right, "missing_bid_ask", "Bid or ask is missing.")]

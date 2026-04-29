@@ -29,6 +29,7 @@ def forward_summary_panel(snapshot: dict[str, Any]) -> dict[str, Any]:
     tau = max(time_to_expiry_years(str(snapshot["snapshot_time"]), str(snapshot["expiry"])), MIN_TAU_YEARS)
     rows = list(snapshot.get("rows", []))
     forward_estimates: list[tuple[float, float]] = []
+    clean_pairs = []
 
     for pair in grouped_pairs(rows):
         if pair.call is None or pair.put is None:
@@ -39,6 +40,7 @@ def forward_summary_panel(snapshot: dict[str, Any]) -> dict[str, Any]:
         put_mid = optional_float(pair.put.get("mid"))
         if call_mid is None or put_mid is None:
             continue
+        clean_pairs.append(pair)
         forward_estimates.append((pair.strike, pair.strike + exp(rate * tau) * (call_mid - put_mid)))
 
     if not forward_estimates:
@@ -56,7 +58,7 @@ def forward_summary_panel(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     near_atm = sorted(forward_estimates, key=lambda item: abs(item[0] - spot))[:15]
     parity_forward = median(value for _, value in near_atm)
-    atm_pair = min(grouped_pairs(rows), key=lambda pair: abs(pair.strike - parity_forward))
+    atm_pair = min(clean_pairs, key=lambda pair: abs(pair.strike - parity_forward))
     atm_straddle = _pair_straddle(atm_pair.call, atm_pair.put)
     expected_range = None
     expected_move_percent = None
