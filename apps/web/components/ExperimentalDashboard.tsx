@@ -82,6 +82,12 @@ export function ExperimentalDashboard({ initialAnalytics = null }: ExperimentalD
         </div>
       </header>
 
+      {refreshError ? (
+        <section className="experimentalNotice experimentalNotice-warning" aria-label="Experimental refresh notice" role="alert">
+          {refreshError}
+        </section>
+      ) : null}
+
       {analytics ? (
         <>
           <section className="sessionBand experimentalSessionBand" aria-label="Experimental source">
@@ -102,12 +108,6 @@ export function ExperimentalDashboard({ initialAnalytics = null }: ExperimentalD
               <strong>{analytics.meta.expiry}</strong>
             </div>
           </section>
-
-          {refreshError ? (
-            <section className="experimentalNotice experimentalNotice-warning" aria-label="Experimental refresh notice">
-              {refreshError}
-            </section>
-          ) : null}
 
           <ExperimentalSummaryPanels analytics={analytics} />
           <ExperimentalSmileChart analytics={analytics} />

@@ -1,7 +1,12 @@
+// @vitest-environment happy-dom
+
 import React from "react";
+import { act } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import seed from "../../../packages/contracts/fixtures/experimental-analytics.seed.json";
 import type { ExperimentalAnalytics } from "../lib/contracts";
@@ -9,7 +14,22 @@ import type { ExperimentalAnalytics } from "../lib/contracts";
 const seedPayload = seed as ExperimentalAnalytics;
 const styles = readFileSync(join(__dirname, "../app/styles.css"), "utf8");
 
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const mocks = vi.hoisted(() => ({
+  loadClientExperimentalAnalytics: vi.fn()
+}));
+
+vi.mock("../lib/clientExperimentalAnalyticsSource", () => ({
+  loadClientExperimentalAnalytics: mocks.loadClientExperimentalAnalytics
+}));
+
 describe("ExperimentalDashboard", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+    mocks.loadClientExperimentalAnalytics.mockReset();
+  });
+
   it("renders an active Experimental nav tab and a dense KPI strip", async () => {
     const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
     const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={seedPayload} />);
@@ -46,6 +66,43 @@ describe("ExperimentalDashboard", () => {
     expect(markup).toContain("95% range");
   });
 
+  it("preserves nullable chart gaps and renders single-point markers", async () => {
+    const payload = {
+      ...seedPayload,
+      ivSmiles: {
+        ...seedPayload.ivSmiles,
+        methods: [
+          {
+            key: "custom_iv",
+            label: "Current custom IV",
+            status: "ok" as const,
+            points: [
+              { x: 5190, y: 0.18 },
+              { x: 5200, y: null },
+              { x: 5210, y: 0.19 }
+            ]
+          }
+        ]
+      },
+      terminalDistribution: {
+        ...seedPayload.terminalDistribution,
+        density: [
+          { x: 5190, y: 0.02 },
+          { x: 5200, y: null },
+          { x: 5210, y: 0.025 }
+        ]
+      }
+    } satisfies ExperimentalAnalytics;
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={payload} />);
+
+    expect(markup.match(/data-series-key="custom_iv"/g) ?? []).toHaveLength(2);
+    expect(markup.match(/data-series-key="terminal_distribution"/g) ?? []).toHaveLength(2);
+    expect(markup).not.toContain('<polyline data-series-key="custom_iv"');
+    expect(markup).not.toContain('<polyline data-series-key="terminal_distribution"');
+    expect(markup).toContain("<circle");
+  });
+
   it("renders diagnostics panels and all experimental tables semantically", async () => {
     const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
     const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={seedPayload} />);
@@ -75,6 +132,24 @@ describe("ExperimentalDashboard", () => {
     expect(markup).toMatch(/<a[^>]*href="\/experimental"[^>]*aria-current="page"[^>]*>Experimental<\/a>/);
   });
 
+  it("announces refresh failures from the unavailable state", async () => {
+    mocks.loadClientExperimentalAnalytics.mockResolvedValue(null);
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const { container, root } = renderDashboard(<ExperimentalDashboard initialAnalytics={null} />);
+    await act(async () => undefined);
+
+    const button = getButton(container, "Refresh");
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const alert = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.textContent).toContain("Latest experimental analytics unavailable.");
+
+    cleanup(root, container);
+  });
+
   it("defines stable experimental chart and table layout styles", () => {
     expect(styles).toMatch(/\.experimentalKpiGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/);
     expect(styles).toMatch(/\.experimentalChartFrame\s*{[\s\S]*min-height:\s*260px/);
@@ -82,3 +157,28 @@ describe("ExperimentalDashboard", () => {
     expect(styles).toMatch(/\.experimentalTableWrap\s*{[\s\S]*overflow-x:\s*auto/);
   });
 });
+
+function renderDashboard(element: React.ReactElement) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  act(() => {
+    root.render(element);
+  });
+
+  return { container, root };
+}
+
+function cleanup(root: Root, container: HTMLElement) {
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
+}
+
+function getButton(container: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll("button")).find((candidate) => candidate.textContent === text);
+  expect(button).not.toBeNull();
+  return button as HTMLButtonElement;
+}

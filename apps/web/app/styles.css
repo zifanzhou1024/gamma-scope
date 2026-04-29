@@ -2550,20 +2550,31 @@ h1 {
   vector-effect: non-scaling-stroke;
 }
 
+.experimentalSeriesMarker {
+  fill: currentColor;
+  stroke: rgba(5, 10, 19, 0.9);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
 .experimentalSeries-blue {
+  color: var(--blue);
   stroke: var(--blue);
 }
 
 .experimentalSeries-teal {
+  color: var(--teal);
   stroke: var(--teal);
 }
 
 .experimentalSeries-violet {
+  color: var(--violet);
   stroke: var(--violet);
 }
 
 .experimentalSeries-amber,
 .experimentalSeries-distribution {
+  color: var(--amber);
   stroke: var(--amber);
 }
 

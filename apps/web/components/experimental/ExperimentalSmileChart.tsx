@@ -47,15 +47,14 @@ export function ExperimentalSmileChart({ analytics }: ExperimentalSmileChartProp
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
           >
             <ChartGrid />
-            {analytics.ivSmiles.methods.map((method, index) => (
-              <polyline
-                key={method.key}
-                data-series-key={method.key}
-                className={`experimentalSeries ${SERIES_CLASSES[index % SERIES_CLASSES.length]}`}
-                points={polylinePoints(method.points, domainForSeries(analytics.ivSmiles.methods.flatMap((entry) => entry.points)))}
-                fill="none"
-              />
-            ))}
+            {analytics.ivSmiles.methods.map((method, index) =>
+              renderSeries(
+                method.key,
+                method.points,
+                domainForSeries(analytics.ivSmiles.methods.flatMap((entry) => entry.points)),
+                SERIES_CLASSES[index % SERIES_CLASSES.length]
+              )
+            )}
           </svg>
         </div>
         <div className="experimentalLegend" aria-label="IV smile methods">
@@ -82,11 +81,12 @@ export function ExperimentalSmileChart({ analytics }: ExperimentalSmileChartProp
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
           >
             <ChartGrid />
-            <polyline
-              className="experimentalSeries experimentalSeries-distribution"
-              points={polylinePoints(analytics.terminalDistribution.density, domainForSeries(analytics.terminalDistribution.density))}
-              fill="none"
-            />
+            {renderSeries(
+              "terminal_distribution",
+              analytics.terminalDistribution.density,
+              domainForSeries(analytics.terminalDistribution.density),
+              "experimentalSeries-distribution"
+            )}
           </svg>
         </div>
         <div className="experimentalDistributionStats" aria-label="Terminal distribution summary">
@@ -99,6 +99,38 @@ export function ExperimentalSmileChart({ analytics }: ExperimentalSmileChartProp
       </ExperimentalPanel>
     </section>
   );
+}
+
+function renderSeries(key: string, points: ChartPoint[], domain: ChartDomain | null, className: string) {
+  if (!domain) {
+    return null;
+  }
+
+  return contiguousSegments(points).map((segment, index) => {
+    if (segment.length === 1) {
+      const point = segment[0]!;
+      return (
+        <circle
+          key={`${key}:${index}`}
+          data-series-key={key}
+          className={`experimentalSeriesMarker ${className}`}
+          cx={scaleX(point.x, domain)}
+          cy={scaleY(point.y ?? 0, domain)}
+          r="4"
+        />
+      );
+    }
+
+    return (
+      <polyline
+        key={`${key}:${index}`}
+        data-series-key={key}
+        className={`experimentalSeries ${className}`}
+        points={polylinePoints(segment, domain)}
+        fill="none"
+      />
+    );
+  });
 }
 
 function ChartGrid() {
@@ -116,6 +148,28 @@ function ChartGrid() {
       <line className="experimentalChartAxis" x1={PLOT.left} x2={PLOT.left} y1={PLOT.top} y2={CHART_HEIGHT - PLOT.bottom} />
     </g>
   );
+}
+
+function contiguousSegments(points: ChartPoint[]): ChartPoint[][] {
+  const segments: ChartPoint[][] = [];
+  let current: ChartPoint[] = [];
+
+  for (const point of points) {
+    if (point.y == null) {
+      if (current.length > 0) {
+        segments.push(current);
+        current = [];
+      }
+      continue;
+    }
+    current.push(point);
+  }
+
+  if (current.length > 0) {
+    segments.push(current);
+  }
+
+  return segments;
 }
 
 function polylinePoints(points: ChartPoint[], domain: ChartDomain | null): string {
