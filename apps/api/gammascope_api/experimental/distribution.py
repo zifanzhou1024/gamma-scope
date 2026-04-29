@@ -4,27 +4,21 @@ from math import exp, log, sqrt
 from typing import Any
 
 from gammascope_api.experimental.iv_methods import black76_price, normal_cdf
-from gammascope_api.experimental.models import diagnostic, panel
+from gammascope_api.experimental.models import diagnostic, optional_float, panel
 
 
 def probability_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, rate: float) -> dict[str, Any]:
+    if forward <= 0 or tau <= 0:
+        return _empty_probability_panel("Forward and time to expiry must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 2:
-        return panel(
-            "insufficient_data",
-            "Risk-neutral probabilities",
-            [diagnostic("missing_fit", "A fitted smile is required.", "warning")],
-            levels=[],
-        )
+        return _empty_probability_panel("A fitted smile is required.")
     levels = []
     for point in points:
-        strike = float(point["x"])
-        sigma = float(point["y"])
-        if forward <= 0 or strike <= 0 or tau <= 0:
-            close_above = None
-        else:
-            d2 = (log(forward / strike) - 0.5 * sigma * sigma * tau) / (sigma * sqrt(tau))
-            close_above = normal_cdf(d2)
+        strike = point["x"]
+        sigma = point["y"]
+        d2 = (log(forward / strike) - 0.5 * sigma * sigma * tau) / (sigma * sqrt(tau))
+        close_above = normal_cdf(d2)
         levels.append({"strike": strike, "closeAbove": close_above, "closeBelow": None if close_above is None else 1 - close_above})
     return panel(
         "preview",
@@ -35,43 +29,27 @@ def probability_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, r
 
 
 def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, rate: float) -> dict[str, Any]:
+    if forward <= 0 or tau <= 0:
+        return _empty_terminal_distribution_panel("Forward and time to expiry must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 3:
-        return panel(
-            "insufficient_data",
-            "Terminal distribution",
-            [diagnostic("missing_fit", "A fitted smile with at least three points is required.", "warning")],
-            density=[],
-            highestDensityZone=None,
-            range68=None,
-            range95=None,
-            leftTailProbability=None,
-            rightTailProbability=None,
-        )
+        return _empty_terminal_distribution_panel("A fitted smile with at least three points is required.")
     calls = [
-        black76_price(forward=forward, strike=float(point["x"]), tau=tau, rate=rate, sigma=float(point["y"]), right="call")
+        black76_price(forward=forward, strike=point["x"], tau=tau, rate=rate, sigma=point["y"], right="call")
         for point in points
     ]
-    strikes = [float(point["x"]) for point in points]
+    strikes = [point["x"] for point in points]
     density = []
     for index in range(1, len(points) - 1):
         left_width = strikes[index] - strikes[index - 1]
         right_width = strikes[index + 1] - strikes[index]
-        width = max((left_width + right_width) / 2, 1e-9)
+        if left_width <= 0 or right_width <= 0:
+            return _empty_terminal_distribution_panel("Fitted smile strikes must be strictly increasing.")
+        width = (left_width + right_width) / 2
         curvature = (calls[index - 1] - 2 * calls[index] + calls[index + 1]) / (width * width)
         density.append({"x": strikes[index], "y": max(0.0, curvature * exp(rate * tau))})
     if not density:
-        return panel(
-            "insufficient_data",
-            "Terminal distribution",
-            [diagnostic("empty_density", "Density could not be estimated.", "warning")],
-            density=[],
-            highestDensityZone=None,
-            range68=None,
-            range95=None,
-            leftTailProbability=None,
-            rightTailProbability=None,
-        )
+        return _empty_terminal_distribution_panel("Density could not be estimated.")
     highest = max(density, key=lambda point: point["y"] or 0)
     probabilities = probability_panel(iv_panel, forward=forward, tau=tau, rate=rate)["levels"]
     lower68, upper68 = _range_from_probabilities(probabilities, 0.16, 0.84)
@@ -92,16 +70,11 @@ def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau
 
 
 def skew_tail_panel(iv_panel: dict[str, Any], *, forward: float) -> dict[str, Any]:
+    if forward <= 0:
+        return _empty_skew_tail_panel("Forward must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 3:
-        return panel(
-            "insufficient_data",
-            "Skew and tail asymmetry",
-            [diagnostic("missing_fit", "A fitted smile is required.", "warning")],
-            tailBias=None,
-            leftTailRichness=None,
-            rightTailRichness=None,
-        )
+        return _empty_skew_tail_panel("A fitted smile is required.")
     atm = min(points, key=lambda point: abs(float(point["x"]) - forward))
     left = points[0]
     right = points[-1]
@@ -127,7 +100,7 @@ def skew_tail_panel(iv_panel: dict[str, Any], *, forward: float) -> dict[str, An
 def _fit_points(iv_panel: dict[str, Any]) -> list[dict[str, float]]:
     for method in iv_panel.get("methods", []):
         if method.get("key") == "spline_fit":
-            return [point for point in method.get("points", []) if point.get("y") is not None]
+            return _clean_fit_points(method.get("points", []))
     return []
 
 
@@ -141,3 +114,43 @@ def _range_label(lower: float | None, upper: float | None) -> str | None:
     if lower is None or upper is None:
         return None
     return f"{lower:.0f}-{upper:.0f}"
+
+
+def _clean_fit_points(points: list[dict[str, Any]]) -> list[dict[str, float]]:
+    by_strike: dict[float, float] = {}
+    for point in points:
+        strike = optional_float(point.get("x"))
+        sigma = optional_float(point.get("y"))
+        if strike is None or sigma is None or strike <= 0 or sigma <= 0:
+            continue
+        by_strike[strike] = sigma
+    return [{"x": strike, "y": by_strike[strike]} for strike in sorted(by_strike)]
+
+
+def _empty_probability_panel(message: str) -> dict[str, Any]:
+    return panel("insufficient_data", "Risk-neutral probabilities", [diagnostic("missing_fit", message, "warning")], levels=[])
+
+
+def _empty_terminal_distribution_panel(message: str) -> dict[str, Any]:
+    return panel(
+        "insufficient_data",
+        "Terminal distribution",
+        [diagnostic("missing_fit", message, "warning")],
+        density=[],
+        highestDensityZone=None,
+        range68=None,
+        range95=None,
+        leftTailProbability=None,
+        rightTailProbability=None,
+    )
+
+
+def _empty_skew_tail_panel(message: str) -> dict[str, Any]:
+    return panel(
+        "insufficient_data",
+        "Skew and tail asymmetry",
+        [diagnostic("missing_fit", message, "warning")],
+        tailBias=None,
+        leftTailRichness=None,
+        rightTailRichness=None,
+    )

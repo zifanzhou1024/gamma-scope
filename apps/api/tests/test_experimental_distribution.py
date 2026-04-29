@@ -37,3 +37,49 @@ def test_skew_tail_panel_labels_left_tail_richness() -> None:
 
     assert panel["status"] == "preview"
     assert panel["tailBias"] in {"Left-tail rich", "Right-tail rich", "Balanced tails"}
+
+
+def test_distribution_panels_sanitize_bad_fit_points_without_raising() -> None:
+    bad_panel = {
+        "methods": [
+            {
+                "key": "spline_fit",
+                "points": [
+                    {"x": 95, "y": 0.0},
+                    {"x": "bad", "y": 0.2},
+                    {"x": 100, "y": None},
+                    {"x": 105, "y": 0.21},
+                ],
+            }
+        ]
+    }
+
+    assert probability_panel(bad_panel, forward=100, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
+    assert terminal_distribution_panel(bad_panel, forward=100, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
+    assert skew_tail_panel(bad_panel, forward=100)["status"] == "insufficient_data"
+
+
+def test_distribution_panels_degrade_on_invalid_model_inputs() -> None:
+    assert probability_panel(fitted_iv_panel(), forward=0, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
+    assert terminal_distribution_panel(fitted_iv_panel(), forward=100, tau=0, rate=0.0)["status"] == "insufficient_data"
+
+
+def test_terminal_distribution_deduplicates_and_sorts_fit_points() -> None:
+    panel = {
+        "methods": [
+            {
+                "key": "spline_fit",
+                "points": [
+                    {"x": 105, "y": 0.21},
+                    {"x": 95, "y": 0.22},
+                    {"x": 100, "y": 0.18},
+                    {"x": 100, "y": 0.19},
+                ],
+            }
+        ]
+    }
+
+    output = terminal_distribution_panel(panel, forward=100, tau=1 / 365, rate=0.0)
+
+    assert output["status"] == "preview"
+    assert [point["x"] for point in output["density"]] == sorted(point["x"] for point in output["density"])
