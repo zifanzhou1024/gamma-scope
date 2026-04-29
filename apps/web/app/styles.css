@@ -37,6 +37,36 @@
   --warning-text: #fcd34d;
   --error-text: #fca5a5;
   --active-blue-text: #bae6fd;
+  --heatmap-shell-bg: transparent;
+  --heatmap-panel-bg: rgba(12, 18, 28, 0.92);
+  --heatmap-panel-header-bg: rgba(248, 250, 252, 0.04);
+  --heatmap-panel-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
+  --heatmap-control-bg: rgba(15, 23, 42, 0.46);
+  --heatmap-control-active-bg: rgba(45, 212, 191, 0.13);
+  --heatmap-control-active-border: rgba(45, 212, 191, 0.42);
+  --heatmap-control-active-text: #99f6e4;
+  --heatmap-control-hover-text: #e0f2fe;
+  --heatmap-strike-bg: rgba(8, 13, 25, 0.86);
+  --heatmap-table-head-bg: rgba(15, 23, 42, 0.78);
+  --heatmap-row-hover-bg: rgba(148, 163, 184, 0.08);
+  --heatmap-cell-neutral-bg: rgba(49, 90, 128, 0.34);
+  --heatmap-cell-neutral-text: #cbd5e1;
+  --heatmap-positive-1: #236a75;
+  --heatmap-positive-1-text: #f8fafc;
+  --heatmap-positive-2: #2f8f88;
+  --heatmap-positive-2-text: #f8fafc;
+  --heatmap-positive-3: #32b77b;
+  --heatmap-positive-3-text: #052e16;
+  --heatmap-positive-4: #facc15;
+  --heatmap-positive-4-text: #111827;
+  --heatmap-negative-1: #315a80;
+  --heatmap-negative-1-text: #f8fafc;
+  --heatmap-negative-2: #44307d;
+  --heatmap-negative-2-text: #f8fafc;
+  --heatmap-negative-3: #5b006f;
+  --heatmap-negative-3-text: #fdf4ff;
+  --heatmap-negative-4: #4c005f;
+  --heatmap-negative-4-text: #fdf4ff;
 }
 
 html[data-theme="light"] {
@@ -78,6 +108,18 @@ html[data-theme="light"] {
   --warning-text: #92400e;
   --error-text: #b91c1c;
   --active-blue-text: #075985;
+  --heatmap-shell-bg: transparent;
+  --heatmap-panel-bg: #ffffff;
+  --heatmap-panel-header-bg: #f8fafc;
+  --heatmap-panel-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+  --heatmap-control-bg: #ffffff;
+  --heatmap-control-active-bg: #dff7f3;
+  --heatmap-control-active-border: rgba(15, 118, 110, 0.36);
+  --heatmap-control-active-text: #0f766e;
+  --heatmap-control-hover-text: #075985;
+  --heatmap-strike-bg: #f1f5f9;
+  --heatmap-table-head-bg: #eef3f8;
+  --heatmap-row-hover-bg: #e0f2fe;
 }
 
 * {
@@ -264,6 +306,7 @@ h1 {
 }
 
 .heatmapShell {
+  background: var(--heatmap-shell-bg);
   display: flex;
   flex-direction: column;
   font-variant-numeric: tabular-nums;
@@ -344,7 +387,7 @@ h1 {
 
 .heatmapSegmented button,
 .heatmapToolButton {
-  background: rgba(15, 23, 42, 0.42);
+  background: var(--heatmap-control-bg);
   cursor: pointer;
   padding: 0 12px;
 }
@@ -355,15 +398,15 @@ h1 {
 
 .heatmapSegmented-active,
 .heatmapSegmented button[aria-pressed="true"] {
-  background: rgba(45, 212, 191, 0.13);
-  border-color: rgba(45, 212, 191, 0.38);
-  color: #99f6e4;
+  background: var(--heatmap-control-active-bg);
+  border-color: var(--heatmap-control-active-border);
+  color: var(--heatmap-control-active-text);
 }
 
 .heatmapToolButton:hover,
 .heatmapSegmented button:hover {
-  border-color: rgba(125, 211, 252, 0.38);
-  color: #e0f2fe;
+  border-color: rgba(var(--spot-reference-rgb), 0.38);
+  color: var(--heatmap-control-hover-text);
 }
 
 .heatmapRangeControl {
@@ -415,7 +458,7 @@ h1 {
 
 .heatmapTickerButtons button,
 .heatmapTickerOrderItem button {
-  background: rgba(15, 23, 42, 0.42);
+  background: var(--heatmap-control-bg);
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--soft);
@@ -430,9 +473,9 @@ h1 {
 }
 
 .heatmapTickerButtons button[aria-pressed="true"] {
-  background: rgba(45, 212, 191, 0.13);
-  border-color: rgba(45, 212, 191, 0.38);
-  color: #99f6e4;
+  background: var(--heatmap-control-active-bg);
+  border-color: var(--heatmap-control-active-border);
+  color: var(--heatmap-control-active-text);
 }
 
 .heatmapTickerButtons button:disabled,
@@ -446,7 +489,7 @@ h1 {
 }
 
 .heatmapTickerOrderItem {
-  background: rgba(15, 23, 42, 0.34);
+  background: var(--heatmap-control-bg);
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   gap: 4px;
@@ -494,10 +537,10 @@ h1 {
 }
 
 .heatmapPanel {
-  background: rgba(15, 23, 42, 0.62);
+  background: var(--heatmap-panel-bg);
   border: 1px solid var(--line-soft);
   border-radius: 18px;
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--heatmap-panel-shadow);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -506,7 +549,7 @@ h1 {
 
 .heatmapPanelHeader {
   align-items: center;
-  background: rgba(248, 250, 252, 0.03);
+  background: var(--heatmap-panel-header-bg);
   border-bottom: 1px solid var(--line-soft);
   display: flex;
   flex: 0 0 auto;
@@ -517,7 +560,7 @@ h1 {
 }
 
 .heatmapPanelSymbol {
-  background: rgba(248, 250, 252, 0.08);
+  background: var(--heatmap-control-bg);
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 6px;
   color: var(--text);
@@ -604,7 +647,7 @@ h1 {
 }
 
 .heatmapTable th {
-  background: rgba(15, 23, 42, 0.7);
+  background: var(--heatmap-table-head-bg);
   color: var(--muted);
   font-size: 11px;
   letter-spacing: 0;
@@ -624,7 +667,7 @@ h1 {
 }
 
 .heatmapTable tbody tr:hover {
-  background: rgba(148, 163, 184, 0.07);
+  background: var(--heatmap-row-hover-bg);
 }
 
 .heatmapSpotRow {
@@ -637,6 +680,7 @@ h1 {
 }
 
 .heatmapStrike {
+  background: var(--heatmap-strike-bg);
   color: var(--text);
 }
 
@@ -704,47 +748,63 @@ h1 {
 }
 
 .heatmapCell-positive {
-  color: #86efac;
+  color: var(--heatmap-positive-1-text);
 }
 
 .heatmapCell-negative {
-  color: #fda4af;
+  color: var(--heatmap-negative-1-text);
 }
 
 .heatmapCell-neutral {
-  color: var(--muted);
+  color: var(--heatmap-cell-neutral-text);
 }
 
 .heatmapCell-intensity-0 {
-  background: rgba(148, 163, 184, 0.04);
+  background: var(--heatmap-cell-neutral-bg);
 }
 
 .heatmapCell-intensity-1 {
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--heatmap-cell-neutral-bg);
+}
+
+.heatmapCell-intensity-1.heatmapCell-positive {
+  background: var(--heatmap-positive-1);
+  color: var(--heatmap-positive-1-text);
 }
 
 .heatmapCell-intensity-2.heatmapCell-positive {
-  background: rgba(34, 197, 94, 0.1);
+  background: var(--heatmap-positive-2);
+  color: var(--heatmap-positive-2-text);
 }
 
 .heatmapCell-intensity-3.heatmapCell-positive {
-  background: rgba(34, 197, 94, 0.16);
+  background: var(--heatmap-positive-3);
+  color: var(--heatmap-positive-3-text);
 }
 
 .heatmapCell-intensity-4.heatmapCell-positive {
-  background: rgba(34, 197, 94, 0.24);
+  background: var(--heatmap-positive-4);
+  color: var(--heatmap-positive-4-text);
+}
+
+.heatmapCell-intensity-1.heatmapCell-negative {
+  background: var(--heatmap-negative-1);
+  color: var(--heatmap-negative-1-text);
 }
 
 .heatmapCell-intensity-2.heatmapCell-negative {
-  background: rgba(244, 63, 94, 0.1);
+  background: var(--heatmap-negative-2);
+  color: var(--heatmap-negative-2-text);
 }
 
 .heatmapCell-intensity-3.heatmapCell-negative {
-  background: rgba(244, 63, 94, 0.16);
+  background: var(--heatmap-negative-3);
+  color: var(--heatmap-negative-3-text);
 }
 
 .heatmapCell-intensity-4.heatmapCell-negative {
-  background: rgba(244, 63, 94, 0.24);
+  background: var(--heatmap-negative-4);
+  color: var(--heatmap-negative-4-text);
 }
 
 .heatmapRowTags {
@@ -3192,6 +3252,10 @@ html[data-theme="light"] th,
 html[data-theme="light"] .chainTable th,
 html[data-theme="light"] .sharedInspectionTable th {
   background: var(--surface-strong);
+}
+
+html[data-theme="light"] .heatmapTable th {
+  background: var(--heatmap-table-head-bg);
 }
 
 html[data-theme="light"] .adminLoginForm input,

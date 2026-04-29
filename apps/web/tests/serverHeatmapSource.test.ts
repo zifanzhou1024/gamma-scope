@@ -29,6 +29,22 @@ describe("loadLatestHeatmaps", () => {
       rows: []
     });
   });
+
+  it("uses an unavailable slot when an upstream response does not match the requested symbol", async () => {
+    const fetcher = vi.fn(async () => {
+      return new Response(JSON.stringify(heatmapPayload("SPX")), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    });
+
+    const payloads = await loadLatestHeatmaps(fetcher as typeof fetch, new Headers({ host: "gamma.test" }));
+
+    expect(payloads.map((payload) => payload.symbol)).toEqual(["SPX", "SPY", "QQQ", "NDX", "IWM"]);
+    expect(payloads.slice(1).every((payload) => payload.persistenceStatus === "unavailable")).toBe(true);
+  });
 });
 
 function toSupportedSymbol(symbol: string | null): "SPX" | "QQQ" | "NDX" | "IWM" {

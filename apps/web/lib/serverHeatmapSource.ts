@@ -38,7 +38,7 @@ async function loadLatestHeatmapForSymbol(
     }
 
     const payload = await response.json();
-    return isHeatmapPayload(payload) ? payload : null;
+    return isHeatmapPayload(payload) && payload.symbol === symbol ? payload : null;
   } catch {
     return null;
   }

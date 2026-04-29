@@ -4,6 +4,8 @@
 
 GammaScope is being built in slices. The first slice establishes the local monorepo, shared contracts, seeded replay data, and smoke-testable API/web surfaces.
 
+Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md).
+
 Run:
 
     pnpm install
