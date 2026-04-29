@@ -92,6 +92,48 @@ describe("ExperimentalDashboard", () => {
     expect(markup).toContain("Low 17.10% @ 5,200");
   });
 
+  it("renders a focused OTM midpoint versus spline IV chart", async () => {
+    const payload = {
+      ...seedPayload,
+      ivSmiles: {
+        ...seedPayload.ivSmiles,
+        methods: [
+          ...seedPayload.ivSmiles.methods,
+          {
+            key: "otm_midpoint_black76",
+            label: "OTM midpoint Black-76",
+            status: "ok" as const,
+            points: [
+              { x: 5190, y: 0.182 },
+              { x: 5200, y: 0.172 },
+              { x: 5210, y: 0.192 }
+            ]
+          },
+          {
+            key: "broker_iv",
+            label: "Broker IV diagnostic",
+            status: "preview" as const,
+            points: [
+              { x: 5190, y: 0.21 },
+              { x: 5200, y: 0.2 },
+              { x: 5210, y: 0.22 }
+            ]
+          }
+        ]
+      }
+    } satisfies ExperimentalAnalytics;
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={payload} />);
+
+    expect(markup).toContain('aria-label="OTM midpoint Black-76 vs spline fit"');
+    expect(markup).toContain('data-experimental-focused-smile="true"');
+    expect(markup).toContain('data-experimental-focused-series="otm_midpoint_black76"');
+    expect(markup).toContain('data-experimental-focused-series="spline_fit"');
+    expect(markup).not.toContain('data-experimental-focused-series="broker_iv"');
+    expect(markup).not.toContain('data-experimental-focused-series="custom_iv"');
+    expect(markup).toContain("Clean raw OTM IV against fitted total variance.");
+  });
+
   it("shows experimental chart point values on mouse hover and keyboard focus", async () => {
     const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
     const { container, root } = renderDashboard(<ExperimentalDashboard initialAnalytics={seedPayload} />);

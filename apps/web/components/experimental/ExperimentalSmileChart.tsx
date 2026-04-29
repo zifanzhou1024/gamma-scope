@@ -21,7 +21,7 @@ type ChartDomain = {
   maxY: number;
 };
 
-type ExperimentalChartKey = "iv_smile" | "terminal_distribution";
+type ExperimentalChartKey = "iv_smile" | "focused_iv_smile" | "terminal_distribution";
 
 type ActiveChartPoint = {
   chart: ExperimentalChartKey;
@@ -43,11 +43,18 @@ const PLOT = {
 const GRID_LINE_COUNT = 4;
 
 const SERIES_CLASSES = ["experimentalSeries-blue", "experimentalSeries-teal", "experimentalSeries-violet", "experimentalSeries-amber"];
+const FOCUSED_SMILE_METHOD_KEYS = ["otm_midpoint_black76", "spline_fit"] as const;
+const FOCUSED_SERIES_CLASSES: Record<string, string> = {
+  otm_midpoint_black76: "experimentalSeries-violet",
+  spline_fit: "experimentalSeries-teal"
+};
 
 export function ExperimentalSmileChart({ analytics }: ExperimentalSmileChartProps) {
   const [activePoint, setActivePoint] = React.useState<ActiveChartPoint | null>(null);
   const [hiddenIvMethods, setHiddenIvMethods] = React.useState<Set<string>>(() => new Set());
   const ivDomain = domainForSeries(analytics.ivSmiles.methods.flatMap((entry) => entry.points));
+  const focusedSmileMethods = focusedIvMethods(analytics.ivSmiles.methods);
+  const focusedIvDomain = domainForSeries(focusedSmileMethods.flatMap((entry) => entry.points));
   const distributionDomain = domainForSeries(analytics.terminalDistribution.density);
 
   const toggleIvMethod = (methodKey: string) => {
@@ -140,6 +147,67 @@ export function ExperimentalSmileChart({ analytics }: ExperimentalSmileChartProp
       </ExperimentalPanel>
 
       <ExperimentalPanel
+        title="OTM midpoint Black-76 vs spline fit"
+        description="Clean raw OTM IV against fitted total variance."
+        status={focusedSmileMethods.length > 0 ? "preview" : "insufficient_data"}
+        diagnostics={focusedSmileMethods.length > 0 ? [] : [{ code: "missing_methods", message: "Focused IV methods are unavailable.", severity: "warning" }]}
+      >
+        <div
+          className="experimentalChartFrame"
+          data-experimental-focused-smile="true"
+          onMouseLeave={() => setActivePoint(null)}
+        >
+          <svg
+            className="experimentalChartSvg"
+            role="img"
+            aria-label="OTM midpoint Black-76 vs spline fit chart"
+            viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          >
+            <ChartGrid domain={focusedIvDomain} xAxisLabel="Strike" yAxisLabel="IV (%)" yValueKind="percent" />
+            {focusedSmileMethods.map((method) => {
+              const className = FOCUSED_SERIES_CLASSES[method.key] ?? "experimentalSeries-blue";
+              return (
+                <g
+                  key={method.key}
+                  data-experimental-focused-series={method.key}
+                  data-experimental-series={`focused:${method.key}`}
+                >
+                  {renderSeries(method.key, method.points, focusedIvDomain, className)}
+                  {renderPointTargets({
+                    chart: "focused_iv_smile",
+                    seriesKey: method.key,
+                    seriesLabel: method.label,
+                    points: method.points,
+                    domain: focusedIvDomain,
+                    className,
+                    valueKind: "percent",
+                    pointDataKeyPrefix: `focused:${method.key}`,
+                    onInspect: setActivePoint
+                  })}
+                </g>
+              );
+            })}
+          </svg>
+          {activePoint?.chart === "focused_iv_smile" ? <ExperimentalChartTooltip point={activePoint} /> : null}
+        </div>
+        <div className="experimentalFocusedLegend" aria-label="Focused IV smile methods">
+          {focusedSmileMethods.map((method) => {
+            const nearestForwardIv = findNearestForwardValue(method.points, analytics.sourceSnapshot.forward);
+            const lowestIvPoint = findLowestValuePoint(method.points);
+
+            return (
+              <span key={method.key} className="experimentalFocusedLegendItem">
+                <i className={FOCUSED_SERIES_CLASSES[method.key] ?? "experimentalSeries-blue"} aria-hidden="true" />
+                <strong>{method.label}</strong>
+                <span>ATM {formatPercent(nearestForwardIv, 2)}</span>
+                <span>Low {formatLowestPointLabel(lowestIvPoint)}</span>
+              </span>
+            );
+          })}
+        </div>
+      </ExperimentalPanel>
+
+      <ExperimentalPanel
         title={analytics.terminalDistribution.label}
         description="Risk-neutral terminal density."
         status={analytics.terminalDistribution.status}
@@ -224,6 +292,7 @@ type RenderPointTargetsOptions = {
   domain: ChartDomain | null;
   className: string;
   valueKind: ActiveChartPoint["valueKind"];
+  pointDataKeyPrefix?: string;
   onInspect: (point: ActiveChartPoint | null) => void;
 };
 
@@ -235,6 +304,7 @@ function renderPointTargets({
   domain,
   className,
   valueKind,
+  pointDataKeyPrefix,
   onInspect
 }: RenderPointTargetsOptions) {
   if (!domain) {
@@ -265,7 +335,7 @@ function renderPointTargets({
           />
           <circle
             className="experimentalChartPointHitTarget"
-            data-experimental-chart-point={`${seriesKey}:${point.x}`}
+            data-experimental-chart-point={`${pointDataKeyPrefix ?? seriesKey}:${point.x}`}
             cx={scaleX(point.x, domain)}
             cy={scaleY(point.y, domain)}
             r="10"
@@ -376,6 +446,12 @@ function formatChartValue(value: number, valueKind: ActiveChartPoint["valueKind"
 
 function formatChartTickValue(value: number, valueKind: ActiveChartPoint["valueKind"]): string {
   return valueKind === "percent" ? formatPercent(value, 1) : formatNumber(value, 3);
+}
+
+function focusedIvMethods(methods: ExperimentalAnalytics["ivSmiles"]["methods"]) {
+  return FOCUSED_SMILE_METHOD_KEYS
+    .map((key) => methods.find((method) => method.key === key))
+    .filter((method): method is ExperimentalAnalytics["ivSmiles"]["methods"][number] => Boolean(method));
 }
 
 function findNearestForwardValue(points: ChartPoint[], forward: number): number | null {

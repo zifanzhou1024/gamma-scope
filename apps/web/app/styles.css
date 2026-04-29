@@ -2657,6 +2657,13 @@ h1 {
   margin-top: 12px;
 }
 
+.experimentalFocusedLegend {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
 .experimentalDistributionStats {
   display: flex;
   flex-wrap: wrap;
@@ -2665,6 +2672,7 @@ h1 {
 }
 
 .experimentalLegendItem,
+.experimentalFocusedLegendItem,
 .experimentalDistributionStats span {
   align-items: center;
   border: 1px solid rgba(148, 163, 184, 0.16);
@@ -2677,6 +2685,37 @@ h1 {
   min-height: 30px;
   min-width: 0;
   padding: 0 9px;
+}
+
+.experimentalFocusedLegendItem {
+  align-items: center;
+  display: grid;
+  gap: 4px 8px;
+  grid-template-columns: 8px 1fr;
+  min-height: 62px;
+  padding: 8px 10px;
+}
+
+.experimentalFocusedLegendItem i {
+  border-radius: 999px;
+  display: inline-block;
+  grid-row: 1 / span 3;
+  height: 8px;
+  width: 8px;
+}
+
+.experimentalFocusedLegendItem strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.experimentalFocusedLegendItem span {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.1;
 }
 
 .experimentalLegendItem {
@@ -2752,6 +2791,14 @@ h1 {
 
 .experimentalLegend .experimentalSeries-amber {
   background: var(--amber);
+}
+
+.experimentalFocusedLegend .experimentalSeries-violet {
+  background: var(--violet);
+}
+
+.experimentalFocusedLegend .experimentalSeries-teal {
+  background: var(--teal);
 }
 
 .experimentalDistributionStats span {
