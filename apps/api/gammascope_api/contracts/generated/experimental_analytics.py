@@ -92,12 +92,6 @@ class Diagnostic(BaseModel):
     severity: Severity
 
 
-class PanelBase(BaseModel):
-    status: PanelStatus
-    label: constr(min_length=1)
-    diagnostics: list[Diagnostic]
-
-
 class Point(BaseModel):
     model_config = ConfigDict(
         extra='forbid',
@@ -122,16 +116,22 @@ class Row(BaseModel):
     strike: float
 
 
-class PanelWithRows(PanelBase):
+class PanelWithRows(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     rows: list[Row]
 
 
-class ForwardSummary(PanelBase):
+class ForwardSummary(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     parityForward: float | None
     forwardMinusSpot: float | None
@@ -151,16 +151,22 @@ class Method(BaseModel):
     points: list[Point]
 
 
-class IvSmiles(PanelBase):
+class IvSmiles(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     methods: list[Method]
 
 
-class SmileDiagnostics(PanelBase):
+class SmileDiagnostics(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     ivValley: StrikeValue
     atmForwardIv: float | None
@@ -169,16 +175,22 @@ class SmileDiagnostics(PanelBase):
     methodDisagreement: float | None
 
 
-class Probabilities(PanelBase):
+class Probabilities(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     levels: list[Level]
 
 
-class TerminalDistribution(PanelBase):
+class TerminalDistribution(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     density: list[Point]
     highestDensityZone: str | None
@@ -188,18 +200,24 @@ class TerminalDistribution(PanelBase):
     rightTailProbability: float | None
 
 
-class SkewTail(PanelBase):
+class SkewTail(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     tailBias: str | None
     leftTailRichness: float | None
     rightTailRichness: float | None
 
 
-class QuoteQuality(PanelBase):
+class QuoteQuality(BaseModel):
+    model_config = ConfigDict(
+        extra='forbid',
+    )
     status: PanelStatus
-    label: constr(min_length=1)
+    label: str
     diagnostics: list[Diagnostic]
     score: confloat(ge=0.0, le=1.0)
     flags: list[Flag]

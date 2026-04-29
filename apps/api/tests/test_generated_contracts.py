@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.contracts.generated.collector_events import CollectorHealth
 from gammascope_api.contracts.generated.experimental_analytics import ExperimentalAnalytics
@@ -41,6 +44,21 @@ def test_seed_experimental_analytics_loads_as_generated_model() -> None:
     assert experimental.schema_version == "1.0.0"
     assert experimental.meta.symbol == "SPX"
     assert experimental.forwardSummary.status.value == "ok"
+
+
+def test_experimental_analytics_rejects_unexpected_panel_fields() -> None:
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "contracts"
+        / "fixtures"
+        / "experimental-analytics.seed.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+    payload["forwardSummary"]["unexpected"] = 123
+
+    with pytest.raises(ValidationError):
+        ExperimentalAnalytics.model_validate(payload)
 
 
 def test_seed_health_loads_as_generated_model() -> None:

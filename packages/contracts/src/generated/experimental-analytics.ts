@@ -6,15 +6,6 @@
  */
 
 export type PanelStatus = "ok" | "preview" | "insufficient_data" | "error";
-export type PanelWithRows = PanelBase & {
-  status: PanelStatus;
-  label: string;
-  diagnostics: Diagnostic[];
-  rows: {
-    strike: number;
-    [k: string]: unknown;
-  }[];
-};
 
 export interface ExperimentalAnalytics {
   schema_version: "1.0.0";
@@ -33,7 +24,7 @@ export interface ExperimentalAnalytics {
     strikeCount: number;
     timeToExpiryYears: number;
   };
-  forwardSummary: PanelBase & {
+  forwardSummary: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -47,7 +38,7 @@ export interface ExperimentalAnalytics {
     } | null;
     expectedMovePercent: number | null;
   };
-  ivSmiles: PanelBase & {
+  ivSmiles: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -58,7 +49,7 @@ export interface ExperimentalAnalytics {
       points: Point[];
     }[];
   };
-  smileDiagnostics: PanelBase & {
+  smileDiagnostics: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -68,7 +59,7 @@ export interface ExperimentalAnalytics {
     curvature: number | null;
     methodDisagreement: number | null;
   };
-  probabilities: PanelBase & {
+  probabilities: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -78,7 +69,7 @@ export interface ExperimentalAnalytics {
       closeBelow: number | null;
     }[];
   };
-  terminalDistribution: PanelBase & {
+  terminalDistribution: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -89,7 +80,7 @@ export interface ExperimentalAnalytics {
     leftTailProbability: number | null;
     rightTailProbability: number | null;
   };
-  skewTail: PanelBase & {
+  skewTail: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -100,7 +91,7 @@ export interface ExperimentalAnalytics {
   moveNeeded: PanelWithRows;
   decayPressure: PanelWithRows;
   richCheap: PanelWithRows;
-  quoteQuality: PanelBase & {
+  quoteQuality: {
     status: PanelStatus;
     label: string;
     diagnostics: Diagnostic[];
@@ -113,12 +104,6 @@ export interface ExperimentalAnalytics {
     }[];
   };
   historyPreview: PanelWithRows;
-}
-export interface PanelBase {
-  status: PanelStatus;
-  label: string;
-  diagnostics: Diagnostic[];
-  [k: string]: unknown;
 }
 export interface Diagnostic {
   code: string;
@@ -133,4 +118,13 @@ export interface StrikeValue {
   strike: number | null;
   value: number | null;
   label: string | null;
+}
+export interface PanelWithRows {
+  status: PanelStatus;
+  label: string;
+  diagnostics: Diagnostic[];
+  rows: {
+    strike: number;
+    [k: string]: unknown;
+  }[];
 }
