@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
+from math import isfinite
 from typing import Any, Callable, Literal
 
+from gammascope_api.contracts.generated.experimental_analytics import ExperimentalAnalytics
 from gammascope_api.experimental.distribution import probability_panel, skew_tail_panel, terminal_distribution_panel
 from gammascope_api.experimental.forward import time_to_expiry_years, forward_summary_panel
 from gammascope_api.experimental.iv_methods import build_iv_smiles_panel, smile_diagnostics_panel
@@ -70,7 +72,7 @@ def build_experimental_payload(snapshot: Any, mode: ExperimentalMode) -> dict[st
         lambda: _empty_quote_quality_panel("Quote quality could not be built from available inputs."),
     )
 
-    return {
+    payload = {
         "schema_version": "1.0.0",
         "meta": {
             "generatedAt": _format_datetime(datetime.now(UTC)),
@@ -99,6 +101,12 @@ def build_experimental_payload(snapshot: Any, mode: ExperimentalMode) -> dict[st
         "quoteQuality": quote_quality,
         "historyPreview": _empty_rows_panel("Range compression preview", "Select replay frames to compare history."),
     }
+    return validate_experimental_payload(payload)
+
+
+def validate_experimental_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    safe_payload = _repair_payload_schema(_scrub_nonfinite(payload))
+    return ExperimentalAnalytics.model_validate(safe_payload).model_dump(mode="json")
 
 
 def _normalize_snapshot(snapshot: Any) -> dict[str, Any]:
@@ -232,6 +240,176 @@ def _first_finite(*values: Any, default: float) -> float:
         if parsed is not None:
             return parsed
     return default
+
+
+def _scrub_nonfinite(value: Any) -> Any:
+    if isinstance(value, float):
+        return value if isfinite(value) else None
+    if isinstance(value, list):
+        return [_scrub_nonfinite(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _scrub_nonfinite(item) for key, item in value.items()}
+    return value
+
+
+def _repair_payload_schema(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        payload = {}
+
+    source = _as_dict(payload.get("sourceSnapshot"))
+    source["spot"] = _finite_or_default(source.get("spot"))
+    source["forward"] = _finite_or_default(source.get("forward"))
+    source["rowCount"] = _non_negative_int(source.get("rowCount"))
+    source["strikeCount"] = _non_negative_int(source.get("strikeCount"))
+    source["timeToExpiryYears"] = _finite_or_default(source.get("timeToExpiryYears"))
+    payload["sourceSnapshot"] = source
+
+    forward = _as_dict(payload.get("forwardSummary"))
+    for key in ("parityForward", "forwardMinusSpot", "atmStrike", "atmStraddle", "expectedMovePercent"):
+        forward[key] = _finite_or_none(forward.get(key))
+    forward["expectedRange"] = _safe_expected_range(forward.get("expectedRange"))
+    payload["forwardSummary"] = forward
+
+    iv_smiles = _as_dict(payload.get("ivSmiles"))
+    methods = iv_smiles.get("methods")
+    if isinstance(methods, list):
+        for method in methods:
+            if isinstance(method, dict):
+                method["points"] = _safe_points(method.get("points"))
+    payload["ivSmiles"] = iv_smiles
+
+    diagnostics = _as_dict(payload.get("smileDiagnostics"))
+    valley = _as_dict(diagnostics.get("ivValley"))
+    valley["strike"] = _finite_or_none(valley.get("strike"))
+    valley["value"] = _finite_or_none(valley.get("value"))
+    diagnostics["ivValley"] = valley
+    for key in ("atmForwardIv", "skewSlope", "curvature", "methodDisagreement"):
+        diagnostics[key] = _finite_or_none(diagnostics.get(key))
+    payload["smileDiagnostics"] = diagnostics
+
+    probabilities = _as_dict(payload.get("probabilities"))
+    probabilities["levels"] = _safe_probability_levels(probabilities.get("levels"))
+    payload["probabilities"] = probabilities
+
+    terminal = _as_dict(payload.get("terminalDistribution"))
+    terminal["density"] = _safe_points(terminal.get("density"))
+    for key in ("leftTailProbability", "rightTailProbability"):
+        terminal[key] = _finite_or_none(terminal.get(key))
+    payload["terminalDistribution"] = terminal
+
+    skew = _as_dict(payload.get("skewTail"))
+    for key in ("leftTailRichness", "rightTailRichness"):
+        skew[key] = _finite_or_none(skew.get(key))
+    payload["skewTail"] = skew
+
+    for key in ("moveNeeded", "decayPressure", "richCheap", "historyPreview"):
+        panel_payload = _as_dict(payload.get(key))
+        panel_payload["rows"] = _safe_rows(panel_payload.get("rows"))
+        payload[key] = panel_payload
+
+    quote_quality = _as_dict(payload.get("quoteQuality"))
+    quote_quality["score"] = min(max(_finite_or_default(quote_quality.get("score")), 0.0), 1.0)
+    quote_quality["flags"] = _safe_flags(quote_quality.get("flags"))
+    payload["quoteQuality"] = quote_quality
+
+    return payload
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _finite_or_none(value: Any) -> float | None:
+    return optional_float(value)
+
+
+def _finite_or_default(value: Any, default: float = 0.0) -> float:
+    parsed = optional_float(value)
+    return parsed if parsed is not None else default
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
+
+
+def _safe_expected_range(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, Mapping):
+        return None
+    lower = optional_float(value.get("lower"))
+    upper = optional_float(value.get("upper"))
+    if lower is None or upper is None:
+        return None
+    return {"lower": lower, "upper": upper}
+
+
+def _safe_points(value: Any) -> list[dict[str, float | None]]:
+    if not isinstance(value, list):
+        return []
+    points = []
+    for point in value:
+        if not isinstance(point, Mapping):
+            continue
+        x = optional_float(point.get("x"))
+        if x is None:
+            continue
+        points.append({"x": x, "y": _finite_or_none(point.get("y"))})
+    return points
+
+
+def _safe_probability_levels(value: Any) -> list[dict[str, float | None]]:
+    if not isinstance(value, list):
+        return []
+    levels = []
+    for level in value:
+        if not isinstance(level, Mapping):
+            continue
+        strike = optional_float(level.get("strike"))
+        if strike is None:
+            continue
+        levels.append(
+            {
+                "strike": strike,
+                "closeAbove": _finite_or_none(level.get("closeAbove")),
+                "closeBelow": _finite_or_none(level.get("closeBelow")),
+            }
+        )
+    return levels
+
+
+def _safe_rows(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows = []
+    for row in value:
+        if not isinstance(row, Mapping):
+            continue
+        strike = optional_float(row.get("strike"))
+        if strike is None:
+            continue
+        clean = dict(row)
+        clean["strike"] = strike
+        rows.append(clean)
+    return rows
+
+
+def _safe_flags(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    flags = []
+    for flag in value:
+        if not isinstance(flag, Mapping):
+            continue
+        strike = optional_float(flag.get("strike"))
+        if strike is None:
+            continue
+        clean = dict(flag)
+        clean["strike"] = strike
+        flags.append(clean)
+    return flags
 
 
 def _empty_forward_summary_panel(message: str) -> dict[str, Any]:

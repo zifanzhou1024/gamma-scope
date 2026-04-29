@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from gammascope_api.contracts.generated.experimental_analytics import ExperimentalAnalytics
@@ -26,6 +27,17 @@ def setup_function() -> None:
 
 def teardown_function() -> None:
     reset_latest_state_cache_override()
+
+
+def test_experimental_routes_enforce_generated_response_model() -> None:
+    response_models = {
+        route.path: route.response_model
+        for route in app.routes
+        if isinstance(route, APIRoute)
+    }
+
+    assert response_models["/api/spx/0dte/experimental/latest"] is ExperimentalAnalytics
+    assert response_models["/api/spx/0dte/experimental/replay/snapshot"] is ExperimentalAnalytics
 
 
 def test_latest_experimental_route_falls_back_to_seed_payload() -> None:
@@ -91,3 +103,28 @@ def test_replay_experimental_route_degrades_malformed_replay_snapshot(monkeypatc
     assert payload["meta"]["mode"] == "replay"
     assert payload["sourceSnapshot"]["spot"] == 0.0
     assert payload["forwardSummary"]["status"] == "insufficient_data"
+
+
+def test_replay_experimental_route_serializes_extreme_numeric_snapshot(monkeypatch) -> None:
+    def extreme_replay_snapshot(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return {
+            "session_id": "extreme-session",
+            "symbol": "SPX",
+            "snapshot_time": "2026-04-23T15:50:00Z",
+            "expiry": "2026-04-23",
+            "spot": 5000,
+            "rows": [
+                {"right": "call", "strike": 1e308, "bid": 1e308, "ask": 1e308, "mid": 1e308},
+                {"right": "put", "strike": 1e308, "bid": 0.5, "ask": 0.6, "mid": 0.55},
+            ],
+        }
+
+    monkeypatch.setattr(experimental_routes.replay_routes, "get_replay_snapshot", extreme_replay_snapshot)
+
+    response = client.get("/api/spx/0dte/experimental/replay/snapshot", params={"session_id": "extreme-session"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalAnalytics.model_validate(payload)
+    assert payload["forwardSummary"]["parityForward"] is None
+    assert payload["forwardSummary"]["expectedRange"] is None

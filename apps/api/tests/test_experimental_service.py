@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 
 from gammascope_api.contracts.generated.experimental_analytics import ExperimentalAnalytics
 from gammascope_api.fixtures import load_json_fixture
@@ -83,3 +84,24 @@ def test_build_experimental_payload_degrades_panel_builder_errors(monkeypatch) -
     assert payload["quoteQuality"]["score"] == 0.0
     assert payload["quoteQuality"]["flags"] == []
     assert payload["quoteQuality"]["diagnostics"][0]["code"] == "panel_unavailable"
+
+
+def test_build_experimental_payload_scrubs_nonfinite_computed_values() -> None:
+    snapshot = {
+        "session_id": "extreme-session",
+        "symbol": "SPX",
+        "snapshot_time": "2026-04-23T15:50:00Z",
+        "expiry": "2026-04-23",
+        "spot": 5000,
+        "rows": [
+            {"right": "call", "strike": 1e308, "bid": 1e308, "ask": 1e308, "mid": 1e308},
+            {"right": "put", "strike": 1e308, "bid": 0.5, "ask": 0.6, "mid": 0.55},
+        ],
+    }
+
+    payload = build_experimental_payload(snapshot, "latest")
+
+    ExperimentalAnalytics.model_validate(payload)
+    json.dumps(payload, allow_nan=False)
+    assert payload["forwardSummary"]["parityForward"] is None
+    assert payload["forwardSummary"]["expectedRange"] is None
