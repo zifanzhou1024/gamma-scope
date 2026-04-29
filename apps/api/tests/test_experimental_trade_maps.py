@@ -60,10 +60,18 @@ def test_trade_map_panels_skip_bad_rows_and_invalid_sides() -> None:
 
 def test_trade_map_panels_degrade_on_invalid_model_inputs() -> None:
     assert decay_pressure_panel([row("call", 105, 2.0)], minutes_to_expiry=0)["status"] == "insufficient_data"
+    assert decay_pressure_panel([row("call", 105, 2.0)], minutes_to_expiry=float("nan"))["status"] == "insufficient_data"
     assert rich_cheap_panel(
         [row("call", 105, 2.0)],
         iv_panel={"methods": [{"key": "spline_fit", "points": [{"x": 105, "y": 0.2}]}]},
         forward=0,
         tau=1 / 365,
+        rate=0.0,
+    )["status"] == "insufficient_data"
+    assert rich_cheap_panel(
+        [row("call", 105, 2.0)],
+        iv_panel={"methods": [{"key": "spline_fit", "points": [{"x": 105, "y": 0.2}]}]},
+        forward=100,
+        tau=float("nan"),
         rate=0.0,
     )["status"] == "insufficient_data"

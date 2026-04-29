@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import exp, log, sqrt
+from math import exp, isfinite, log, sqrt
 from typing import Any
 
 from gammascope_api.experimental.iv_methods import black76_price, normal_cdf
@@ -8,7 +8,7 @@ from gammascope_api.experimental.models import diagnostic, optional_float, panel
 
 
 def probability_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, rate: float) -> dict[str, Any]:
-    if forward <= 0 or tau <= 0:
+    if not _positive_finite(forward) or not _positive_finite(tau):
         return _empty_probability_panel("Forward and time to expiry must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 2:
@@ -29,7 +29,7 @@ def probability_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, r
 
 
 def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, rate: float) -> dict[str, Any]:
-    if forward <= 0 or tau <= 0:
+    if not _positive_finite(forward) or not _positive_finite(tau):
         return _empty_terminal_distribution_panel("Forward and time to expiry must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 3:
@@ -70,7 +70,7 @@ def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau
 
 
 def skew_tail_panel(iv_panel: dict[str, Any], *, forward: float) -> dict[str, Any]:
-    if forward <= 0:
+    if not _positive_finite(forward):
         return _empty_skew_tail_panel("Forward must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 3:
@@ -154,3 +154,7 @@ def _empty_skew_tail_panel(message: str) -> dict[str, Any]:
         leftTailRichness=None,
         rightTailRichness=None,
     )
+
+
+def _positive_finite(value: float) -> bool:
+    return isfinite(value) and value > 0

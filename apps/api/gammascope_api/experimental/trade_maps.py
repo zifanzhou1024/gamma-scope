@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any
 
 from gammascope_api.experimental.iv_methods import black76_price
@@ -35,7 +36,7 @@ def move_needed_panel(rows: list[dict[str, Any]], *, spot: float, expected_move:
 
 
 def decay_pressure_panel(rows: list[dict[str, Any]], *, minutes_to_expiry: float) -> dict[str, Any]:
-    if minutes_to_expiry <= 0:
+    if not _positive_finite(minutes_to_expiry):
         return panel(
             "insufficient_data",
             "Time-decay pressure",
@@ -59,7 +60,7 @@ def decay_pressure_panel(rows: list[dict[str, Any]], *, minutes_to_expiry: float
 
 
 def rich_cheap_panel(rows: list[dict[str, Any]], *, iv_panel: dict[str, Any], forward: float, tau: float, rate: float) -> dict[str, Any]:
-    if forward <= 0 or tau <= 0:
+    if not _positive_finite(forward) or not _positive_finite(tau):
         return panel("insufficient_data", "Rich/cheap residuals", [diagnostic("invalid_model_inputs", "Forward and time to expiry must be positive.", "warning")], rows=[])
     fit_by_strike = _fit_by_strike(iv_panel)
     out = []
@@ -125,3 +126,7 @@ def _option_side(row: dict[str, Any]) -> str | None:
     if side == "call" or side == "put":
         return side
     return None
+
+
+def _positive_finite(value: float) -> bool:
+    return isfinite(value) and value > 0
