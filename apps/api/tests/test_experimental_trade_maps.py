@@ -46,6 +46,8 @@ def test_trade_map_panels_skip_bad_rows_and_invalid_sides() -> None:
         row("call", 105, 2.0),
         {**row("call", 0, 2.0), "strike": "bad"},
         row("bad", 105, 2.0),
+        None,
+        42,
     ]
 
     move = move_needed_panel(rows, spot=100, expected_move=10)
@@ -74,4 +76,11 @@ def test_trade_map_panels_degrade_on_invalid_model_inputs() -> None:
         forward=100,
         tau=float("nan"),
         rate=0.0,
+    )["status"] == "insufficient_data"
+    assert rich_cheap_panel(
+        [row("call", 105, 2.0)],
+        iv_panel={"methods": [{"key": "spline_fit", "points": [{"x": 105, "y": 0.2}]}]},
+        forward=100,
+        tau=1 / 365,
+        rate=float("nan"),
     )["status"] == "insufficient_data"

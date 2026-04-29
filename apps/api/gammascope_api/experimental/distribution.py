@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import exp, isfinite, log, sqrt
 from typing import Any
 
@@ -29,7 +30,7 @@ def probability_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, r
 
 
 def terminal_distribution_panel(iv_panel: dict[str, Any], *, forward: float, tau: float, rate: float) -> dict[str, Any]:
-    if not _positive_finite(forward) or not _positive_finite(tau):
+    if not _positive_finite(forward) or not _positive_finite(tau) or not isfinite(rate):
         return _empty_terminal_distribution_panel("Forward and time to expiry must be positive.")
     points = _fit_points(iv_panel)
     if len(points) < 3:
@@ -98,7 +99,12 @@ def skew_tail_panel(iv_panel: dict[str, Any], *, forward: float) -> dict[str, An
 
 
 def _fit_points(iv_panel: dict[str, Any]) -> list[dict[str, float]]:
-    for method in iv_panel.get("methods", []):
+    methods = iv_panel.get("methods", []) if isinstance(iv_panel, Mapping) else []
+    if not isinstance(methods, list):
+        return []
+    for method in methods:
+        if not isinstance(method, Mapping):
+            continue
         if method.get("key") == "spline_fit":
             return _clean_fit_points(method.get("points", []))
     return []
@@ -117,8 +123,12 @@ def _range_label(lower: float | None, upper: float | None) -> str | None:
 
 
 def _clean_fit_points(points: list[dict[str, Any]]) -> list[dict[str, float]]:
+    if not isinstance(points, list):
+        return []
     by_strike: dict[float, float] = {}
     for point in points:
+        if not isinstance(point, Mapping):
+            continue
         strike = optional_float(point.get("x"))
         sigma = optional_float(point.get("y"))
         if strike is None or sigma is None or strike <= 0 or sigma <= 0:

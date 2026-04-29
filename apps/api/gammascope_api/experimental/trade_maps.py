@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import isfinite
 from typing import Any
 
@@ -10,6 +11,8 @@ from gammascope_api.experimental.models import diagnostic, optional_float, panel
 def move_needed_panel(rows: list[dict[str, Any]], *, spot: float, expected_move: float | None) -> dict[str, Any]:
     out = []
     for row in rows:
+        if not isinstance(row, Mapping):
+            continue
         mid = optional_float(row.get("mid"))
         strike = optional_float(row.get("strike"))
         side = _option_side(row)
@@ -45,6 +48,8 @@ def decay_pressure_panel(rows: list[dict[str, Any]], *, minutes_to_expiry: float
         )
     out = []
     for row in rows:
+        if not isinstance(row, Mapping):
+            continue
         mid = optional_float(row.get("mid"))
         strike = optional_float(row.get("strike"))
         side = _option_side(row)
@@ -60,11 +65,13 @@ def decay_pressure_panel(rows: list[dict[str, Any]], *, minutes_to_expiry: float
 
 
 def rich_cheap_panel(rows: list[dict[str, Any]], *, iv_panel: dict[str, Any], forward: float, tau: float, rate: float) -> dict[str, Any]:
-    if not _positive_finite(forward) or not _positive_finite(tau):
+    if not _positive_finite(forward) or not _positive_finite(tau) or not isfinite(rate):
         return panel("insufficient_data", "Rich/cheap residuals", [diagnostic("invalid_model_inputs", "Forward and time to expiry must be positive.", "warning")], rows=[])
     fit_by_strike = _fit_by_strike(iv_panel)
     out = []
     for row in rows:
+        if not isinstance(row, Mapping):
+            continue
         mid = optional_float(row.get("mid"))
         strike = optional_float(row.get("strike"))
         side = _option_side(row)
@@ -109,10 +116,20 @@ def _residual_label(residual: float) -> str:
 
 
 def _fit_by_strike(iv_panel: dict[str, Any]) -> dict[float, float]:
-    for method in iv_panel.get("methods", []):
+    methods = iv_panel.get("methods", []) if isinstance(iv_panel, Mapping) else []
+    if not isinstance(methods, list):
+        return {}
+    for method in methods:
+        if not isinstance(method, Mapping):
+            continue
         if method.get("key") == "spline_fit":
             out = {}
-            for point in method.get("points", []):
+            points = method.get("points", [])
+            if not isinstance(points, list):
+                return out
+            for point in points:
+                if not isinstance(point, Mapping):
+                    continue
                 strike = optional_float(point.get("x"))
                 sigma = optional_float(point.get("y"))
                 if strike is not None and sigma is not None and strike > 0 and sigma > 0:

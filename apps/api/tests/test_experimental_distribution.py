@@ -59,12 +59,27 @@ def test_distribution_panels_sanitize_bad_fit_points_without_raising() -> None:
     assert skew_tail_panel(bad_panel, forward=100)["status"] == "insufficient_data"
 
 
+def test_distribution_panels_sanitize_malformed_fit_containers_without_raising() -> None:
+    panels = [
+        {"methods": None},
+        {"methods": [None]},
+        {"methods": [{"key": "spline_fit", "points": None}]},
+        {"methods": [{"key": "spline_fit", "points": [None]}]},
+    ]
+
+    for panel in panels:
+        assert probability_panel(panel, forward=100, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
+        assert terminal_distribution_panel(panel, forward=100, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
+        assert skew_tail_panel(panel, forward=100)["status"] == "insufficient_data"
+
+
 def test_distribution_panels_degrade_on_invalid_model_inputs() -> None:
     assert probability_panel(fitted_iv_panel(), forward=0, tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
     assert probability_panel(fitted_iv_panel(), forward=float("nan"), tau=1 / 365, rate=0.0)["status"] == "insufficient_data"
     assert skew_tail_panel(fitted_iv_panel(), forward=float("nan"))["status"] == "insufficient_data"
     assert terminal_distribution_panel(fitted_iv_panel(), forward=100, tau=0, rate=0.0)["status"] == "insufficient_data"
     assert terminal_distribution_panel(fitted_iv_panel(), forward=100, tau=float("nan"), rate=0.0)["status"] == "insufficient_data"
+    assert terminal_distribution_panel(fitted_iv_panel(), forward=100, tau=1 / 365, rate=float("nan"))["status"] == "insufficient_data"
 
 
 def test_terminal_distribution_deduplicates_and_sorts_fit_points() -> None:
