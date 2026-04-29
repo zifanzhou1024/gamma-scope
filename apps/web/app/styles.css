@@ -4023,6 +4023,17 @@ html[data-theme="light"] .operationalPill-muted {
     justify-content: flex-start;
   }
 
+  .experimentalHeaderUtility,
+  .experimentalHeaderUtility .statusRail {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .experimentalHeaderUtility .statusRail span {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
   .chainLegend {
     align-items: flex-start;
     flex-wrap: wrap;

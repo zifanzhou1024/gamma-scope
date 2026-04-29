@@ -155,6 +155,7 @@ describe("ExperimentalDashboard", () => {
     expect(styles).toMatch(/\.experimentalChartFrame\s*{[\s\S]*min-height:\s*260px/);
     expect(styles).toMatch(/\.experimentalTablesGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(styles).toMatch(/\.experimentalTableWrap\s*{[\s\S]*overflow-x:\s*auto/);
+    expect(styles).toMatch(/\.experimentalHeaderUtility \.statusRail span\s*{[\s\S]*white-space:\s*normal/);
   });
 });
 
