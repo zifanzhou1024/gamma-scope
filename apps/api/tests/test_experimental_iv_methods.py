@@ -61,6 +61,29 @@ def test_build_iv_smiles_panel_outputs_raw_and_fitted_methods() -> None:
     assert next(method for method in panel["methods"] if method["key"] == "last_price")["status"] == "insufficient_data"
 
 
+def test_build_iv_smiles_panel_skips_malformed_rows_and_nonpositive_straddle_iv() -> None:
+    snapshot = {
+        "spot": 100,
+        "forward": 100,
+        "risk_free_rate": 0.0,
+        "snapshot_time": "2026-04-23T19:00:00Z",
+        "expiry": "2026-04-23",
+        "rows": [
+            row("call", 100, 3.0, 0.18),
+            {**row("put", 0, 2.9, 0.18), "strike": "bad"},
+        ],
+    }
+    forward_summary = {"parityForward": 100.0, "atmStrike": 100.0, "atmStraddle": 0.0}
+
+    panel = build_iv_smiles_panel(snapshot, forward_summary)
+
+    custom = next(method for method in panel["methods"] if method["key"] == "custom_iv")
+    atm_straddle = next(method for method in panel["methods"] if method["key"] == "atm_straddle_iv")
+    assert custom["points"] == [{"x": 100.0, "y": 0.18}]
+    assert atm_straddle["status"] == "insufficient_data"
+    assert atm_straddle["points"] == []
+
+
 def test_smile_diagnostics_reports_valley_and_method_disagreement() -> None:
     iv_panel = {
         "methods": [
@@ -75,4 +98,14 @@ def test_smile_diagnostics_reports_valley_and_method_disagreement() -> None:
     assert panel["status"] == "preview"
     assert panel["ivValley"] == {"strike": 100, "value": pytest.approx(0.175), "label": "Spline valley"}
     assert panel["atmForwardIv"] == pytest.approx(0.175)
-    assert panel["methodDisagreement"] is not None
+    assert panel["methodDisagreement"] == pytest.approx(0.005)
+
+
+def test_smile_diagnostics_reports_insufficient_data_for_malformed_spline_points() -> None:
+    panel = smile_diagnostics_panel(
+        {"methods": [{"key": "spline_fit", "points": [{"x": 100, "y": None}, {"x": "bad", "y": 0.2}]}]},
+        forward=100,
+    )
+
+    assert panel["status"] == "insufficient_data"
+    assert panel["ivValley"] == {"strike": None, "value": None, "label": None}

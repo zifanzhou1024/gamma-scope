@@ -81,19 +81,12 @@ def build_iv_smiles_panel(snapshot: dict[str, Any], forward_summary: dict[str, A
 
 def smile_diagnostics_panel(iv_panel: dict[str, Any], forward: float) -> dict[str, Any]:
     spline = next((method for method in iv_panel.get("methods", []) if method.get("key") == "spline_fit"), None)
-    points = list((spline or {}).get("points") or [])
+    points = _clean_points((spline or {}).get("points") or [])
     if not points:
-        return panel(
-            "insufficient_data",
-            "Smile diagnostics",
-            [diagnostic("missing_fit", "No fitted smile is available.", "warning")],
-            ivValley={"strike": None, "value": None, "label": None},
-            atmForwardIv=None,
-            skewSlope=None,
-            curvature=None,
-            methodDisagreement=None,
-        )
-    finite_points = [point for point in points if point.get("y") is not None]
+        return _empty_smile_diagnostics_panel("No fitted smile is available.")
+    finite_points = points
+    if not finite_points:
+        return _empty_smile_diagnostics_panel("No finite fitted smile points are available.")
     valley = min(finite_points, key=lambda point: float(point["y"]))
     atm = min(finite_points, key=lambda point: abs(float(point["x"]) - forward))
     left = finite_points[0]
@@ -101,7 +94,7 @@ def smile_diagnostics_panel(iv_panel: dict[str, Any], forward: float) -> dict[st
     width = max(float(right["x"]) - float(left["x"]), 1.0)
     skew_slope = (float(right["y"]) - float(left["y"])) / width
     curvature = float(left["y"]) + float(right["y"]) - 2 * float(atm["y"])
-    disagreement = _method_disagreement(iv_panel)
+    disagreement = _method_disagreement(iv_panel, float(atm["x"]))
     return panel(
         "preview",
         "Smile diagnostics",
@@ -117,9 +110,10 @@ def smile_diagnostics_panel(iv_panel: dict[str, Any], forward: float) -> dict[st
 def _row_points(rows: list[dict[str, Any]], key: str) -> list[dict[str, float]]:
     points = []
     for row in rows:
+        strike = optional_float(row.get("strike"))
         value = optional_float(row.get(key))
-        if value is not None:
-            points.append({"x": float(row["strike"]), "y": value})
+        if strike is not None and strike > 0 and value is not None and value > 0:
+            points.append({"x": strike, "y": value})
     return sorted(points, key=lambda point: point["x"])
 
 
@@ -146,7 +140,7 @@ def _otm_midpoint_points(rows: list[dict[str, Any]], forward: float, tau: float,
 def _atm_straddle_points(forward_summary: dict[str, Any], forward: float, tau: float) -> list[dict[str, float]]:
     straddle = optional_float(forward_summary.get("atmStraddle"))
     atm = optional_float(forward_summary.get("atmStrike"))
-    if straddle is None or atm is None or forward <= 0 or tau <= 0:
+    if straddle is None or straddle <= 0 or atm is None or atm <= 0 or forward <= 0 or tau <= 0:
         return []
     iv = (straddle / forward) * sqrt(pi / (2 * tau))
     return [{"x": atm, "y": iv}]
@@ -192,12 +186,42 @@ def _fit_points(strikes: np.ndarray, total_variance: np.ndarray, tau: float) -> 
     return [{"x": float(strike), "y": float(iv)} for strike, iv in zip(strikes, ivs)]
 
 
-def _method_disagreement(iv_panel: dict[str, Any]) -> float | None:
+def _method_disagreement(iv_panel: dict[str, Any], reference_strike: float) -> float | None:
     method_values = []
     for method in iv_panel.get("methods", []):
-        points = [point for point in method.get("points", []) if point.get("y") is not None]
-        if points:
-            method_values.append(float(points[len(points) // 2]["y"]))
+        value = _nearest_value(method.get("points", []), reference_strike)
+        if value is not None:
+            method_values.append(value)
     if len(method_values) < 2:
         return None
     return max(method_values) - min(method_values)
+
+
+def _nearest_value(points: list[dict[str, Any]], reference_strike: float) -> float | None:
+    clean = _clean_points(points)
+    if not clean:
+        return None
+    return min(clean, key=lambda point: abs(point["x"] - reference_strike))["y"]
+
+
+def _clean_points(points: list[dict[str, Any]]) -> list[dict[str, float]]:
+    clean = []
+    for point in points:
+        strike = optional_float(point.get("x"))
+        value = optional_float(point.get("y"))
+        if strike is not None and strike > 0 and value is not None and value > 0:
+            clean.append({"x": strike, "y": value})
+    return sorted(clean, key=lambda point: point["x"])
+
+
+def _empty_smile_diagnostics_panel(message: str) -> dict[str, Any]:
+    return panel(
+        "insufficient_data",
+        "Smile diagnostics",
+        [diagnostic("missing_fit", message, "warning")],
+        ivValley={"strike": None, "value": None, "label": None},
+        atmForwardIv=None,
+        skewSlope=None,
+        curvature=None,
+        methodDisagreement=None,
+    )
