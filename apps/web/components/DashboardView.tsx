@@ -136,6 +136,9 @@ export function DashboardView({
             <a className="topNavTab" href="/heatmap">
               Heatmap
             </a>
+            <a className="topNavTab" href="/experimental">
+              Experimental
+            </a>
           </nav>
         </div>
         <div className="topBarUtility">

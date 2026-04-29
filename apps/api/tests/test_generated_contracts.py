@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from gammascope_api.contracts.generated.analytics_snapshot import AnalyticsSnapshot
 from gammascope_api.contracts.generated.collector_events import CollectorHealth
+from gammascope_api.contracts.generated.experimental_analytics import ExperimentalAnalytics
 from gammascope_api.contracts.generated.scenario import ScenarioRequest
 from gammascope_api.contracts.generated.saved_view import SavedView
 
@@ -23,6 +27,53 @@ def test_seed_snapshot_loads_as_generated_model() -> None:
     assert snapshot.symbol == "SPX"
     assert len(snapshot.rows) == 34
     assert snapshot.rows[0].open_interest is not None
+
+
+def test_seed_experimental_analytics_loads_as_generated_model() -> None:
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "contracts"
+        / "fixtures"
+        / "experimental-analytics.seed.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+
+    experimental = ExperimentalAnalytics.model_validate(payload)
+
+    assert experimental.schema_version == "1.0.0"
+    assert experimental.meta.symbol == "SPX"
+    assert experimental.forwardSummary.status.value == "ok"
+
+
+def test_experimental_analytics_rejects_unexpected_panel_fields() -> None:
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "contracts"
+        / "fixtures"
+        / "experimental-analytics.seed.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+    payload["forwardSummary"]["unexpected"] = 123
+
+    with pytest.raises(ValidationError):
+        ExperimentalAnalytics.model_validate(payload)
+
+
+def test_experimental_analytics_rejects_empty_panel_labels() -> None:
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "contracts"
+        / "fixtures"
+        / "experimental-analytics.seed.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+    payload["forwardSummary"]["label"] = ""
+
+    with pytest.raises(ValidationError):
+        ExperimentalAnalytics.model_validate(payload)
 
 
 def test_seed_health_loads_as_generated_model() -> None:

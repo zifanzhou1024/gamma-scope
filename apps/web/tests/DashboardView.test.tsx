@@ -75,6 +75,14 @@ describe("DashboardView", () => {
     expect(markup).toContain("Option chain");
   });
 
+  it("renders Experimental as an inactive top navigation tab", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);
+
+    expect(markup).toMatch(/<a[^>]*href="\/experimental"[^>]*>Experimental<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/experimental"[^>]*aria-current="page"[^>]*>Experimental<\/a>/);
+  });
+
   it("renders the theme switch in the header before the dense status rail", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} />);

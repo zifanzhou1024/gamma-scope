@@ -19,6 +19,7 @@ test("all schemas compile", async () => {
     "schemas/common.schema.json",
     "schemas/collector-events.schema.json",
     "schemas/analytics-snapshot.schema.json",
+    "schemas/experimental-analytics.schema.json",
     "schemas/scenario.schema.json",
     "schemas/saved-view.schema.json"
   ]) {
@@ -36,6 +37,30 @@ test("seed analytics snapshot matches schema", async () => {
   const validate = ajv.compile(schema);
 
   assert.equal(validate(fixture), true, JSON.stringify(validate.errors, null, 2));
+});
+
+test("seed experimental analytics payload matches schema", async () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+
+  const schema = await readJson("schemas/experimental-analytics.schema.json");
+  const fixture = await readJson("fixtures/experimental-analytics.seed.json");
+  const validate = ajv.compile(schema);
+
+  assert.equal(validate(fixture), true, JSON.stringify(validate.errors, null, 2));
+});
+
+test("experimental analytics rejects empty panel labels", async () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+
+  const schema = await readJson("schemas/experimental-analytics.schema.json");
+  const fixture = await readJson("fixtures/experimental-analytics.seed.json");
+  fixture.forwardSummary.label = "";
+  const validate = ajv.compile(schema);
+
+  assert.equal(validate(fixture), false);
+  assert.equal(validate.errors?.some((error) => error.instancePath === "/forwardSummary/label"), true);
 });
 
 test("seed collector health matches schema", async () => {

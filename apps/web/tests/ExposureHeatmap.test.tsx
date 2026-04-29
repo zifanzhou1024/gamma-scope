@@ -205,6 +205,8 @@ describe("ExposureHeatmap", () => {
     expect(navIndex).toBeGreaterThan(headerIndex);
     expect(themeToggleIndex).toBeGreaterThan(navIndex);
     expect(statusIndex).toBeGreaterThan(themeToggleIndex);
+    expect(html).toMatch(/<a[^>]*href="\/experimental"[^>]*>Experimental<\/a>/);
+    expect(html).not.toMatch(/<a[^>]*href="\/experimental"[^>]*aria-current="page"[^>]*>Experimental<\/a>/);
     expect(button.textContent).toContain("Theme");
     expect(button.textContent).toContain("Dark");
 

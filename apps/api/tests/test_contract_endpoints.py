@@ -329,6 +329,38 @@ def test_latest_snapshot_prefers_ingested_live_snapshot() -> None:
     assert all(row["custom_vanna"] is not None for row in payload["rows"])
 
 
+def test_latest_snapshot_prefers_moomoo_spx_session_when_other_symbols_are_newer() -> None:
+    events = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("moomoo-spx-0dte-live", "2026-04-24T15:30:01Z", 5200.25),
+        _contract_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", "call", "2026-04-24T15:30:01Z"),
+        _option_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", "2026-04-24T15:30:02Z"),
+        _underlying_event("moomoo-ndx-0dte-live", "2026-04-24T15:30:03Z", 18300.0, symbol="NDX"),
+        _contract_event(
+            "moomoo-ndx-0dte-live",
+            "NDX-2026-04-24-C-18300",
+            "call",
+            "2026-04-24T15:30:03Z",
+            symbol="NDX",
+            strike=18300,
+        ),
+        _option_event("moomoo-ndx-0dte-live", "NDX-2026-04-24-C-18300", "2026-04-24T15:30:04Z"),
+    ]
+
+    for event in events:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/snapshot/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    AnalyticsSnapshot.model_validate(payload)
+    assert payload["mode"] == "live"
+    assert payload["session_id"] == "moomoo-spx-0dte-live"
+    assert payload["symbol"] == "SPX"
+    assert payload["spot"] == 5200.25
+
+
 def test_latest_snapshot_prefers_newer_ticked_expiry_when_state_contains_expired_contracts() -> None:
     session_id = "moomoo-spx-0dte-live"
     old_time = "2026-04-27T20:04:00Z"
@@ -1036,12 +1068,12 @@ def _health_event(event_time: str) -> dict[str, object]:
     }
 
 
-def _underlying_event(session_id: str, event_time: str, spot: float) -> dict[str, object]:
+def _underlying_event(session_id: str, event_time: str, spot: float, *, symbol: str = "SPX") -> dict[str, object]:
     return {
         "schema_version": "1.0.0",
         "source": "ibkr",
         "session_id": session_id,
-        "symbol": "SPX",
+        "symbol": symbol,
         "spot": spot,
         "bid": spot - 0.5,
         "ask": spot + 0.5,
@@ -1059,6 +1091,8 @@ def _contract_event(
     event_time: str,
     *,
     expiry: str = "2026-04-24",
+    symbol: str = "SPX",
+    strike: float = 5200,
 ) -> dict[str, object]:
     return {
         "schema_version": "1.0.0",
@@ -1066,10 +1100,10 @@ def _contract_event(
         "session_id": session_id,
         "contract_id": contract_id,
         "ibkr_con_id": 900000,
-        "symbol": "SPX",
+        "symbol": symbol,
         "expiry": expiry,
         "right": right,
-        "strike": 5200,
+        "strike": strike,
         "multiplier": 100,
         "exchange": "CBOE",
         "currency": "USD",
