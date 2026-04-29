@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const ADMIN_ENV = {
+  GAMMASCOPE_WEB_ADMIN_USERNAME: "admin",
+  GAMMASCOPE_WEB_ADMIN_PASSWORD: "correct-horse-battery-staple",
+  GAMMASCOPE_WEB_ADMIN_SESSION_SECRET: "test-session-secret-with-enough-entropy",
+  GAMMASCOPE_ADMIN_TOKEN: "upstream-admin-token"
+} as const;
+
 function textResponse(body: string, init: ResponseInit = {}): Response {
   return new Response(body, {
     status: init.status ?? 200,
@@ -8,6 +15,13 @@ function textResponse(body: string, init: ResponseInit = {}): Response {
       ...init.headers
     }
   });
+}
+
+function setAdminEnv() {
+  vi.stubEnv("GAMMASCOPE_WEB_ADMIN_USERNAME", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_USERNAME);
+  vi.stubEnv("GAMMASCOPE_WEB_ADMIN_PASSWORD", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_PASSWORD);
+  vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", ADMIN_ENV.GAMMASCOPE_WEB_ADMIN_SESSION_SECRET);
+  vi.stubEnv("GAMMASCOPE_ADMIN_TOKEN", ADMIN_ENV.GAMMASCOPE_ADMIN_TOKEN);
 }
 
 describe("GET /api/spx/0dte/experimental/latest", () => {
@@ -43,6 +57,45 @@ describe("GET /api/spx/0dte/experimental/latest", () => {
   });
 
   it("uses the default FastAPI base URL for latest experimental analytics", async () => {
+    const fetcher = vi.fn(async () => textResponse("{}"));
+    vi.stubGlobal("fetch", fetcher);
+
+    const { GET } = await import("../app/api/spx/0dte/experimental/latest/route");
+    await GET(new Request("http://localhost/api/spx/0dte/experimental/latest"));
+
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/experimental/latest", {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+  });
+
+  it("forwards the upstream admin token when the web admin session is valid", async () => {
+    setAdminEnv();
+    const { ADMIN_COOKIE_NAME, createAdminSessionValue } = await import("../lib/adminSession");
+    const sessionValue = createAdminSessionValue();
+    const fetcher = vi.fn(async () => textResponse("{}"));
+    vi.stubGlobal("fetch", fetcher);
+
+    const { GET } = await import("../app/api/spx/0dte/experimental/latest/route");
+    await GET(new Request("http://localhost/api/spx/0dte/experimental/latest", {
+      headers: {
+        Cookie: `${ADMIN_COOKIE_NAME}=${encodeURIComponent(sessionValue)}`
+      }
+    }));
+
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/experimental/latest", {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-GammaScope-Admin-Token": ADMIN_ENV.GAMMASCOPE_ADMIN_TOKEN
+      }
+    });
+  });
+
+  it("does not forward the upstream admin token when the request is unauthenticated", async () => {
+    setAdminEnv();
     const fetcher = vi.fn(async () => textResponse("{}"));
     vi.stubGlobal("fetch", fetcher);
 
