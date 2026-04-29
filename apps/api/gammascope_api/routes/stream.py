@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from gammascope_api.auth import is_valid_admin_token, private_mode_enabled, websocket_admin_token
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.latest_state_cache import cached_or_memory_collector_state
-from gammascope_api.ingestion.live_snapshot import build_live_snapshot
+from gammascope_api.ingestion.live_snapshot import build_spx_dashboard_live_snapshot
 from gammascope_api.routes.replay import replay_stream_snapshots, seed_replay_snapshots
 
 
@@ -66,7 +66,7 @@ async def stream_spx_0dte_replay(
 
 
 def _current_snapshot() -> dict[str, Any]:
-    live_snapshot = build_live_snapshot(cached_or_memory_collector_state())
+    live_snapshot = build_spx_dashboard_live_snapshot(cached_or_memory_collector_state())
     if live_snapshot is not None:
         return live_snapshot
     return load_json_fixture("analytics-snapshot.seed.json")

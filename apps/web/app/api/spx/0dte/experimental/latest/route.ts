@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import seedExperimentalAnalytics from "../../../../../../../../packages/contracts/fixtures/experimental-analytics.seed.json";
 import { verifyAdminRequest } from "../../../../../../lib/adminSession";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
@@ -13,6 +14,10 @@ function noStoreJson(payload: unknown, init?: ResponseInit) {
   const response = NextResponse.json(payload, init);
   response.headers.set("Cache-Control", "no-store");
   return response;
+}
+
+function seedFallbackResponse(): Response {
+  return noStoreJson(seedExperimentalAnalytics);
 }
 
 function upstreamHeaders(request: Request): HeadersInit {
@@ -37,6 +42,10 @@ export async function GET(request: Request): Promise<Response> {
       headers: upstreamHeaders(request)
     });
 
+    if (!upstreamResponse.ok) {
+      return seedFallbackResponse();
+    }
+
     const response = new Response(await upstreamResponse.text(), {
       status: upstreamResponse.status,
       headers: {
@@ -46,6 +55,6 @@ export async function GET(request: Request): Promise<Response> {
     response.headers.set("Cache-Control", "no-store");
     return response;
   } catch {
-    return noStoreJson({ error: "Experimental analytics unavailable" }, { status: 502 });
+    return seedFallbackResponse();
   }
 }

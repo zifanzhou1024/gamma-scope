@@ -55,15 +55,144 @@ describe("ExperimentalDashboard", () => {
     const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={seedPayload} />);
 
     expect(markup).toContain('aria-label="IV smile methods chart"');
+    expect(markup).toContain('viewBox="0 0 640 340"');
+    expect(markup).toContain("Strike");
+    expect(markup).toContain("IV (%)");
     expect(markup).toContain("Current custom IV");
     expect(markup).toContain("Spline fit");
     expect(markup).toContain("data-series-key=\"custom_iv\"");
     expect(markup).toContain("data-series-key=\"spline_fit\"");
     expect(markup).toContain('aria-label="Terminal distribution chart"');
+    expect(markup).toContain("Expiry level");
+    expect(markup).toContain("Density");
     expect(markup).toContain("Highest density");
     expect(markup).toContain("5195-5205");
     expect(markup).toContain("68% range");
     expect(markup).toContain("95% range");
+  });
+
+  it("renders nearest-forward and lowest IV values below each smile method label", async () => {
+    const payload = {
+      ...seedPayload,
+      sourceSnapshot: {
+        ...seedPayload.sourceSnapshot,
+        forward: 5190.2
+      }
+    } satisfies ExperimentalAnalytics;
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const markup = renderToStaticMarkup(<ExperimentalDashboard initialAnalytics={payload} />);
+
+    expect(markup).toContain('data-experimental-iv-method-value="custom_iv"');
+    expect(markup).toContain('data-experimental-iv-method-value="spline_fit"');
+    expect(markup).toContain('data-experimental-iv-method-low="custom_iv"');
+    expect(markup).toContain('data-experimental-iv-method-low="spline_fit"');
+    expect(markup).toContain("ATM 18.00%");
+    expect(markup).toContain("Low 17.00% @ 5,200");
+    expect(markup).toContain("ATM 18.10%");
+    expect(markup).toContain("Low 17.10% @ 5,200");
+  });
+
+  it("shows experimental chart point values on mouse hover and keyboard focus", async () => {
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const { container, root } = renderDashboard(<ExperimentalDashboard initialAnalytics={seedPayload} />);
+    await act(async () => undefined);
+
+    expect(container.querySelector("[data-experimental-chart-tooltip]")).toBeNull();
+
+    const ivPoint = container.querySelector<SVGCircleElement>('[data-experimental-chart-point="custom_iv:5190"]');
+    expect(ivPoint).not.toBeNull();
+    await act(async () => {
+      ivPoint?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+
+    const ivTooltip = container.querySelector<HTMLElement>('[data-experimental-chart-tooltip="iv_smile"]');
+    expect(ivTooltip).not.toBeNull();
+    expect(ivTooltip?.textContent).toContain("Current custom IV");
+    expect(ivTooltip?.textContent).toContain("5,190");
+    expect(ivTooltip?.textContent).toContain("18.00%");
+
+    const distributionPoint = container.querySelector<SVGCircleElement>(
+      '[data-experimental-chart-point="terminal_distribution:5200"]'
+    );
+    expect(distributionPoint).not.toBeNull();
+    await act(async () => {
+      distributionPoint?.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+
+    const distributionTooltip = container.querySelector<HTMLElement>(
+      '[data-experimental-chart-tooltip="terminal_distribution"]'
+    );
+    expect(distributionTooltip).not.toBeNull();
+    expect(distributionTooltip?.textContent).toContain("Terminal density");
+    expect(distributionTooltip?.textContent).toContain("5,200");
+    expect(distributionTooltip?.textContent).toContain("0.0400");
+
+    cleanup(root, container);
+  });
+
+  it("toggles IV smile methods from the legend buttons", async () => {
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const { container, root } = renderDashboard(<ExperimentalDashboard initialAnalytics={seedPayload} />);
+    await act(async () => undefined);
+
+    const customToggle = container.querySelector<HTMLButtonElement>(
+      '[data-experimental-iv-method-toggle="custom_iv"]'
+    );
+    expect(customToggle).not.toBeNull();
+    expect(customToggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-experimental-series="custom_iv"]')).not.toBeNull();
+    expect(container.querySelector('[data-experimental-chart-point="custom_iv:5190"]')).not.toBeNull();
+
+    await act(async () => {
+      customToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(customToggle?.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector('[data-experimental-series="custom_iv"]')).toBeNull();
+    expect(container.querySelector('[data-experimental-chart-point="custom_iv:5190"]')).toBeNull();
+    expect(container.querySelector('[data-experimental-series="spline_fit"]')).not.toBeNull();
+
+    await act(async () => {
+      customToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(customToggle?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector('[data-experimental-series="custom_iv"]')).not.toBeNull();
+
+    cleanup(root, container);
+  });
+
+  it("polls latest experimental analytics automatically after mount", async () => {
+    const livePayload = {
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        generatedAt: "2026-04-29T17:00:00Z",
+        sourceSessionId: "moomoo-spx-0dte-live",
+        sourceSnapshotTime: "2026-04-29T17:00:00Z"
+      },
+      sourceSnapshot: {
+        ...seedPayload.sourceSnapshot,
+        spot: 7120.5,
+        forward: 7120.4,
+        rowCount: 122,
+        strikeCount: 61
+      }
+    } satisfies ExperimentalAnalytics;
+    mocks.loadClientExperimentalAnalytics.mockResolvedValue(livePayload);
+    const { ExperimentalDashboard } = await import("../components/ExperimentalDashboard");
+    const { container, root } = renderDashboard(<ExperimentalDashboard initialAnalytics={seedPayload} />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.loadClientExperimentalAnalytics).toHaveBeenCalled();
+    expect(container.textContent).toContain("moomoo-spx-0dte-live");
+    expect(container.textContent).toContain("122 rows / 61 strikes");
+
+    cleanup(root, container);
   });
 
   it("preserves nullable chart gaps and renders single-point markers", async () => {
@@ -152,7 +281,9 @@ describe("ExperimentalDashboard", () => {
 
   it("defines stable experimental chart and table layout styles", () => {
     expect(styles).toMatch(/\.experimentalKpiGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\)/);
-    expect(styles).toMatch(/\.experimentalChartFrame\s*{[\s\S]*min-height:\s*260px/);
+    expect(styles).toMatch(/\.experimentalChartFrame\s*{[\s\S]*min-height:\s*340px/);
+    expect(styles).toMatch(/\.experimentalSeries\s*{[\s\S]*stroke-width:\s*1\.8/);
+    expect(styles).toMatch(/\.experimentalLegend\s*{[\s\S]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
     expect(styles).toMatch(/\.experimentalTablesGrid\s*{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
     expect(styles).toMatch(/\.experimentalTableWrap\s*{[\s\S]*overflow-x:\s*auto/);
     expect(styles).toMatch(/\.experimentalHeaderUtility \.statusRail span\s*{[\s\S]*white-space:\s*normal/);

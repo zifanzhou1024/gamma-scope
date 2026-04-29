@@ -18,6 +18,7 @@ DEFAULT_RISK_FREE_RATE = 0.05
 DEFAULT_DIVIDEND_YIELD = 0.01
 DEFAULT_EXPIRY_CUTOFF_UTC = time(hour=20, minute=0, tzinfo=UTC)
 MIN_TAU_YEARS = 1 / (365 * 24 * 60 * 60)
+SPX_DASHBOARD_SESSION_ID = "moomoo-spx-0dte-live"
 _ANALYTICS_MEMORY_FIELDS = ("custom_iv", "custom_gamma", "custom_vanna")
 _analytics_memory: dict[tuple[str, str], dict[str, float]] = {}
 
@@ -97,6 +98,10 @@ def build_live_snapshot(state: CollectorState, *, session_id: str | None = None)
         "scenario_params": None,
         "rows": rows,
     }
+
+
+def build_spx_dashboard_live_snapshot(state: CollectorState) -> dict[str, Any] | None:
+    return build_live_snapshot(state, session_id=SPX_DASHBOARD_SESSION_ID) or build_live_snapshot(state)
 
 
 def _active_expiry(*, contracts: list[dict[str, Any]], option_ticks: dict[str, dict[str, Any]]) -> str | None:

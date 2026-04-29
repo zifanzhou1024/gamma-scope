@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ExperimentalSmileChart } from "./experimental/ExperimentalSmileChart";
 import { ExperimentalSummaryPanels } from "./experimental/ExperimentalSummaryPanels";
 import { ExperimentalTables } from "./experimental/ExperimentalTables";
@@ -8,6 +8,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { loadClientExperimentalAnalytics } from "../lib/clientExperimentalAnalyticsSource";
 import type { ExperimentalAnalytics } from "../lib/contracts";
 import { formatSnapshotTime, formatStatusLabel } from "../lib/dashboardMetrics";
+import { startSnapshotPolling } from "../lib/snapshotPolling";
 
 interface ExperimentalDashboardProps {
   initialAnalytics?: ExperimentalAnalytics | null;
@@ -17,6 +18,17 @@ export function ExperimentalDashboard({ initialAnalytics = null }: ExperimentalD
   const [analytics, setAnalytics] = useState<ExperimentalAnalytics | null>(initialAnalytics);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return startSnapshotPolling<ExperimentalAnalytics>({
+      loadSnapshot: loadClientExperimentalAnalytics,
+      applySnapshot: (nextAnalytics) => {
+        setAnalytics(nextAnalytics);
+        setRefreshError(null);
+      },
+      intervalMs: 2000
+    });
+  }, []);
 
   const refreshAnalytics = async () => {
     setIsRefreshing(true);

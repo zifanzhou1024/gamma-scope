@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import seedExperimentalAnalytics from "../../../packages/contracts/fixtures/experimental-analytics.seed.json";
 
 const ADMIN_ENV = {
   GAMMASCOPE_WEB_ADMIN_USERNAME: "admin",
@@ -110,7 +111,7 @@ describe("GET /api/spx/0dte/experimental/latest", () => {
     });
   });
 
-  it("returns no-store 502 JSON when the latest upstream fetch fails", async () => {
+  it("returns the seed analytics fallback when the latest upstream fetch fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
       throw new Error("offline");
     }));
@@ -118,8 +119,19 @@ describe("GET /api/spx/0dte/experimental/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/experimental/latest/route");
     const response = await GET(new Request("http://localhost/api/spx/0dte/experimental/latest"));
 
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({ error: "Experimental analytics unavailable" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(seedExperimentalAnalytics);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("returns the seed analytics fallback when the latest upstream responds non-OK", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse(JSON.stringify({ error: "missing" }), { status: 404 })));
+
+    const { GET } = await import("../app/api/spx/0dte/experimental/latest/route");
+    const response = await GET(new Request("http://localhost/api/spx/0dte/experimental/latest"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(seedExperimentalAnalytics);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 });

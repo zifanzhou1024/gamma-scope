@@ -7,7 +7,7 @@ from gammascope_api.contracts.generated.experimental_analytics import Experiment
 from gammascope_api.experimental.service import build_experimental_payload, validate_experimental_payload
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.latest_state_cache import cached_or_memory_collector_state
-from gammascope_api.ingestion.live_snapshot import build_live_snapshot
+from gammascope_api.ingestion.live_snapshot import build_spx_dashboard_live_snapshot
 from gammascope_api.routes import replay as replay_routes
 
 
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/api/spx/0dte/experimental/latest", response_model=ExperimentalAnalytics)
 def get_latest_experimental(x_gammascope_admin_token: str | None = Header(default=None)) -> dict:
     if can_read_live_state(x_gammascope_admin_token):
-        live_snapshot = build_live_snapshot(cached_or_memory_collector_state())
+        live_snapshot = build_spx_dashboard_live_snapshot(cached_or_memory_collector_state())
         if live_snapshot is not None:
             return build_experimental_payload(live_snapshot, "latest")
     return validate_experimental_payload(load_json_fixture("experimental-analytics.seed.json"))

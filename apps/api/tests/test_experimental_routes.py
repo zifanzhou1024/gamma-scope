@@ -51,6 +51,30 @@ def test_latest_experimental_route_falls_back_to_seed_payload() -> None:
     assert payload["forwardSummary"]["status"] == "ok"
 
 
+def test_latest_experimental_route_prefers_moomoo_spx_session_when_other_symbols_are_newer() -> None:
+    for event in [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("moomoo-spx-0dte-live", "SPX", 5200.25, "2026-04-24T15:30:01Z"),
+        _contract_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", "SPX", "call", 5200),
+        _contract_event("moomoo-spx-0dte-live", "SPX-2026-04-24-P-5200", "SPX", "put", 5200),
+        _option_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", 9.9, 10.1),
+        _option_event("moomoo-spx-0dte-live", "SPX-2026-04-24-P-5200", 9.7, 9.9),
+        _underlying_event("moomoo-ndx-0dte-live", "NDX", 18300.0, "2026-04-24T15:30:03Z"),
+        _contract_event("moomoo-ndx-0dte-live", "NDX-2026-04-24-C-18300", "NDX", "call", 18300),
+        _option_event("moomoo-ndx-0dte-live", "NDX-2026-04-24-C-18300", 30.0, 31.0),
+    ]:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/experimental/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalAnalytics.model_validate(payload)
+    assert payload["meta"]["sourceSessionId"] == "moomoo-spx-0dte-live"
+    assert payload["meta"]["symbol"] == "SPX"
+    assert payload["sourceSnapshot"]["spot"] == 5200.25
+
+
 def test_replay_experimental_route_delegates_to_replay_snapshot_helper(monkeypatch) -> None:
     calls = []
 
@@ -128,3 +152,73 @@ def test_replay_experimental_route_serializes_extreme_numeric_snapshot(monkeypat
     ExperimentalAnalytics.model_validate(payload)
     assert payload["forwardSummary"]["parityForward"] is None
     assert payload["forwardSummary"]["expectedRange"] is None
+
+
+def _health_event(event_time: str) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "collector_id": "local-dev",
+        "status": "connected",
+        "ibkr_account_mode": "paper",
+        "message": "Mock live cycle",
+        "event_time": event_time,
+        "received_time": event_time,
+    }
+
+
+def _underlying_event(session_id: str, symbol: str, spot: float, event_time: str) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "symbol": symbol,
+        "spot": spot,
+        "bid": spot - 0.5,
+        "ask": spot + 0.5,
+        "last": spot,
+        "mark": spot,
+        "event_time": event_time,
+        "quote_status": "valid",
+    }
+
+
+def _contract_event(session_id: str, contract_id: str, symbol: str, right: str, strike: float) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "ibkr_con_id": abs(hash(contract_id)) % 1_000_000,
+        "symbol": symbol,
+        "expiry": "2026-04-24",
+        "right": right,
+        "strike": strike,
+        "multiplier": 100,
+        "exchange": "CBOE",
+        "currency": "USD",
+        "event_time": "2026-04-24T15:30:01Z",
+    }
+
+
+def _option_event(session_id: str, contract_id: str, bid: float, ask: float) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "bid": bid,
+        "ask": ask,
+        "last": (bid + ask) / 2,
+        "bid_size": 10,
+        "ask_size": 12,
+        "volume": 400,
+        "open_interest": 2400,
+        "ibkr_iv": 0.2,
+        "ibkr_delta": 0.51,
+        "ibkr_gamma": 0.017,
+        "ibkr_vega": 0.9,
+        "ibkr_theta": -1.0,
+        "event_time": "2026-04-24T15:30:02Z",
+        "quote_status": "valid",
+    }
