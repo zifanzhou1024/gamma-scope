@@ -61,6 +61,21 @@ def test_experimental_analytics_rejects_unexpected_panel_fields() -> None:
         ExperimentalAnalytics.model_validate(payload)
 
 
+def test_experimental_analytics_rejects_empty_panel_labels() -> None:
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "packages"
+        / "contracts"
+        / "fixtures"
+        / "experimental-analytics.seed.json"
+    )
+    payload = json.loads(fixture_path.read_text())
+    payload["forwardSummary"]["label"] = ""
+
+    with pytest.raises(ValidationError):
+        ExperimentalAnalytics.model_validate(payload)
+
+
 def test_seed_health_loads_as_generated_model() -> None:
     fixture_path = (
         Path(__file__).parents[3]

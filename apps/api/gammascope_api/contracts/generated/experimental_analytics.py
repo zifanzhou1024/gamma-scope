@@ -121,7 +121,7 @@ class PanelWithRows(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     rows: list[Row]
 
@@ -131,7 +131,7 @@ class ForwardSummary(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     parityForward: float | None
     forwardMinusSpot: float | None
@@ -156,7 +156,7 @@ class IvSmiles(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     methods: list[Method]
 
@@ -166,7 +166,7 @@ class SmileDiagnostics(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     ivValley: StrikeValue
     atmForwardIv: float | None
@@ -180,7 +180,7 @@ class Probabilities(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     levels: list[Level]
 
@@ -190,7 +190,7 @@ class TerminalDistribution(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     density: list[Point]
     highestDensityZone: str | None
@@ -205,7 +205,7 @@ class SkewTail(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     tailBias: str | None
     leftTailRichness: float | None
@@ -217,7 +217,7 @@ class QuoteQuality(BaseModel):
         extra='forbid',
     )
     status: PanelStatus
-    label: str
+    label: constr(min_length=1)
     diagnostics: list[Diagnostic]
     score: confloat(ge=0.0, le=1.0)
     flags: list[Flag]
