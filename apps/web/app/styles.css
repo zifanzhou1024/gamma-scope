@@ -181,6 +181,21 @@ select {
 .marketMapGrid,
 .marketIntelligencePanel,
 .marketIntelligenceGrid,
+.experimentalShell,
+.experimentalHeader,
+.experimentalHeaderUtility,
+.experimentalKpiGrid,
+.experimentalSummaryGrid,
+.experimentalChartsGrid,
+.experimentalTablesGrid,
+.experimentalPanel,
+.experimentalPanelHeader,
+.experimentalPanelBody,
+.experimentalDetailGrid,
+.experimentalChartFrame,
+.experimentalLegend,
+.experimentalDistributionStats,
+.experimentalTableWrap,
 .chartGrid,
 .sharedInspectionBar,
 .sharedInspectionStrike,
@@ -2254,6 +2269,414 @@ h1 {
   border-color: rgba(148, 163, 184, 0.14);
 }
 
+.experimentalShell {
+  font-variant-numeric: tabular-nums;
+  width: min(1680px, calc(100% - 40px));
+}
+
+.experimentalHeader h1 {
+  font-size: clamp(26px, 3vw, 42px);
+}
+
+.experimentalHeaderUtility {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.experimentalRefreshButton {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.36);
+  border-radius: 6px;
+  color: #dbeafe;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.experimentalRefreshButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.experimentalNotice,
+.experimentalUnavailable {
+  background: rgba(16, 23, 34, 0.9);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.experimentalNotice {
+  color: var(--warning-text);
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.experimentalUnavailable {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  min-height: 180px;
+  place-content: center;
+  text-align: center;
+}
+
+.experimentalUnavailable h2 {
+  font-size: 20px;
+}
+
+.experimentalUnavailable p {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.experimentalKpiGrid {
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 0 0 16px;
+}
+
+.experimentalMetric {
+  background: rgba(16, 23, 34, 0.92);
+  min-height: 90px;
+  min-width: 0;
+  padding: 15px;
+}
+
+.experimentalMetric span,
+.experimentalDetail span {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.experimentalMetric strong {
+  color: var(--text);
+  display: block;
+  font-size: 20px;
+  line-height: 1.05;
+  margin-top: 11px;
+  overflow-wrap: anywhere;
+}
+
+.experimentalSummaryGrid,
+.experimentalChartsGrid,
+.experimentalTablesGrid {
+  display: grid;
+  gap: 16px;
+}
+
+.experimentalSummaryGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.experimentalChartsGrid {
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  margin-bottom: 16px;
+}
+
+.experimentalTablesGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.experimentalPanel {
+  background:
+    linear-gradient(180deg, rgba(148, 163, 184, 0.045), rgba(8, 13, 22, 0.04)),
+    rgba(12, 18, 28, 0.94);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.experimentalPanelHeader {
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.experimentalPanelHeader h2 {
+  color: var(--soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.experimentalPanelHeader p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+  margin-top: 5px;
+}
+
+.experimentalStatus {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  color: var(--soft);
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  padding: 6px 8px;
+  text-transform: uppercase;
+}
+
+.experimentalStatus-ok {
+  border-color: rgba(34, 197, 94, 0.36);
+  color: #86efac;
+}
+
+.experimentalStatus-preview,
+.experimentalStatus-insufficient_data {
+  border-color: rgba(245, 158, 11, 0.36);
+  color: #fcd34d;
+}
+
+.experimentalStatus-error {
+  border-color: rgba(248, 113, 113, 0.38);
+  color: #fca5a5;
+}
+
+.experimentalPanelBody {
+  padding: 14px 16px 16px;
+}
+
+.experimentalDetailGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.experimentalDetail {
+  background: rgba(8, 13, 22, 0.58);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  min-height: 72px;
+  min-width: 0;
+  padding: 11px 12px;
+}
+
+.experimentalDetail strong {
+  color: var(--text);
+  display: block;
+  font-size: 15px;
+  line-height: 1.15;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
+.experimentalDiagnostics {
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 10px 16px 14px;
+}
+
+.experimentalDiagnostics li {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.experimentalDiagnostics strong {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.experimentalDiagnostics span {
+  color: var(--soft);
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.experimentalDiagnostic-warning span {
+  color: var(--warning-text);
+}
+
+.experimentalDiagnostic-error span {
+  color: var(--error-text);
+}
+
+.experimentalChartFrame {
+  background: rgba(5, 10, 19, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  height: 260px;
+  min-height: 260px;
+  overflow: hidden;
+}
+
+.experimentalChartSvg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.experimentalChartGrid line {
+  stroke: rgba(148, 163, 184, 0.16);
+  stroke-width: 1;
+}
+
+.experimentalChartGrid .experimentalChartAxis {
+  stroke: rgba(203, 213, 225, 0.34);
+}
+
+.experimentalSeries {
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.experimentalSeries-blue {
+  stroke: var(--blue);
+}
+
+.experimentalSeries-teal {
+  stroke: var(--teal);
+}
+
+.experimentalSeries-violet {
+  stroke: var(--violet);
+}
+
+.experimentalSeries-amber,
+.experimentalSeries-distribution {
+  stroke: var(--amber);
+}
+
+.experimentalLegend,
+.experimentalDistributionStats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.experimentalLegend span,
+.experimentalDistributionStats span {
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 6px;
+  color: var(--soft);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 7px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 0 9px;
+}
+
+.experimentalLegend i {
+  border-radius: 999px;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.experimentalLegend .experimentalSeries-blue {
+  background: var(--blue);
+}
+
+.experimentalLegend .experimentalSeries-teal {
+  background: var(--teal);
+}
+
+.experimentalLegend .experimentalSeries-violet {
+  background: var(--violet);
+}
+
+.experimentalLegend .experimentalSeries-amber {
+  background: var(--amber);
+}
+
+.experimentalDistributionStats span {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
+}
+
+.experimentalDistributionStats strong {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.experimentalTableWrap {
+  overflow-x: auto;
+}
+
+.experimentalTable {
+  font-size: 13px;
+  min-width: 620px;
+}
+
+.experimentalTable caption {
+  color: var(--soft);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 0 0 10px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.experimentalTable th,
+.experimentalTable td {
+  height: 42px;
+  padding: 0 12px;
+  text-align: right;
+}
+
+.experimentalTable th:first-child,
+.experimentalTable td:first-child {
+  text-align: left;
+}
+
+.experimentalTable th {
+  background: rgba(5, 14, 22, 0.82);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.experimentalTable td {
+  background: rgba(13, 39, 48, 0.38);
+  color: var(--soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.experimentalTable tbody tr:nth-child(even) td {
+  background: rgba(9, 24, 34, 0.54);
+}
+
+.experimentalTableEmpty {
+  color: var(--muted);
+  text-align: left;
+}
+
 .chartGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(320px, 1fr));
@@ -3222,6 +3645,10 @@ html[data-theme="light"] .replayImportPanel,
 html[data-theme="light"] .savedViewsPanel,
 html[data-theme="light"] .scenarioPanel,
 html[data-theme="light"] .metric,
+html[data-theme="light"] .experimentalMetric,
+html[data-theme="light"] .experimentalPanel,
+html[data-theme="light"] .experimentalNotice,
+html[data-theme="light"] .experimentalUnavailable,
 html[data-theme="light"] .marketIntelligenceItem,
 html[data-theme="light"] .levelMovementItem,
 html[data-theme="light"] .chartPanel,
@@ -3277,6 +3704,7 @@ html[data-theme="light"] .adminPanel button,
 html[data-theme="light"] .adminPopover button,
 html[data-theme="light"] .replayImportPanel button,
 html[data-theme="light"] .replayPanel button,
+html[data-theme="light"] .experimentalRefreshButton,
 html[data-theme="light"] .scenarioForm button {
   background: rgba(var(--spot-reference-rgb), 0.1);
   color: var(--text);
@@ -3313,6 +3741,24 @@ html[data-theme="light"] .chartPanel {
     linear-gradient(180deg, rgba(226, 232, 240, 0.46), rgba(255, 255, 255, 0.18)),
     var(--panel-bg);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="light"] .experimentalChartFrame,
+html[data-theme="light"] .experimentalDetail {
+  background: rgba(248, 250, 252, 0.86);
+}
+
+html[data-theme="light"] .experimentalTable th {
+  background: var(--surface-strong);
+}
+
+html[data-theme="light"] .experimentalTable td {
+  background: var(--table-row-bg);
+  color: var(--text);
+}
+
+html[data-theme="light"] .experimentalTable tbody tr:nth-child(even) td {
+  background: var(--table-row-alt-bg);
 }
 
 html[data-theme="light"] .chartGridLines line {
@@ -3453,9 +3899,16 @@ html[data-theme="light"] .operationalPill-muted {
   }
 
   .kpiGrid,
+  .experimentalKpiGrid,
   .marketMapGrid,
   .chartGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .experimentalSummaryGrid,
+  .experimentalChartsGrid,
+  .experimentalTablesGrid {
+    grid-template-columns: 1fr;
   }
 
   .scenarioForm {
@@ -3573,6 +4026,7 @@ html[data-theme="light"] .operationalPill-muted {
   .importFileGrid,
   .importReviewGrid,
   .kpiGrid,
+  .experimentalKpiGrid,
   .marketMapGrid,
   .chartGrid {
     grid-template-columns: 1fr;

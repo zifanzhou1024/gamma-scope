@@ -83,6 +83,7 @@ export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHea
                 <p>SPX 0DTE heatmap</p>
               </div>
             </div>
+            <HeatmapNavTabs />
           </div>
           <div className="topBarUtility heatmapHeaderUtility">
             <ThemeToggle />
@@ -104,17 +105,7 @@ export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHea
               <p>SPX 0DTE heatmap</p>
             </div>
           </div>
-          <nav className="topNavTabs" aria-label="Dashboard views">
-            <a className="topNavTab" href="/">
-              Realtime
-            </a>
-            <a className="topNavTab" href="/replay">
-              Replay
-            </a>
-            <a className="topNavTab topNavTab-active" href="/heatmap" aria-current="page">
-              Heatmap
-            </a>
-          </nav>
+          <HeatmapNavTabs />
         </div>
         <div className="topBarUtility heatmapHeaderUtility">
           <ThemeToggle />
@@ -167,6 +158,25 @@ export function ExposureHeatmap({ initialPayload, initialPayloads }: ExposureHea
         ))}
       </section>
     </main>
+  );
+}
+
+function HeatmapNavTabs() {
+  return (
+    <nav className="topNavTabs" aria-label="Dashboard views">
+      <a className="topNavTab" href="/">
+        Realtime
+      </a>
+      <a className="topNavTab" href="/replay">
+        Replay
+      </a>
+      <a className="topNavTab topNavTab-active" href="/heatmap" aria-current="page">
+        Heatmap
+      </a>
+      <a className="topNavTab" href="/experimental">
+        Experimental
+      </a>
+    </nav>
   );
 }
 
