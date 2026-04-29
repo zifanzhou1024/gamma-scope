@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gammascope.local/schemas/experimental-analytics.schema.json",
+  "title": "ExperimentalAnalytics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "meta",
+    "sourceSnapshot",
+    "forwardSummary",
+    "ivSmiles",
+    "smileDiagnostics",
+    "probabilities",
+    "terminalDistribution",
+    "skewTail",
+    "moveNeeded",
+    "decayPressure",
+    "richCheap",
+    "quoteQuality",
+    "historyPreview"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generatedAt", "mode", "sourceSessionId", "sourceSnapshotTime", "symbol", "expiry"],
+      "properties": {
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "mode": { "type": "string", "enum": ["latest", "replay"] },
+        "sourceSessionId": { "type": "string", "minLength": 1 },
+        "sourceSnapshotTime": { "type": "string", "format": "date-time" },
+        "symbol": { "type": "string", "const": "SPX" },
+        "expiry": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+      }
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spot", "forward", "rowCount", "strikeCount", "timeToExpiryYears"],
+      "properties": {
+        "spot": { "type": "number" },
+        "forward": { "type": "number" },
+        "rowCount": { "type": "integer", "minimum": 0 },
+        "strikeCount": { "type": "integer", "minimum": 0 },
+        "timeToExpiryYears": { "type": "number", "minimum": 0 }
+      }
+    },
+    "forwardSummary": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "parityForward", "forwardMinusSpot", "atmStrike", "atmStraddle", "expectedRange", "expectedMovePercent"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "parityForward": { "type": ["number", "null"] },
+            "forwardMinusSpot": { "type": ["number", "null"] },
+            "atmStrike": { "type": ["number", "null"] },
+            "atmStraddle": { "type": ["number", "null"] },
+            "expectedRange": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "required": ["lower", "upper"],
+              "properties": {
+                "lower": { "type": "number" },
+                "upper": { "type": "number" }
+              }
+            },
+            "expectedMovePercent": { "type": ["number", "null"] }
+          }
+        }
+      ]
+    },
+    "ivSmiles": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "methods"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["key", "label", "status", "points"],
+                "properties": {
+                  "key": { "type": "string", "minLength": 1 },
+                  "label": { "type": "string", "minLength": 1 },
+                  "status": { "$ref": "#/$defs/PanelStatus" },
+                  "points": { "type": "array", "items": { "$ref": "#/$defs/Point" } }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "smileDiagnostics": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "ivValley", "atmForwardIv", "skewSlope", "curvature", "methodDisagreement"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "ivValley": { "$ref": "#/$defs/StrikeValue" },
+            "atmForwardIv": { "type": ["number", "null"] },
+            "skewSlope": { "type": ["number", "null"] },
+            "curvature": { "type": ["number", "null"] },
+            "methodDisagreement": { "type": ["number", "null"] }
+          }
+        }
+      ]
+    },
+    "probabilities": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "levels"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "levels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["strike", "closeAbove", "closeBelow"],
+                "properties": {
+                  "strike": { "type": "number" },
+                  "closeAbove": { "type": ["number", "null"] },
+                  "closeBelow": { "type": ["number", "null"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "terminalDistribution": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "density", "highestDensityZone", "range68", "range95", "leftTailProbability", "rightTailProbability"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "density": { "type": "array", "items": { "$ref": "#/$defs/Point" } },
+            "highestDensityZone": { "type": ["string", "null"] },
+            "range68": { "type": ["string", "null"] },
+            "range95": { "type": ["string", "null"] },
+            "leftTailProbability": { "type": ["number", "null"] },
+            "rightTailProbability": { "type": ["number", "null"] }
+          }
+        }
+      ]
+    },
+    "skewTail": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "tailBias", "leftTailRichness", "rightTailRichness"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "tailBias": { "type": ["string", "null"] },
+            "leftTailRichness": { "type": ["number", "null"] },
+            "rightTailRichness": { "type": ["number", "null"] }
+          }
+        }
+      ]
+    },
+    "moveNeeded": { "$ref": "#/$defs/PanelWithRows" },
+    "decayPressure": { "$ref": "#/$defs/PanelWithRows" },
+    "richCheap": { "$ref": "#/$defs/PanelWithRows" },
+    "quoteQuality": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "score", "flags"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "flags": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["strike", "right", "code", "message"],
+                "properties": {
+                  "strike": { "type": "number" },
+                  "right": { "type": "string", "enum": ["call", "put", "pair"] },
+                  "code": { "type": "string", "minLength": 1 },
+                  "message": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "historyPreview": { "$ref": "#/$defs/PanelWithRows" }
+  },
+  "$defs": {
+    "PanelStatus": {
+      "type": "string",
+      "enum": ["ok", "preview", "insufficient_data", "error"]
+    },
+    "Diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "severity"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
+        "severity": { "type": "string", "enum": ["info", "warning", "error"] }
+      }
+    },
+    "PanelBase": {
+      "type": "object",
+      "required": ["status", "label", "diagnostics"],
+      "properties": {
+        "status": { "$ref": "#/$defs/PanelStatus" },
+        "label": { "type": "string", "minLength": 1 },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } }
+      }
+    },
+    "Point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": ["number", "null"] }
+      }
+    },
+    "StrikeValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strike", "value", "label"],
+      "properties": {
+        "strike": { "type": ["number", "null"] },
+        "value": { "type": ["number", "null"] },
+        "label": { "type": ["string", "null"] }
+      }
+    },
+    "PanelWithRows": {
+      "allOf": [
+        { "$ref": "#/$defs/PanelBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "label", "diagnostics", "rows"],
+          "properties": {
+            "status": { "$ref": "#/$defs/PanelStatus" },
+            "label": { "type": "string" },
+            "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/Diagnostic" } },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": true,
+                "required": ["strike"],
+                "properties": {
+                  "strike": { "type": "number" }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

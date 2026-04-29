@@ -6,12 +6,13 @@
   "scripts": {
     "validate": "node --test tests/schema.test.mjs",
     "test": "node --test tests/schema.test.mjs",
-    "generate": "mkdir -p src/generated && json2ts -i schemas/analytics-snapshot.schema.json -o src/generated/analytics-snapshot.ts && json2ts -i schemas/collector-events.schema.json -o src/generated/collector-events.ts && json2ts -i schemas/scenario.schema.json -o src/generated/scenario.ts && json2ts -i schemas/saved-view.schema.json -o src/generated/saved-view.ts",
+    "generate": "mkdir -p src/generated && json2ts -i schemas/analytics-snapshot.schema.json -o src/generated/analytics-snapshot.ts && json2ts -i schemas/collector-events.schema.json -o src/generated/collector-events.ts && json2ts -i schemas/experimental-analytics.schema.json -o src/generated/experimental-analytics.ts && json2ts -i schemas/scenario.schema.json -o src/generated/scenario.ts && json2ts -i schemas/saved-view.schema.json -o src/generated/saved-view.ts",
     "typecheck:generated": "tsc --project tsconfig.generated.json --noEmit"
   },
   "exports": {
     "./analytics-snapshot": "./src/generated/analytics-snapshot.ts",
     "./collector-events": "./src/generated/collector-events.ts",
+    "./experimental-analytics": "./src/generated/experimental-analytics.ts",
     "./scenario": "./src/generated/scenario.ts",
     "./saved-view": "./src/generated/saved-view.ts"
   },

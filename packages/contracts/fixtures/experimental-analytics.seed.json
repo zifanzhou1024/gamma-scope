@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "generatedAt": "2026-04-23T16:00:00Z",
+    "mode": "latest",
+    "sourceSessionId": "seed-spx-2026-04-23",
+    "sourceSnapshotTime": "2026-04-23T16:00:00Z",
+    "symbol": "SPX",
+    "expiry": "2026-04-23"
+  },
+  "sourceSnapshot": {
+    "spot": 5200.25,
+    "forward": 5200.36,
+    "rowCount": 34,
+    "strikeCount": 17,
+    "timeToExpiryYears": 0.000456621
+  },
+  "forwardSummary": {
+    "status": "ok",
+    "label": "Forward and expected move",
+    "diagnostics": [],
+    "parityForward": 5200.36,
+    "forwardMinusSpot": 0.11,
+    "atmStrike": 5200,
+    "atmStraddle": 18.75,
+    "expectedRange": { "lower": 5181.61, "upper": 5219.11 },
+    "expectedMovePercent": 0.003605
+  },
+  "ivSmiles": {
+    "status": "preview",
+    "label": "IV smile methods",
+    "diagnostics": [{ "code": "preview_method", "message": "Experimental fitted methods are diagnostic.", "severity": "info" }],
+    "methods": [
+      { "key": "custom_iv", "label": "Current custom IV", "status": "ok", "points": [{ "x": 5190, "y": 0.18 }, { "x": 5200, "y": 0.17 }, { "x": 5210, "y": 0.19 }] },
+      { "key": "spline_fit", "label": "Spline fit", "status": "preview", "points": [{ "x": 5190, "y": 0.181 }, { "x": 5200, "y": 0.171 }, { "x": 5210, "y": 0.191 }] }
+    ]
+  },
+  "smileDiagnostics": {
+    "status": "preview",
+    "label": "Smile diagnostics",
+    "diagnostics": [],
+    "ivValley": { "strike": 5200, "value": 0.171, "label": "Spline valley" },
+    "atmForwardIv": 0.172,
+    "skewSlope": -0.08,
+    "curvature": 0.12,
+    "methodDisagreement": 0.011
+  },
+  "probabilities": {
+    "status": "preview",
+    "label": "Risk-neutral probabilities",
+    "diagnostics": [{ "code": "risk_neutral", "message": "Probabilities are risk-neutral, not real-world.", "severity": "info" }],
+    "levels": [
+      { "strike": 5190, "closeAbove": 0.67, "closeBelow": 0.33 },
+      { "strike": 5200, "closeAbove": 0.52, "closeBelow": 0.48 },
+      { "strike": 5210, "closeAbove": 0.35, "closeBelow": 0.65 }
+    ]
+  },
+  "terminalDistribution": {
+    "status": "preview",
+    "label": "Terminal distribution",
+    "diagnostics": [],
+    "density": [{ "x": 5190, "y": 0.02 }, { "x": 5200, "y": 0.04 }, { "x": 5210, "y": 0.025 }],
+    "highestDensityZone": "5195-5205",
+    "range68": "5182-5219",
+    "range95": "5164-5237",
+    "leftTailProbability": 0.08,
+    "rightTailProbability": 0.06
+  },
+  "skewTail": {
+    "status": "preview",
+    "label": "Skew and tail asymmetry",
+    "diagnostics": [],
+    "tailBias": "Left-tail rich",
+    "leftTailRichness": 1.18,
+    "rightTailRichness": 0.94
+  },
+  "moveNeeded": {
+    "status": "ok",
+    "label": "Move-needed map",
+    "diagnostics": [],
+    "rows": [{ "strike": 5210, "side": "call", "breakeven": 5213.2, "moveNeeded": 12.95, "expectedMoveRatio": 0.69, "label": "Within expected move" }]
+  },
+  "decayPressure": {
+    "status": "preview",
+    "label": "Time-decay pressure",
+    "diagnostics": [{ "code": "static_decay", "message": "Static pressure assumes no spot or IV change.", "severity": "info" }],
+    "rows": [{ "strike": 5210, "side": "call", "premium": 3.2, "pointsPerMinute": 0.08 }]
+  },
+  "richCheap": {
+    "status": "preview",
+    "label": "Rich/cheap residuals",
+    "diagnostics": [],
+    "rows": [{ "strike": 5210, "side": "call", "actualMid": 3.2, "fittedFair": 3.05, "residual": 0.15, "label": "Rich" }]
+  },
+  "quoteQuality": {
+    "status": "ok",
+    "label": "Quote quality",
+    "diagnostics": [],
+    "score": 0.94,
+    "flags": [{ "strike": 5120, "right": "put", "code": "zero_bid", "message": "Bid is zero." }]
+  },
+  "historyPreview": {
+    "status": "insufficient_data",
+    "label": "Range compression preview",
+    "diagnostics": [{ "code": "needs_replay", "message": "Select replay frames to compare history.", "severity": "info" }],
+    "rows": []
+  }
+}
