@@ -241,6 +241,27 @@ export function getTransportStatusDisplay(status: LiveTransportStatus): Operatio
   return { label: "Connecting", tone: "muted" };
 }
 
+export function getCollectorSourceLabel(collectorHealth?: CollectorHealth | null): string {
+  const collectorId = collectorHealth?.collector_id.toLowerCase() ?? "";
+  const message = collectorHealth?.message.toLowerCase() ?? "";
+
+  if (collectorId.includes("moomoo") || message.includes("moomoo")) {
+    return "Moomoo";
+  }
+
+  return "IBKR";
+}
+
+export function getCollectorSourceDetail(collectorHealth: CollectorHealth): string {
+  const sourceLabel = getCollectorSourceLabel(collectorHealth);
+
+  if (sourceLabel === "Moomoo" && collectorHealth.ibkr_account_mode === "unknown") {
+    return "Moomoo Source";
+  }
+
+  return `${sourceLabel} ${formatCollectorAccountMode(collectorHealth.ibkr_account_mode)}`;
+}
+
 export function getRowOperationalStatusDisplay(row: AnalyticsRow | null | undefined): OperationalStatusDisplay | null {
   return getRowOperationalStatusDisplays(row)[0] ?? null;
 }
@@ -363,7 +384,7 @@ export function deriveDataQuality(
     collector: collectorHealth
       ? {
           label: `Collector ${formatStatusLabel(collectorHealth.status)}`,
-          detail: `IBKR ${formatCollectorAccountMode(collectorHealth.ibkr_account_mode)}`,
+          detail: getCollectorSourceDetail(collectorHealth),
           tone: collectorHealth.status === "connected" ? "ok" : collectorStatusTone(collectorHealth.status)
         }
       : null,

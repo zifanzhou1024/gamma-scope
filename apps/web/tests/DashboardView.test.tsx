@@ -346,6 +346,28 @@ describe("DashboardView", () => {
     expect(markup).toContain("IBKR market data delayed");
   });
 
+  it("labels Moomoo compatibility collector data as Moomoo instead of IBKR", async () => {
+    const { DashboardView } = await import("../components/DashboardView");
+    const collectorHealth = {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-moomoo",
+      status: "connected",
+      ibkr_account_mode: "unknown",
+      message: "Moomoo compatibility snapshot emitted",
+      event_time: "2026-04-30T15:00:00Z",
+      received_time: "2026-04-30T15:00:01Z"
+    } satisfies CollectorHealth;
+    const markup = renderToStaticMarkup(<DashboardView snapshot={snapshot} collectorHealth={collectorHealth} />);
+
+    expect(markup).toContain("Moomoo Source");
+    expect(markup).toContain("Moomoo compatibility snapshot emitted");
+    expect(markup).toContain("Moomoo 17.95%");
+    expect(markup).toContain("Moomoo 0.01986");
+    expect(markup).not.toContain("IBKR Unknown");
+    expect(markup).not.toContain("IBKR 17.95%");
+  });
+
   it("renders transport status, operational notices, and row issue chips", async () => {
     const { DashboardView } = await import("../components/DashboardView");
     const degradedSnapshot = {
