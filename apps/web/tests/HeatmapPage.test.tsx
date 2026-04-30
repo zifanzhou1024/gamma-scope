@@ -21,6 +21,7 @@ vi.mock("next/headers", () => ({
 describe("HeatmapPage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.resetModules();
     mocks.heatmapProps.mockReset();
     mocks.requestHeaders.mockReset();
@@ -39,23 +40,23 @@ describe("HeatmapPage", () => {
         "Content-Type": "application/json"
       }
     })));
+    vi.stubEnv("GAMMASCOPE_API_BASE_URL", "http://fastapi.test/");
     vi.stubGlobal("React", React);
 
     const { default: HeatmapPage } = await import("../app/heatmap/page");
     const page = await HeatmapPage();
 
     expect(renderToStaticMarkup(page)).toContain("Heatmap page shell");
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX", {
+    expect(fetch).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX", {
       cache: "no-store",
       headers: {
-        Accept: "application/json",
-        Cookie: "gammascope_admin=signed-session"
+        Accept: "application/json"
       }
     });
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPY", expect.any(Object));
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=QQQ", expect.any(Object));
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=NDX", expect.any(Object));
-    expect(fetch).toHaveBeenCalledWith("https://gammascope.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=IWM", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPY", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=QQQ", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=NDX", expect.any(Object));
+    expect(fetch).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=IWM", expect.any(Object));
     expect(mocks.heatmapProps).toHaveBeenCalledWith({
       initialPayloads: [
         heatmapPayload("SPX", "SPXW"),

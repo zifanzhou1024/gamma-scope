@@ -385,6 +385,23 @@ describe("dashboard metrics", () => {
     expect(getTransportStatusDisplay("reconnecting")).toEqual({ label: "Reconnecting", tone: "muted" });
   });
 
+  it("derives Moomoo collector detail from the compatibility collector id", () => {
+    expect(deriveDataQuality(seedSnapshot, {
+      schema_version: "1.0.0",
+      source: "ibkr",
+      collector_id: "local-moomoo",
+      status: "connected",
+      ibkr_account_mode: "unknown",
+      message: "Moomoo compatibility snapshot emitted",
+      event_time: "2026-04-30T15:00:00Z",
+      received_time: "2026-04-30T15:00:01Z"
+    }, null, "realtime").collector).toMatchObject({
+      label: "Collector Connected",
+      detail: "Moomoo Source",
+      tone: "ok"
+    });
+  });
+
   it("derives an explicit disconnected transport notice", () => {
     expect(deriveOperationalNotices({ ...seedSnapshot, coverage_status: "full" }, null, "disconnected")).toEqual([
       {

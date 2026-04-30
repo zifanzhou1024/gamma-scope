@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadDashboardSnapshot } from "../lib/snapshotSource";
+import { ADMIN_COOKIE_NAME, createAdminSessionValue } from "../lib/adminSession";
+import { loadDashboardSnapshot } from "../lib/serverSnapshotSource";
 import { seedSnapshot } from "../lib/seedSnapshot";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 
@@ -63,6 +64,33 @@ describe("loadDashboardSnapshot", () => {
       cache: "no-store",
       headers: {
         Accept: "application/json"
+      }
+    });
+  });
+
+  it("forwards the backend admin token for a valid server admin session", async () => {
+    vi.stubEnv("GAMMASCOPE_ADMIN_TOKEN", "api-admin-token");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_USERNAME", "admin");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_PASSWORD", "password");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", "x".repeat(32));
+    const snapshot = apiSnapshot();
+    const fetcher = vi.fn(async () => jsonResponse(snapshot));
+    const sessionCookie = `${ADMIN_COOKIE_NAME}=${encodeURIComponent(createAdminSessionValue())}`;
+
+    await loadDashboardSnapshot({
+      apiBaseUrl: "http://testserver",
+      fetcher,
+      requestHeaders: new Headers({
+        cookie: sessionCookie,
+        host: "gamma.local"
+      })
+    });
+
+    expect(fetcher).toHaveBeenCalledWith("http://testserver/api/spx/0dte/snapshot/latest", {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "X-GammaScope-Admin-Token": "api-admin-token"
       }
     });
   });

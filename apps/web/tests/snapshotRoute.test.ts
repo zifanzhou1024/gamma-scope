@@ -1,14 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsSnapshot } from "../lib/contracts";
 import { seedSnapshot } from "../lib/seedSnapshot";
 
-const loadDashboardSnapshot = vi.fn<() => Promise<AnalyticsSnapshot>>();
+const loadDashboardSnapshot = vi.fn();
 
-vi.mock("../lib/snapshotSource", () => ({
+vi.mock("../lib/serverSnapshotSource", () => ({
   loadDashboardSnapshot
 }));
 
 describe("GET /api/spx/0dte/snapshot/latest", () => {
+  afterEach(() => {
+    loadDashboardSnapshot.mockReset();
+    vi.resetModules();
+  });
+
   it("returns the latest dashboard snapshot without caching", async () => {
     const snapshot = {
       ...seedSnapshot,
@@ -25,9 +30,17 @@ describe("GET /api/spx/0dte/snapshot/latest", () => {
     loadDashboardSnapshot.mockResolvedValue(snapshot);
 
     const { GET } = await import("../app/api/spx/0dte/snapshot/latest/route");
-    const response = await GET();
+    const request = new Request("http://localhost/api/spx/0dte/snapshot/latest", {
+      headers: {
+        cookie: "gammascope_admin=signed-session"
+      }
+    });
+    const response = await GET(request);
 
     await expect(response.json()).resolves.toEqual(snapshot);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(loadDashboardSnapshot).toHaveBeenCalledWith({
+      requestHeaders: request.headers
+    });
   });
 });

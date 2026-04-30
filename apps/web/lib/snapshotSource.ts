@@ -1,15 +1,4 @@
 import type { AnalyticsSnapshot } from "./contracts";
-import { seedSnapshot } from "./seedSnapshot";
-
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
-const SNAPSHOT_PATH = "/api/spx/0dte/snapshot/latest";
-
-type SnapshotFetcher = (input: string, init: RequestInit) => Promise<Response>;
-
-type LoadDashboardSnapshotOptions = {
-  apiBaseUrl?: string;
-  fetcher?: SnapshotFetcher;
-};
 
 type Validator = (value: unknown) => boolean;
 
@@ -61,10 +50,6 @@ const ROW_FIELDS: Record<string, Validator> = {
     ]),
   comparison_status: (value) => isOneOf(value, ["ok", "missing", "stale", "outside_tolerance", "not_supported"])
 };
-
-function snapshotUrl(apiBaseUrl: string): string {
-  return `${apiBaseUrl.replace(/\/+$/, "")}${SNAPSHOT_PATH}`;
-}
 
 export function isAnalyticsSnapshot(payload: unknown): payload is AnalyticsSnapshot {
   if (!isRecord(payload)) {
@@ -128,32 +113,4 @@ function isScenarioParams(value: unknown): value is AnalyticsSnapshot["scenario_
 
 function isOneOf<T extends string>(value: unknown, allowedValues: readonly T[]): value is T {
   return typeof value === "string" && allowedValues.includes(value as T);
-}
-
-export async function loadDashboardSnapshot(options: LoadDashboardSnapshotOptions = {}): Promise<AnalyticsSnapshot> {
-  const apiBaseUrl = options.apiBaseUrl ?? process.env.GAMMASCOPE_API_BASE_URL ?? DEFAULT_API_BASE_URL;
-  const fetcher = options.fetcher ?? fetch;
-
-  try {
-    const response = await fetcher(snapshotUrl(apiBaseUrl), {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json"
-      }
-    });
-
-    if (!response.ok) {
-      return seedSnapshot;
-    }
-
-    const payload = await response.json();
-
-    if (!isAnalyticsSnapshot(payload)) {
-      return seedSnapshot;
-    }
-
-    return payload;
-  } catch {
-    return seedSnapshot;
-  }
 }

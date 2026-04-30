@@ -1,8 +1,38 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadLatestHeatmaps } from "../lib/serverHeatmapSource";
 import type { HeatmapPayload } from "../lib/clientHeatmapSource";
 
 describe("loadLatestHeatmaps", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("loads heatmap symbols directly from FastAPI on the server", async () => {
+    vi.stubEnv("GAMMASCOPE_API_BASE_URL", "http://fastapi.test/");
+    const fetcher = vi.fn(async (input: string) => {
+      const symbol = new URL(input).searchParams.get("symbol");
+
+      return new Response(JSON.stringify(heatmapPayload(toSupportedSymbol(symbol))), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    });
+
+    await loadLatestHeatmaps(fetcher as typeof fetch, new Headers({ host: "gamma.test" }));
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "http://fastapi.test/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: {
+          Accept: "application/json"
+        }
+      })
+    );
+  });
+
   it("keeps all supported panel slots when a symbol request is unavailable", async () => {
     const fetcher = vi.fn(async (input: string) => {
       const symbol = new URL(input).searchParams.get("symbol");

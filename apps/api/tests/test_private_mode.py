@@ -8,6 +8,7 @@ from gammascope_api.ingestion.latest_state_cache import (
     reset_latest_state_cache_override,
     set_latest_state_cache_override,
 )
+from gammascope_api.ingestion.live_snapshot_service import reset_live_snapshot_service_override
 from gammascope_api.main import app
 from gammascope_api.replay.capture import reset_replay_capture_circuit
 from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
@@ -24,6 +25,7 @@ client = TestClient(app)
 
 def setup_function() -> None:
     collector_state.clear()
+    reset_live_snapshot_service_override()
     set_latest_state_cache_override(InMemoryLatestStateCache())
     set_replay_repository_override(NullReplayRepository())
     set_saved_view_repository_override(InMemorySavedViewRepository())
@@ -31,6 +33,7 @@ def setup_function() -> None:
 
 
 def teardown_function() -> None:
+    reset_live_snapshot_service_override()
     reset_latest_state_cache_override()
     reset_replay_repository_override()
     reset_saved_view_repository_override()

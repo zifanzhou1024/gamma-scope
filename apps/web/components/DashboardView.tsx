@@ -33,6 +33,8 @@ import {
   formatStatusLabel,
   formatStrikeRange,
   getAtmMetricValue,
+  getCollectorSourceDetail,
+  getCollectorSourceLabel,
   getRowOperationalStatusDisplays,
   getTransportStatusDisplay,
   getComparisonStatusDisplay,
@@ -100,6 +102,8 @@ export function DashboardView({
   const atmVanna = getAtmMetricValue(snapshot, "custom_vanna");
   const transportDisplay = transportStatus ? getTransportStatusDisplay(transportStatus) : null;
   const operationalNotices = deriveOperationalNotices(snapshot, collectorHealth, transportStatus);
+  const collectorSourceLabel = getCollectorSourceLabel(collectorHealth);
+  const collectorSourceDetail = collectorHealth ? getCollectorSourceDetail(collectorHealth) : null;
   const handleInspectStrike = (strike: number) => setInspectedStrike(strike);
   const handleClearInspection = () => setInspectedStrike(null);
 
@@ -161,7 +165,7 @@ export function DashboardView({
                 <span className={`collectorStatus collectorStatus-${collectorHealth.status}`}>
                   Collector {formatStatusLabel(collectorHealth.status)}
                 </span>
-                <span>IBKR {formatAccountMode(collectorHealth.ibkr_account_mode)}</span>
+                <span>{collectorSourceDetail}</span>
                 <span className="collectorMessage" title={collectorHealth.message}>
                   {collectorHealth.message}
                 </span>
@@ -284,17 +288,23 @@ export function DashboardView({
 
       {inspection ? <ChartInspectionBar inspection={inspection} onClear={handleClearInspection} /> : null}
 
-      <OptionChainSection snapshot={chainSnapshot ?? snapshot} initialChainSide={initialChainSide} />
+      <OptionChainSection
+        snapshot={chainSnapshot ?? snapshot}
+        initialChainSide={initialChainSide}
+        comparisonSourceLabel={collectorSourceLabel}
+      />
     </main>
   );
 }
 
 const OptionChainSection = React.memo(function OptionChainSection({
   snapshot,
-  initialChainSide
+  initialChainSide,
+  comparisonSourceLabel
 }: {
   snapshot: AnalyticsSnapshot;
   initialChainSide: ChainSide;
+  comparisonSourceLabel: string;
 }) {
   const [chainSide, setChainSide] = useState<ChainSide>(initialChainSide);
   const rows = sortRowsByStrike(snapshot.rows);
@@ -368,8 +378,13 @@ const OptionChainSection = React.memo(function OptionChainSection({
                     <td className="compactOptional">{formatPrice(row.call?.bid)}</td>
                     <td className="compactOptional">{formatPrice(row.call?.ask)}</td>
                     <td>{formatPrice(row.call?.mid)}</td>
-                    <IvCell row={row.call} />
-                    <RiskCell row={row.call} maxGamma={maxGamma} side="call" />
+                    <IvCell row={row.call} comparisonSourceLabel={comparisonSourceLabel} />
+                    <RiskCell
+                      row={row.call}
+                      maxGamma={maxGamma}
+                      side="call"
+                      comparisonSourceLabel={comparisonSourceLabel}
+                    />
                     <InterestCell value={row.call?.open_interest} maxOpenInterest={maxOpenInterest} side="call" />
                   </>
                 ) : null}
@@ -382,8 +397,13 @@ const OptionChainSection = React.memo(function OptionChainSection({
                     <td className="compactOptional">{formatPrice(row.put?.bid)}</td>
                     <td className="compactOptional">{formatPrice(row.put?.ask)}</td>
                     <td>{formatPrice(row.put?.mid)}</td>
-                    <IvCell row={row.put} />
-                    <RiskCell row={row.put} maxGamma={maxGamma} side="put" />
+                    <IvCell row={row.put} comparisonSourceLabel={comparisonSourceLabel} />
+                    <RiskCell
+                      row={row.put}
+                      maxGamma={maxGamma}
+                      side="put"
+                      comparisonSourceLabel={comparisonSourceLabel}
+                    />
                     <InterestCell value={row.put?.open_interest} maxOpenInterest={maxOpenInterest} side="put" />
                   </>
                 ) : null}
@@ -654,21 +674,20 @@ function formatVannaFlipDetail(level: ReturnType<typeof deriveMarketMap>["vannaF
   return formatMarketLevel(level, "decimal");
 }
 
-function formatAccountMode(accountMode: CollectorHealth["ibkr_account_mode"]): string {
-  if (accountMode === "unknown") {
-    return "Unknown";
-  }
-
-  return formatStatusLabel(accountMode);
-}
-
-function IvCell({ row }: { row: AnalyticsSnapshot["rows"][number] | null | undefined }) {
+function IvCell({
+  row,
+  comparisonSourceLabel
+}: {
+  row: AnalyticsSnapshot["rows"][number] | null | undefined;
+  comparisonSourceLabel: string;
+}) {
   return (
     <td className="smallOptional comparisonCell">
       <span className="cellMain">{formatPercent(row?.custom_iv)}</span>
       <OperationalLine row={row} />
       <ComparisonLine
         row={row}
+        sourceLabel={comparisonSourceLabel}
         hasComparisonValue={row?.ibkr_iv != null || row?.iv_diff != null}
         ibkrValue={formatPercent(row?.ibkr_iv)}
         diffValue={formatIvDiffBasisPoints(row?.iv_diff)}
@@ -698,11 +717,13 @@ function OperationalLine({ row }: { row: AnalyticsSnapshot["rows"][number] | nul
 function RiskCell({
   row,
   maxGamma,
-  side
+  side,
+  comparisonSourceLabel
 }: {
   row: AnalyticsSnapshot["rows"][number] | null | undefined;
   maxGamma: number;
   side: "call" | "put";
+  comparisonSourceLabel: string;
 }) {
   const gamma = row?.custom_gamma ?? null;
   const intensity = gamma == null || maxGamma === 0 ? 0 : Math.min(1, Math.abs(gamma) / maxGamma);
@@ -717,6 +738,7 @@ function RiskCell({
       <span className="cellMain">{formatNumber(gamma, 5)}</span>
       <ComparisonLine
         row={row}
+        sourceLabel={comparisonSourceLabel}
         hasComparisonValue={row?.ibkr_gamma != null || row?.gamma_diff != null}
         ibkrValue={formatNumber(row?.ibkr_gamma, 5)}
         diffValue={formatGammaDiff(row?.gamma_diff)}
@@ -727,11 +749,13 @@ function RiskCell({
 
 function ComparisonLine({
   row,
+  sourceLabel,
   hasComparisonValue,
   ibkrValue,
   diffValue
 }: {
   row: AnalyticsSnapshot["rows"][number] | null | undefined;
+  sourceLabel: string;
   hasComparisonValue: boolean;
   ibkrValue: string;
   diffValue: string;
@@ -741,18 +765,19 @@ function ComparisonLine({
   }
 
   const status = getComparisonStatusDisplay(row.comparison_status);
+  const statusLabel = status.label === "No IBKR" && sourceLabel !== "IBKR" ? `No ${sourceLabel}` : status.label;
 
   if (status.tone !== "ok" || !hasComparisonValue) {
     return (
       <span className="comparisonLine">
-        <span className={`comparisonPill comparison-${status.tone}`}>{status.label}</span>
+        <span className={`comparisonPill comparison-${status.tone}`}>{statusLabel}</span>
       </span>
     );
   }
 
   return (
     <span className="comparisonLine">
-      {ibkrValue !== "—" ? <span className="comparisonIbkr">IBKR {ibkrValue}</span> : null}
+      {ibkrValue !== "—" ? <span className="comparisonIbkr">{sourceLabel} {ibkrValue}</span> : null}
       {diffValue !== "—" ? <span className="comparisonPill comparison-ok">{diffValue}</span> : null}
     </span>
   );

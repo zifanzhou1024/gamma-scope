@@ -1,8 +1,9 @@
 import seed from "../../../packages/contracts/fixtures/experimental-analytics.seed.json";
 import { isExperimentalAnalytics } from "./clientExperimentalAnalyticsSource";
 import type { ExperimentalAnalytics } from "./contracts";
+import { backendApiUrl, backendJsonHeaders } from "./serverBackendFetch";
 
-const EXPERIMENTAL_LATEST_PROXY_PATH = "/api/spx/0dte/experimental/latest";
+const EXPERIMENTAL_LATEST_PATH = "/api/spx/0dte/experimental/latest";
 
 const seedExperimentalAnalytics = seed as ExperimentalAnalytics;
 
@@ -11,9 +12,9 @@ export async function loadLatestExperimentalAnalytics(
   requestHeaders?: Pick<Headers, "get">
 ): Promise<ExperimentalAnalytics> {
   try {
-    const response = await fetcher(sameOriginProxyUrl(requestHeaders), {
+    const response = await fetcher(backendApiUrl(EXPERIMENTAL_LATEST_PATH), {
       cache: "no-store",
-      headers: proxyRequestHeaders(requestHeaders)
+      headers: backendJsonHeaders(requestHeaders)
     });
 
     if (!response.ok) {
@@ -25,24 +26,4 @@ export async function loadLatestExperimentalAnalytics(
   } catch {
     return seedExperimentalAnalytics;
   }
-}
-
-function sameOriginProxyUrl(requestHeaders?: Pick<Headers, "get">): string {
-  const host = requestHeaders?.get("x-forwarded-host") ?? requestHeaders?.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders?.get("x-forwarded-proto") ?? "http";
-
-  return `${protocol}://${host}${EXPERIMENTAL_LATEST_PROXY_PATH}`;
-}
-
-function proxyRequestHeaders(requestHeaders?: Pick<Headers, "get">): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/json"
-  };
-  const cookie = requestHeaders?.get("cookie");
-
-  if (cookie) {
-    headers.Cookie = cookie;
-  }
-
-  return headers;
 }

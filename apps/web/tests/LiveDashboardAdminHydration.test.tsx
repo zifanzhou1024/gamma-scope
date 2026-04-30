@@ -11,8 +11,9 @@ const ADMIN_ENV = {
 } as const;
 
 const cookieValue = vi.fn(() => undefined as string | undefined);
+const requestHeaders = new Headers({ host: "gamma.test" });
 
-vi.mock("../lib/snapshotSource", () => ({
+vi.mock("../lib/serverSnapshotSource", () => ({
   loadDashboardSnapshot: vi.fn(async () => seedSnapshot)
 }));
 
@@ -21,6 +22,7 @@ vi.mock("../components/DashboardChart", () => ({
 }));
 
 vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => requestHeaders),
   cookies: vi.fn(async () => ({
     get: vi.fn((name: string) => {
       const value = cookieValue();
