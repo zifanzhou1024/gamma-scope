@@ -1,5 +1,6 @@
+import { headers } from "next/headers";
 import { ReplayDashboard } from "../../components/ReplayDashboard";
-import { loadDashboardSnapshot } from "../../lib/snapshotSource";
+import { loadDashboardSnapshot } from "../../lib/serverSnapshotSource";
 
 interface ReplayPageProps {
   searchParams?: Promise<{
@@ -8,7 +9,7 @@ interface ReplayPageProps {
 }
 
 export default async function ReplayPage({ searchParams }: ReplayPageProps) {
-  const snapshot = await loadDashboardSnapshot();
+  const snapshot = await loadDashboardSnapshot({ requestHeaders: await headers() });
   const params = await searchParams;
   const requestedSessionId = firstSearchParamValue(params?.session_id);
 

@@ -3,8 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { seedSnapshot } from "../lib/seedSnapshot";
 
-vi.mock("../lib/snapshotSource", () => ({
-  loadDashboardSnapshot: vi.fn(async () => seedSnapshot)
+const requestHeaders = new Headers({ host: "gamma.test" });
+const loadDashboardSnapshot = vi.fn(async () => seedSnapshot);
+
+vi.mock("../lib/serverSnapshotSource", () => ({
+  loadDashboardSnapshot
+}));
+
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => requestHeaders)
 }));
 
 vi.mock("../components/ReplayDashboard", () => ({
@@ -23,6 +30,9 @@ describe("ReplayPage", () => {
       })
     });
 
+    expect(loadDashboardSnapshot).toHaveBeenCalledWith({
+      requestHeaders
+    });
     expect(renderToStaticMarkup(page)).toContain("data-requested-session-id=\"import-session-ready\"");
   });
 });

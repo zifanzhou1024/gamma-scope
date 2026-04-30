@@ -12,6 +12,7 @@ from gammascope_api.ingestion.latest_state_cache import (
     set_latest_state_cache_override,
 )
 from gammascope_api.ingestion.live_snapshot import reset_live_snapshot_memory
+from gammascope_api.ingestion.live_snapshot_service import reset_live_snapshot_service_override
 from gammascope_api.main import app
 from gammascope_api.routes import experimental as experimental_routes
 
@@ -22,10 +23,12 @@ client = TestClient(app)
 def setup_function() -> None:
     collector_state.clear()
     reset_live_snapshot_memory()
+    reset_live_snapshot_service_override()
     set_latest_state_cache_override(InMemoryLatestStateCache())
 
 
 def teardown_function() -> None:
+    reset_live_snapshot_service_override()
     reset_latest_state_cache_override()
 
 

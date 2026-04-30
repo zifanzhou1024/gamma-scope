@@ -12,12 +12,15 @@ const ADMIN_ENV = {
 
 const cookieValue = vi.fn(() => undefined as string | undefined);
 const liveDashboardProps = vi.fn();
+const requestHeaders = new Headers({ host: "gamma.test" });
+const loadDashboardSnapshot = vi.fn(async () => seedSnapshot);
 
-vi.mock("../lib/snapshotSource", () => ({
-  loadDashboardSnapshot: vi.fn(async () => seedSnapshot)
+vi.mock("../lib/serverSnapshotSource", () => ({
+  loadDashboardSnapshot
 }));
 
 vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => requestHeaders),
   cookies: vi.fn(async () => ({
     get: vi.fn((name: string) => {
       const value = cookieValue();
@@ -45,6 +48,8 @@ describe("Home page", () => {
     vi.unstubAllEnvs();
     vi.resetModules();
     cookieValue.mockReset();
+    loadDashboardSnapshot.mockReset();
+    loadDashboardSnapshot.mockResolvedValue(seedSnapshot);
     liveDashboardProps.mockReset();
   });
 
@@ -60,6 +65,9 @@ describe("Home page", () => {
     const page = await Home();
 
     expect(renderToStaticMarkup(page)).toContain("Live dashboard");
+    expect(loadDashboardSnapshot).toHaveBeenCalledWith({
+      requestHeaders
+    });
     expect(liveDashboardProps).toHaveBeenCalledWith({
       initialSnapshot: seedSnapshot,
       initialAdminSession: {

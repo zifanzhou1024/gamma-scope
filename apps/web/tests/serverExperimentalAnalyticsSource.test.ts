@@ -1,12 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import seed from "../../../packages/contracts/fixtures/experimental-analytics.seed.json";
+import { ADMIN_COOKIE_NAME, createAdminSessionValue } from "../lib/adminSession";
 import { loadLatestExperimentalAnalytics } from "../lib/serverExperimentalAnalyticsSource";
 import type { ExperimentalAnalytics } from "../lib/contracts";
 
 const seedPayload = seed as ExperimentalAnalytics;
 
 describe("loadLatestExperimentalAnalytics", () => {
-  it("loads latest experimental analytics from the same-origin proxy URL", async () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("loads latest experimental analytics directly from FastAPI on the server", async () => {
+    vi.stubEnv("GAMMASCOPE_API_BASE_URL", "http://fastapi.test/");
     const payload: ExperimentalAnalytics = {
       ...seedPayload,
       meta: {
@@ -26,7 +32,7 @@ describe("loadLatestExperimentalAnalytics", () => {
       "x-forwarded-proto": "https"
     }))).resolves.toEqual(payload);
 
-    expect(fetcher).toHaveBeenCalledWith("https://gamma.example/api/spx/0dte/experimental/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/experimental/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -34,24 +40,31 @@ describe("loadLatestExperimentalAnalytics", () => {
     });
   });
 
-  it("forwards the request cookie when present", async () => {
+  it("forwards the backend admin token for a valid server admin session", async () => {
+    vi.stubEnv("GAMMASCOPE_API_BASE_URL", "http://fastapi.test");
+    vi.stubEnv("GAMMASCOPE_ADMIN_TOKEN", "api-admin-token");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_USERNAME", "admin");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_PASSWORD", "password");
+    vi.stubEnv("GAMMASCOPE_WEB_ADMIN_SESSION_SECRET", "x".repeat(32));
+
     const fetcher = vi.fn(async () => new Response(JSON.stringify(seedPayload), {
       status: 200,
       headers: {
         "Content-Type": "application/json"
       }
     }));
+    const sessionCookie = `${ADMIN_COOKIE_NAME}=${encodeURIComponent(createAdminSessionValue())}`;
 
     await loadLatestExperimentalAnalytics(fetcher as typeof fetch, new Headers({
       host: "gamma.local",
-      cookie: "session=abc"
+      cookie: sessionCookie
     }));
 
-    expect(fetcher).toHaveBeenCalledWith("http://gamma.local/api/spx/0dte/experimental/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://fastapi.test/api/spx/0dte/experimental/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json",
-        Cookie: "session=abc"
+        "X-GammaScope-Admin-Token": "api-admin-token"
       }
     });
   });

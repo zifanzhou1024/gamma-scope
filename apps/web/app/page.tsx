@@ -1,10 +1,10 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { LiveDashboard } from "../components/LiveDashboard";
 import { ADMIN_COOKIE_NAME, adminLoginAvailable, parseAdminSessionValue } from "../lib/adminSession";
-import { loadDashboardSnapshot } from "../lib/snapshotSource";
+import { loadDashboardSnapshot } from "../lib/serverSnapshotSource";
 
 export default async function Home() {
-  const snapshot = await loadDashboardSnapshot();
+  const snapshot = await loadDashboardSnapshot({ requestHeaders: await headers() });
   const initialAdminSession = await loadInitialAdminSession();
 
   return <LiveDashboard initialSnapshot={snapshot} initialAdminSession={initialAdminSession} />;

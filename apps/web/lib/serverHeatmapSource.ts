@@ -1,6 +1,7 @@
 import { HEATMAP_SYMBOLS, isHeatmapPayload, type HeatmapPayload, type HeatmapSymbol } from "./clientHeatmapSource";
+import { backendApiUrl, backendJsonHeaders } from "./serverBackendFetch";
 
-const HEATMAP_PROXY_PATH = "/api/spx/0dte/heatmap/latest";
+const HEATMAP_PATH = "/api/spx/0dte/heatmap/latest";
 
 export async function loadLatestHeatmap(
   fetcher: typeof fetch = fetch,
@@ -28,9 +29,9 @@ async function loadLatestHeatmapForSymbol(
   const params = new URLSearchParams({ metric: "gex", symbol });
 
   try {
-    const response = await fetcher(`${sameOriginProxyUrl(requestHeaders)}?${params.toString()}`, {
+    const response = await fetcher(backendApiUrl(HEATMAP_PATH, params), {
       cache: "no-store",
-      headers: proxyRequestHeaders(requestHeaders)
+      headers: backendJsonHeaders(requestHeaders)
     });
 
     if (!response.ok) {
@@ -69,24 +70,4 @@ function unavailableHeatmap(symbol: HeatmapSymbol): HeatmapPayload {
       belowWall: null
     }
   };
-}
-
-function sameOriginProxyUrl(requestHeaders?: Pick<Headers, "get">): string {
-  const host = requestHeaders?.get("x-forwarded-host") ?? requestHeaders?.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders?.get("x-forwarded-proto") ?? "http";
-
-  return `${protocol}://${host}${HEATMAP_PROXY_PATH}`;
-}
-
-function proxyRequestHeaders(requestHeaders?: Pick<Headers, "get">): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/json"
-  };
-  const cookie = requestHeaders?.get("cookie");
-
-  if (cookie) {
-    headers.Cookie = cookie;
-  }
-
-  return headers;
 }
