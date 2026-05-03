@@ -161,6 +161,53 @@ def test_replay_experimental_flow_uses_replay_repository() -> None:
     assert payload["replayValidation"]["hitRate"] == 1.0
 
 
+def test_replay_experimental_flow_delegates_to_replay_stream_resolver(monkeypatch) -> None:
+    calls: list[dict[str, str | None]] = []
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append(
+            {
+                "session_id": session_id,
+                "at": at,
+                "source_snapshot_id": source_snapshot_id,
+            }
+        )
+        return [
+            route_snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+            route_snapshot("2026-04-24T15:30:05Z", 140, spot=5200),
+            route_snapshot("2026-04-24T15:35:05Z", 155, spot=5208),
+        ]
+
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots, raising=False)
+    set_replay_repository_override(_FailingReplayRepository())
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={
+            "session_id": "import-session-ready",
+            "at": "2026-04-24T15:35:00Z",
+            "source_snapshot_id": "src-duplicate-later",
+            "horizon_minutes": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        {
+            "session_id": "import-session-ready",
+            "at": "2026-04-24T15:35:00Z",
+            "source_snapshot_id": "src-duplicate-later",
+        }
+    ]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+
+
 def test_replay_experimental_flow_returns_503_when_replay_repository_unavailable() -> None:
     set_replay_repository_override(_FailingReplayRepository())
 

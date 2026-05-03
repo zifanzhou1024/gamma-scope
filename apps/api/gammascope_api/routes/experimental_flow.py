@@ -11,7 +11,7 @@ from gammascope_api.experimental_flow.service import (
 )
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.live_snapshot_service import MOOMOO_LIVE_REPLAY_SESSION_IDS, get_live_snapshot_service
-from gammascope_api.replay.dependencies import get_replay_repository
+from gammascope_api.routes.replay import replay_stream_snapshots
 
 
 router = APIRouter()
@@ -30,10 +30,11 @@ def get_latest_experimental_flow(x_gammascope_admin_token: str | None = Header(d
 def get_replay_experimental_flow(
     session_id: str,
     at: str | None = None,
+    source_snapshot_id: str | None = None,
     horizon_minutes: int = 5,
 ) -> dict:
     try:
-        snapshots = get_replay_repository().replay_snapshots(session_id=session_id, at=at)
+        snapshots = replay_stream_snapshots(session_id=session_id, at=at, source_snapshot_id=source_snapshot_id)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Replay persistence unavailable") from exc
     return build_replay_experimental_flow_payload(snapshots, horizon_minutes=horizon_minutes)

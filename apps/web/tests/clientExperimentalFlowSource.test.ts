@@ -197,13 +197,14 @@ describe("loadClientReplayExperimentalFlow", () => {
     const request: ExperimentalFlowReplayRequest = {
       session_id: "session/a",
       at: "2026-04-24T15:30:00Z",
-      horizon_minutes: 15
+      horizon_minutes: 15,
+      source_snapshot_id: "snapshot-a"
     };
 
     await loadClientReplayExperimentalFlow(request, { fetcher });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=15&at=2026-04-24T15%3A30%3A00Z",
+      "/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=15&at=2026-04-24T15%3A30%3A00Z&source_snapshot_id=snapshot-a",
       {
         cache: "no-store",
         headers: {

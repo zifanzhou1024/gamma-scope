@@ -154,7 +154,7 @@ describe("GET /api/spx/0dte/experimental-flow/replay", () => {
 
     const { GET } = await import("../app/api/spx/0dte/experimental-flow/replay/route");
     const response = await GET(new Request(
-      "http://localhost/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15:40:00Z&ignored=1"
+      "http://localhost/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15:40:00Z&source_snapshot_id=snapshot-a&ignored=1"
     ));
 
     expect(response.status).toBe(202);
@@ -162,7 +162,7 @@ describe("GET /api/spx/0dte/experimental-flow/replay", () => {
     expect(response.headers.get("Content-Type")).toBe("text/plain");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15%3A40%3A00Z",
+      "http://127.0.0.1:8000/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15%3A40%3A00Z&source_snapshot_id=snapshot-a",
       {
         cache: "no-store",
         headers: {

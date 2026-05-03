@@ -13,6 +13,7 @@ export type ExperimentalFlowReplayRequest = {
   session_id: string;
   horizon_minutes?: 5 | 15 | 30;
   at?: string;
+  source_snapshot_id?: string;
 };
 
 type Validator = (value: unknown) => boolean;
@@ -60,6 +61,10 @@ export async function loadClientReplayExperimentalFlow(
 
   if (request.at) {
     params.set("at", request.at);
+  }
+
+  if (request.source_snapshot_id) {
+    params.set("source_snapshot_id", request.source_snapshot_id);
   }
 
   return loadExperimentalFlow(`${FLOW_REPLAY_PATH}?${params.toString()}`, options);
