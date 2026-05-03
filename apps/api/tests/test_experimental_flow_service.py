@@ -73,6 +73,34 @@ def test_build_latest_experimental_flow_payload_waits_for_newer_previous_snapsho
     assert later["contractRows"][0]["aggressor"] == "buy"
 
 
+def test_build_latest_experimental_flow_payload_uses_bootstrap_previous_snapshot() -> None:
+    payload = build_latest_experimental_flow_payload(
+        snapshot("2026-04-24T15:30:05Z", 150),
+        previous_snapshot=snapshot("2026-04-24T15:30:00Z", 100),
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_build_latest_experimental_flow_payload_uses_bootstrap_after_empty_same_snapshot_seed() -> None:
+    current = snapshot("2026-04-24T15:30:05Z", 150)
+
+    empty_seed = build_latest_experimental_flow_payload(current)
+    payload = build_latest_experimental_flow_payload(
+        current,
+        previous_snapshot=snapshot("2026-04-24T15:30:00Z", 100),
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert empty_seed["meta"]["previousSnapshotTime"] is None
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
 def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_when_latest_has_no_rows() -> None:
     build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
     active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
@@ -91,6 +119,24 @@ def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_wh
     assert reused["contractRows"][0]["volumeDelta"] == 50
 
 
+def test_build_latest_experimental_flow_payload_reuses_last_payload_with_rows_when_latest_has_no_rows() -> None:
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+    active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 100))
+
+    empty_latest = {
+        **snapshot("2026-04-24T15:30:10Z", 100),
+        "coverage_status": "empty",
+        "rows": [],
+    }
+    reused = build_latest_experimental_flow_payload(empty_latest)
+
+    ExperimentalFlow.model_validate(reused)
+    assert reused["meta"]["currentSnapshotTime"] == active_payload["meta"]["currentSnapshotTime"]
+    assert reused["meta"]["previousSnapshotTime"] == active_payload["meta"]["previousSnapshotTime"]
+    assert reused["summary"]["estimatedBuyContracts"] == 0
+    assert reused["contractRows"][0]["volumeDelta"] == 0
+
+
 def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_for_repeated_snapshot() -> None:
     build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
     active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
@@ -103,16 +149,16 @@ def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_fo
     assert repeated["contractRows"][0]["volumeDelta"] == 50
 
 
-def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_when_newer_snapshot_has_no_flow() -> None:
+def test_build_latest_experimental_flow_payload_keeps_newer_payload_with_rows_when_newer_snapshot_has_no_flow() -> None:
     build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
-    active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
 
     no_flow = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:10Z", 150))
 
     ExperimentalFlow.model_validate(no_flow)
-    assert no_flow["meta"]["currentSnapshotTime"] == active_payload["meta"]["currentSnapshotTime"]
-    assert no_flow["summary"]["estimatedBuyContracts"] == 50
-    assert no_flow["contractRows"][0]["volumeDelta"] == 50
+    assert no_flow["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:10Z"
+    assert no_flow["summary"]["estimatedBuyContracts"] == 0
+    assert no_flow["contractRows"][0]["volumeDelta"] == 0
 
 
 def test_replay_payload_builds_validation_rows() -> None:

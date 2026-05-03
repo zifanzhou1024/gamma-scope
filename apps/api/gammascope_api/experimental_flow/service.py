@@ -25,15 +25,26 @@ def reset_experimental_flow_memory() -> None:
     _latest_payloads.clear()
 
 
-def build_latest_experimental_flow_payload(current_snapshot: dict[str, Any]) -> dict[str, Any]:
+def has_latest_payload_for_session(session_id: str) -> bool:
+    return session_id in _latest_payloads
+
+
+def build_latest_experimental_flow_payload(
+    current_snapshot: dict[str, Any],
+    *,
+    previous_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     session_id = _text(current_snapshot.get("session_id")) or "unknown-session"
     current_time = _text(current_snapshot.get("snapshot_time"))
-    previous_snapshot = _latest_snapshots.get(session_id)
+    stored_snapshot = _latest_snapshots.get(session_id)
+    previous_snapshot = _newest_snapshot_before(current_time, stored_snapshot, previous_snapshot)
 
     if not _snapshot_has_rows(current_snapshot):
         return _cached_latest_payload_or_empty(session_id, current_snapshot)
 
     if previous_snapshot is None:
+        if _current_not_newer_than_stored(current_time, stored_snapshot):
+            return _cached_latest_payload_or_empty(session_id, current_snapshot)
         _latest_snapshots[session_id] = current_snapshot
         return _empty_payload(current_snapshot, mode="latest", previous_snapshot=None)
 
@@ -43,7 +54,7 @@ def build_latest_experimental_flow_payload(current_snapshot: dict[str, Any]) -> 
 
     payload = build_experimental_flow_payload(current_snapshot, previous_snapshot, mode="latest")
     _latest_snapshots[session_id] = current_snapshot
-    if _payload_has_estimated_flow(payload):
+    if _payload_has_rows(payload):
         _latest_payloads[session_id] = payload
         return payload
     return _cached_latest_payload_or_empty(session_id, current_snapshot, fallback=payload)
@@ -144,16 +155,46 @@ def _cached_latest_payload_or_empty(
     return _empty_payload(current_snapshot, mode="latest", previous_snapshot=None)
 
 
-def _payload_has_estimated_flow(payload: dict[str, Any]) -> bool:
-    summary = payload.get("summary")
-    if not isinstance(summary, dict):
-        return False
-    return (_number(summary.get("estimatedBuyContracts")) or 0) > 0 or (_number(summary.get("estimatedSellContracts")) or 0) > 0
+def _payload_has_rows(payload: dict[str, Any]) -> bool:
+    contract_rows = payload.get("contractRows")
+    strike_rows = payload.get("strikeRows")
+    return (isinstance(contract_rows, list) and len(contract_rows) > 0) or (
+        isinstance(strike_rows, list) and len(strike_rows) > 0
+    )
 
 
 def _snapshot_has_rows(snapshot: dict[str, Any]) -> bool:
     rows = snapshot.get("rows")
     return isinstance(rows, list) and len(rows) > 0
+
+
+def _newest_snapshot_before(current_time: str | None, *snapshots: dict[str, Any] | None) -> dict[str, Any] | None:
+    current = _safe_parse_time(current_time) if current_time is not None else None
+    if current is None:
+        return None
+
+    candidates = []
+    for snapshot in snapshots:
+        if snapshot is None or not _snapshot_has_rows(snapshot):
+            continue
+        snapshot_time = _text(snapshot.get("snapshot_time"))
+        parsed_snapshot_time = _safe_parse_time(snapshot_time) if snapshot_time is not None else None
+        if parsed_snapshot_time is not None and parsed_snapshot_time < current:
+            candidates.append((parsed_snapshot_time, snapshot))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def _current_not_newer_than_stored(current_time: str | None, stored_snapshot: dict[str, Any] | None) -> bool:
+    if stored_snapshot is None or current_time is None:
+        return False
+    stored_time = _text(stored_snapshot.get("snapshot_time"))
+    parsed_current_time = _safe_parse_time(current_time)
+    parsed_stored_time = _safe_parse_time(stored_time) if stored_time is not None else None
+    if parsed_current_time is None or parsed_stored_time is None:
+        return False
+    return parsed_current_time <= parsed_stored_time
 
 
 def _meta(current_snapshot: dict[str, Any], *, previous_snapshot: dict[str, Any] | None, mode: Mode) -> dict[str, Any]:

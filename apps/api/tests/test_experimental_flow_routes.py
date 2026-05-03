@@ -138,6 +138,91 @@ def test_experimental_flow_latest_route_computes_delta_after_two_live_cycles() -
     assert payload["contractRows"][0]["aggressor"] == "buy"
 
 
+def test_experimental_flow_latest_route_bootstraps_previous_snapshot_from_replay_stream(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService(_snapshot("2026-04-24T15:30:05Z", 150))
+    calls = []
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append({"session_id": session_id, "at": at, "source_snapshot_id": source_snapshot_id})
+        return [_snapshot("2026-04-24T15:30:00Z", 100)]
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    assert calls == [{"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None}]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_experimental_flow_latest_route_bootstraps_after_empty_same_snapshot_seed(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService(_snapshot("2026-04-24T15:30:05Z", 150))
+    calls = []
+    replay_batches = [[], [_snapshot("2026-04-24T15:30:00Z", 100)]]
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append({"session_id": session_id, "at": at, "source_snapshot_id": source_snapshot_id})
+        return replay_batches.pop(0)
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    first_response = client.get("/api/spx/0dte/experimental-flow/latest")
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert first_response.status_code == 200
+    assert response.status_code == 200
+    assert calls == [
+        {"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None},
+        {"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None},
+    ]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_experimental_flow_latest_route_uses_latest_replay_pair_when_live_snapshot_has_no_rows(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService({**_snapshot("2026-04-24T15:30:10Z", 150), "rows": []})
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        return [
+            _snapshot("2026-04-24T15:30:00Z", 100),
+            _snapshot("2026-04-24T15:30:05Z", 150),
+        ]
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:05Z"
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
 def test_replay_experimental_flow_uses_replay_repository() -> None:
     repository = _ReplayRepositoryWithSnapshots(
         [
