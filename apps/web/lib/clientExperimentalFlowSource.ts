@@ -11,7 +11,7 @@ type LoadClientExperimentalFlowOptions = {
 
 export type ExperimentalFlowReplayRequest = {
   session_id: string;
-  horizon_minutes: 5 | 15 | 30;
+  horizon_minutes?: 5 | 15 | 30;
   at?: string;
 };
 
@@ -53,7 +53,7 @@ export async function loadClientReplayExperimentalFlow(
 ): Promise<ExperimentalFlow | null> {
   const params = new URLSearchParams({
     session_id: request.session_id,
-    horizon_minutes: String(request.horizon_minutes)
+    horizon_minutes: String(request.horizon_minutes ?? 5)
   });
 
   if (request.at) {

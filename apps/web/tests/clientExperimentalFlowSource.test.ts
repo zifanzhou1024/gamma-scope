@@ -104,4 +104,20 @@ describe("loadClientReplayExperimentalFlow", () => {
       }
     );
   });
+
+  it("defaults omitted replay horizon to five minutes", async () => {
+    const fetcher = vi.fn(async () => jsonResponse(seedPayload));
+
+    await loadClientReplayExperimentalFlow({ session_id: "session/a" }, { fetcher });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=5",
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json"
+        }
+      }
+    );
+  });
 });
