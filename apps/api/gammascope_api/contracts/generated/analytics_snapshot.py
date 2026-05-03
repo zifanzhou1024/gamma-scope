@@ -81,12 +81,19 @@ class Row(BaseModel):
     bid: float | None
     ask: float | None
     mid: float | None
+    last: float | None = None
+    bid_size: confloat(ge=0.0) | None = None
+    ask_size: confloat(ge=0.0) | None = None
+    volume: confloat(ge=0.0) | None = None
     open_interest: conint(ge=0) | None
     custom_iv: confloat(ge=0.0) | None
     custom_gamma: float | None
     custom_vanna: float | None
     ibkr_iv: float | None
+    ibkr_delta: float | None = None
     ibkr_gamma: float | None
+    ibkr_vega: float | None = None
+    ibkr_theta: float | None = None
     ibkr_vanna: float | None
     iv_diff: float | None
     gamma_diff: float | None

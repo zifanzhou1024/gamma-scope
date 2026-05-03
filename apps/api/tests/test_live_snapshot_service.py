@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from gammascope_api.contracts.generated.collector_events import CollectorEvents
 from gammascope_api.ingestion.collector_state import CollectorState
+from gammascope_api.ingestion.live_snapshot import build_spx_dashboard_live_snapshot
 from gammascope_api.ingestion.live_snapshot_service import LiveSnapshotService
 
 
@@ -156,6 +157,29 @@ def test_live_snapshot_service_maps_heatmap_symbols_to_live_sessions(monkeypatch
     assert requested == ["moomoo-spy-0dte-live"]
 
 
+def test_live_snapshot_rows_preserve_raw_quote_fields() -> None:
+    state = CollectorState()
+    for event in [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("moomoo-spx-0dte-live", "SPX", 5200.25, "2026-04-24T15:30:01Z"),
+        _contract_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", "SPX", "call", 5200),
+        _option_event("moomoo-spx-0dte-live", "SPX-2026-04-24-C-5200", 9.9, 10.1),
+    ]:
+        state.ingest(CollectorEvents.model_validate(event))
+
+    snapshot = build_spx_dashboard_live_snapshot(state)
+
+    assert snapshot is not None
+    row = snapshot["rows"][0]
+    assert row["last"] == 10.0
+    assert row["bid_size"] == 10
+    assert row["ask_size"] == 12
+    assert row["volume"] == 400
+    assert row["ibkr_delta"] == 0.51
+    assert row["ibkr_vega"] == 0.9
+    assert row["ibkr_theta"] == -1.0
+
+
 def _spx_events(*, spot: float, event_time: str) -> list[dict[str, object]]:
     return [
         _health_event(event_time),
@@ -197,19 +221,30 @@ def _underlying_event(session_id: str, symbol: str, spot: float, event_time: str
 def _contract_event(
     session_id: str,
     contract_id: str,
-    right: str,
-    event_time: str,
+    *args: object,
 ) -> dict[str, object]:
+    if len(args) == 2:
+        right, event_time = args
+        symbol = "SPX"
+        strike = 5200
+    elif len(args) == 3:
+        symbol, right, strike = args
+        event_time = "2026-04-24T15:30:01Z"
+    elif len(args) == 4:
+        symbol, right, strike, event_time = args
+    else:
+        raise TypeError("_contract_event expects right/event_time or symbol/right/strike[/event_time]")
+
     return {
         "schema_version": "1.0.0",
         "source": "ibkr",
         "session_id": session_id,
         "contract_id": contract_id,
         "ibkr_con_id": abs(hash(contract_id)) % 1_000_000,
-        "symbol": "SPX",
+        "symbol": symbol,
         "expiry": "2026-04-24",
         "right": right,
-        "strike": 5200,
+        "strike": strike,
         "multiplier": 100,
         "exchange": "CBOE",
         "currency": "USD",
@@ -217,21 +252,33 @@ def _contract_event(
     }
 
 
-def _option_event(session_id: str, contract_id: str, event_time: str) -> dict[str, object]:
+def _option_event(session_id: str, contract_id: str, *args: object) -> dict[str, object]:
+    if len(args) == 1:
+        event_time = args[0]
+        bid = 9.9
+        ask = 10.1
+    elif len(args) == 2:
+        bid, ask = args
+        event_time = "2026-04-24T15:30:01Z"
+    elif len(args) == 3:
+        bid, ask, event_time = args
+    else:
+        raise TypeError("_option_event expects event_time or bid/ask[/event_time]")
+
     return {
         "schema_version": "1.0.0",
         "source": "ibkr",
         "session_id": session_id,
         "contract_id": contract_id,
-        "bid": 9.9,
-        "ask": 10.1,
+        "bid": bid,
+        "ask": ask,
         "last": 10.0,
         "bid_size": 10,
-        "ask_size": 11,
-        "volume": 380,
+        "ask_size": 12,
+        "volume": 400,
         "open_interest": 2200,
         "ibkr_iv": 0.2,
-        "ibkr_delta": 0.49,
+        "ibkr_delta": 0.51,
         "ibkr_gamma": 0.017,
         "ibkr_vega": 0.9,
         "ibkr_theta": -1.0,
