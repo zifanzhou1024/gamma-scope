@@ -14,6 +14,8 @@ from gammascope_api.ingestion.latest_state_cache import (
 from gammascope_api.ingestion.live_snapshot import reset_live_snapshot_memory
 from gammascope_api.ingestion.live_snapshot_service import reset_live_snapshot_service_override
 from gammascope_api.main import app
+from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
+from gammascope_api.replay.repository import NullReplayRepository
 from gammascope_api.routes import experimental_flow as experimental_flow_routes
 
 
@@ -25,6 +27,7 @@ def setup_function() -> None:
     reset_live_snapshot_memory()
     reset_live_snapshot_service_override()
     reset_experimental_flow_memory()
+    reset_replay_repository_override()
     set_latest_state_cache_override(InMemoryLatestStateCache())
 
 
@@ -32,6 +35,7 @@ def teardown_function() -> None:
     reset_live_snapshot_service_override()
     reset_latest_state_cache_override()
     reset_experimental_flow_memory()
+    reset_replay_repository_override()
 
 
 def test_experimental_flow_latest_route_enforces_generated_response_model() -> None:
@@ -134,6 +138,41 @@ def test_experimental_flow_latest_route_computes_delta_after_two_live_cycles() -
     assert payload["contractRows"][0]["aggressor"] == "buy"
 
 
+def test_replay_experimental_flow_uses_replay_repository() -> None:
+    repository = _ReplayRepositoryWithSnapshots(
+        [
+            route_snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+            route_snapshot("2026-04-24T15:30:05Z", 140, spot=5200),
+            route_snapshot("2026-04-24T15:35:05Z", 155, spot=5208),
+        ]
+    )
+    set_replay_repository_override(repository)
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={"session_id": "replay-a", "horizon_minutes": 5},
+    )
+
+    assert response.status_code == 200
+    assert repository.calls == [{"session_id": "replay-a", "at": None}]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_experimental_flow_returns_503_when_replay_repository_unavailable() -> None:
+    set_replay_repository_override(_FailingReplayRepository())
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={"session_id": "non-seed"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Replay persistence unavailable"
+
+
 def _health_event(event_time: str) -> dict:
     return {
         "schema_version": "1.0.0",
@@ -214,6 +253,31 @@ def _snapshot(snapshot_time: str, volume: int) -> dict:
             }
         ],
     }
+
+
+def route_snapshot(snapshot_time: str, volume: int, *, spot: float) -> dict:
+    return {
+        **_snapshot(snapshot_time, volume),
+        "session_id": "replay-a",
+        "mode": "replay",
+        "spot": spot,
+        "rows": [{**_snapshot(snapshot_time, volume)["rows"][0], "last": 9.75}],
+    }
+
+
+class _ReplayRepositoryWithSnapshots(NullReplayRepository):
+    def __init__(self, snapshots: list[dict]) -> None:
+        self._snapshots = snapshots
+        self.calls: list[dict[str, str | None]] = []
+
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict]:
+        self.calls.append({"session_id": session_id, "at": at})
+        return self._snapshots
+
+
+class _FailingReplayRepository(NullReplayRepository):
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict]:
+        raise RuntimeError("Replay persistence unavailable")
 
 
 def _contract_event(

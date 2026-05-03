@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from gammascope_api.contracts.generated.experimental_flow import ExperimentalFlow
@@ -38,6 +38,28 @@ def build_latest_experimental_flow_payload(current_snapshot: dict[str, Any]) -> 
     payload = build_experimental_flow_payload(current_snapshot, previous_snapshot, mode="latest")
     _latest_snapshots[session_id] = current_snapshot
     return payload
+
+
+def build_replay_experimental_flow_payload(
+    snapshots: list[dict[str, Any]],
+    *,
+    horizon_minutes: int = 5,
+) -> dict[str, Any]:
+    horizon = _replay_horizon(horizon_minutes)
+    ordered = sorted(snapshots, key=_safe_snapshot_sort_key)
+    valid_ordered = [snapshot for snapshot in ordered if _has_valid_snapshot_time(snapshot)]
+    replay_validation = _replay_validation(valid_ordered, horizon_minutes=horizon)
+
+    if len(valid_ordered) < 2:
+        current = valid_ordered[-1] if valid_ordered else _replay_fallback_snapshot()
+        return _empty_payload(current, mode="replay", previous_snapshot=None, replay_validation=replay_validation)
+
+    return build_experimental_flow_payload(
+        valid_ordered[1],
+        valid_ordered[0],
+        mode="replay",
+        replay_validation=replay_validation,
+    )
 
 
 def build_experimental_flow_payload(
@@ -127,3 +149,123 @@ def _parse_time(value: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def _replay_validation(snapshots: list[dict[str, Any]], *, horizon_minutes: int) -> dict[str, Any]:
+    rows = []
+    for index in range(1, len(snapshots)):
+        current = snapshots[index]
+        previous = snapshots[index - 1]
+        current_time = _text(current.get("snapshot_time"))
+        parsed_current_time = _safe_parse_time(current_time) if current_time is not None else None
+        current_spot = _number(current.get("spot"))
+        if current_time is None or parsed_current_time is None or current_spot is None or current_spot <= 0:
+            continue
+
+        estimated = estimate_flow(current, previous)
+        pressure = _number(estimated["summary"].get("estimatedDealerGammaPressure"))
+        future = _future_snapshot(snapshots[index + 1 :], current_time, horizon_minutes=horizon_minutes)
+        future_spot = _number(future.get("spot")) if future is not None else None
+        realized_move = future_spot - current_spot if future_spot is not None else None
+
+        rows.append(
+            {
+                "snapshotTime": current_time,
+                "pressureDirection": _direction(pressure),
+                "pressureMagnitude": abs(pressure) if pressure is not None else None,
+                "currentSpot": current_spot,
+                "futureSpot": future_spot,
+                "realizedMove": realized_move,
+                "classification": _classification(pressure, realized_move),
+            }
+        )
+
+    scored_rows = [row for row in rows if row["classification"] in {"hit", "miss"}]
+    hit_rate = None if not scored_rows else sum(1 for row in scored_rows if row["classification"] == "hit") / len(scored_rows)
+    return {
+        "horizonMinutes": horizon_minutes,
+        "rows": rows,
+        "hitRate": hit_rate,
+    }
+
+
+def _future_snapshot(
+    snapshots: list[dict[str, Any]],
+    snapshot_time: str,
+    *,
+    horizon_minutes: int,
+) -> dict[str, Any] | None:
+    parsed_snapshot_time = _safe_parse_time(snapshot_time)
+    if parsed_snapshot_time is None:
+        return None
+    target_time = parsed_snapshot_time + timedelta(minutes=horizon_minutes)
+    for snapshot in snapshots:
+        future_time = _text(snapshot.get("snapshot_time"))
+        parsed_future_time = _safe_parse_time(future_time) if future_time is not None else None
+        if parsed_future_time is not None and parsed_future_time >= target_time:
+            return snapshot
+    return None
+
+
+def _direction(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    if value > 0:
+        return "positive"
+    if value < 0:
+        return "negative"
+    return "flat"
+
+
+def _classification(pressure: float | None, realized_move: float | None) -> str:
+    if pressure is None or realized_move is None:
+        return "unknown"
+    if pressure == 0 or realized_move == 0:
+        return "flat"
+    if (pressure > 0 and realized_move > 0) or (pressure < 0 and realized_move < 0):
+        return "hit"
+    return "miss"
+
+
+def _replay_horizon(value: int) -> int:
+    return value if value in {5, 15, 30} else 5
+
+
+def _safe_snapshot_sort_key(snapshot: dict[str, Any]) -> tuple[int, datetime, str]:
+    snapshot_time = _text(snapshot.get("snapshot_time"))
+    parsed_time = _safe_parse_time(snapshot_time) if snapshot_time is not None else None
+    if parsed_time is None:
+        return (1, datetime.max.replace(tzinfo=UTC), snapshot_time or "")
+    return (0, parsed_time, snapshot_time or "")
+
+
+def _has_valid_snapshot_time(snapshot: dict[str, Any]) -> bool:
+    snapshot_time = _text(snapshot.get("snapshot_time"))
+    return snapshot_time is not None and _safe_parse_time(snapshot_time) is not None
+
+
+def _replay_fallback_snapshot() -> dict[str, Any]:
+    return {
+        "session_id": "unknown-session",
+        "expiry": "1970-01-01",
+        "snapshot_time": _now(),
+    }
+
+
+def _safe_parse_time(value: str) -> datetime | None:
+    try:
+        return _parse_time(value)
+    except ValueError:
+        return None
+
+
+def _number(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number in {float("inf"), float("-inf")}:
+        return None
+    return number

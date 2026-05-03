@@ -4,6 +4,7 @@ from gammascope_api.contracts.generated.experimental_flow import ExperimentalFlo
 from gammascope_api.experimental_flow.service import (
     build_experimental_flow_payload,
     build_latest_experimental_flow_payload,
+    build_replay_experimental_flow_payload,
     reset_experimental_flow_memory,
 )
 
@@ -72,7 +73,68 @@ def test_build_latest_experimental_flow_payload_waits_for_newer_previous_snapsho
     assert later["contractRows"][0]["aggressor"] == "buy"
 
 
-def snapshot(snapshot_time: str, volume: int) -> dict:
+def test_replay_payload_builds_validation_rows() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:30:05Z", 140, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:35:05Z", 155, spot=5208, last=9.75),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["replayValidation"]["horizonMinutes"] == 5
+    assert payload["replayValidation"]["rows"][0]["classification"] == "hit"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_payload_ignores_malformed_future_snapshot_time() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:30:05Z", 140, spot=5200, last=9.75),
+        snapshot("not-a-time", 155, spot=5212, last=9.75),
+        snapshot("2026-04-24T15:35:05Z", 160, spot=5208, last=9.75),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["replayValidation"]["rows"][0]["classification"] == "hit"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_payload_with_one_valid_and_one_malformed_timestamp_returns_empty_valid_payload() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+        snapshot("not-a-time", 140, spot=5208),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["meta"]["previousSnapshotTime"] is None
+    assert payload["contractRows"] == []
+    assert payload["replayValidation"]["rows"] == []
+
+
+def test_replay_payload_with_only_malformed_timestamps_returns_generated_empty_payload() -> None:
+    payload = build_replay_experimental_flow_payload(
+        [snapshot("not-a-time", 100, spot=5200)],
+        horizon_minutes=5,
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["meta"]["currentSnapshotTime"] != "not-a-time"
+    assert payload["meta"]["previousSnapshotTime"] is None
+    assert payload["contractRows"] == []
+    assert payload["replayValidation"]["rows"] == []
+
+
+def snapshot(snapshot_time: str, volume: int, *, spot: float = 5200.25, last: float = 10.25) -> dict:
     return {
         "schema_version": "1.0.0",
         "session_id": "moomoo-spx-0dte-live",
@@ -80,7 +142,7 @@ def snapshot(snapshot_time: str, volume: int) -> dict:
         "symbol": "SPX",
         "expiry": "2026-04-24",
         "snapshot_time": snapshot_time,
-        "spot": 5200.25,
+        "spot": spot,
         "source_status": "connected",
         "freshness_ms": 0,
         "rows": [
@@ -91,7 +153,7 @@ def snapshot(snapshot_time: str, volume: int) -> dict:
                 "bid": 9.8,
                 "ask": 10.2,
                 "mid": 10.0,
-                "last": 10.25,
+                "last": last,
                 "bid_size": 12,
                 "ask_size": 8,
                 "volume": volume,
