@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -10,6 +11,7 @@ from gammascope_api.experimental_flow.estimator import estimate_flow
 Mode = Literal["latest", "replay"]
 
 _latest_snapshots: dict[str, dict[str, Any]] = {}
+_latest_payloads: dict[str, dict[str, Any]] = {}
 
 _ESTIMATED_FLOW_DIAGNOSTIC = {
     "code": "estimated_flow_only",
@@ -20,6 +22,7 @@ _ESTIMATED_FLOW_DIAGNOSTIC = {
 
 def reset_experimental_flow_memory() -> None:
     _latest_snapshots.clear()
+    _latest_payloads.clear()
 
 
 def build_latest_experimental_flow_payload(current_snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -27,17 +30,23 @@ def build_latest_experimental_flow_payload(current_snapshot: dict[str, Any]) -> 
     current_time = _text(current_snapshot.get("snapshot_time"))
     previous_snapshot = _latest_snapshots.get(session_id)
 
+    if not _snapshot_has_rows(current_snapshot):
+        return _cached_latest_payload_or_empty(session_id, current_snapshot)
+
     if previous_snapshot is None:
         _latest_snapshots[session_id] = current_snapshot
         return _empty_payload(current_snapshot, mode="latest", previous_snapshot=None)
 
     previous_time = _text(previous_snapshot.get("snapshot_time"))
     if current_time is None or previous_time is None or _parse_time(current_time) <= _parse_time(previous_time):
-        return _empty_payload(current_snapshot, mode="latest", previous_snapshot=None)
+        return _cached_latest_payload_or_empty(session_id, current_snapshot)
 
     payload = build_experimental_flow_payload(current_snapshot, previous_snapshot, mode="latest")
     _latest_snapshots[session_id] = current_snapshot
-    return payload
+    if _payload_has_estimated_flow(payload):
+        _latest_payloads[session_id] = payload
+        return payload
+    return _cached_latest_payload_or_empty(session_id, current_snapshot, fallback=payload)
 
 
 def build_replay_experimental_flow_payload(
@@ -119,6 +128,32 @@ def _empty_payload(
         ],
     }
     return validate_experimental_flow_payload(payload)
+
+
+def _cached_latest_payload_or_empty(
+    session_id: str,
+    current_snapshot: dict[str, Any],
+    *,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    cached_payload = _latest_payloads.get(session_id)
+    if cached_payload is not None:
+        return deepcopy(cached_payload)
+    if fallback is not None:
+        return fallback
+    return _empty_payload(current_snapshot, mode="latest", previous_snapshot=None)
+
+
+def _payload_has_estimated_flow(payload: dict[str, Any]) -> bool:
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        return False
+    return (_number(summary.get("estimatedBuyContracts")) or 0) > 0 or (_number(summary.get("estimatedSellContracts")) or 0) > 0
+
+
+def _snapshot_has_rows(snapshot: dict[str, Any]) -> bool:
+    rows = snapshot.get("rows")
+    return isinstance(rows, list) and len(rows) > 0
 
 
 def _meta(current_snapshot: dict[str, Any], *, previous_snapshot: dict[str, Any] | None, mode: Mode) -> dict[str, Any]:
