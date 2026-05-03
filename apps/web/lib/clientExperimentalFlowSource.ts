@@ -22,6 +22,8 @@ const AGGRESSOR_VALUES = ["buy", "weak_buy", "sell", "weak_sell", "unknown"] as 
 const PRESSURE_DIRECTION_VALUES = ["positive", "negative", "flat", "unknown"] as const;
 const HIT_CLASSIFICATION_VALUES = ["hit", "miss", "flat", "unknown"] as const;
 const SEVERITY_VALUES = ["info", "warning", "error"] as const;
+const EXPIRY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const TOP_LEVEL_FIELDS: Record<string, Validator> = {
   schema_version: (value) => value === "1.0.0",
@@ -96,11 +98,11 @@ function isMeta(value: unknown): value is ExperimentalFlow["meta"] {
   return (
     hasValidField(value, "mode", (fieldValue) => isOneOf(fieldValue, ["latest", "replay"])) &&
     hasValidField(value, "symbol", (fieldValue) => fieldValue === "SPX") &&
-    hasValidField(value, "expiry", isString) &&
-    hasValidField(value, "generatedAt", isString) &&
+    hasValidField(value, "expiry", isExpiryString) &&
+    hasValidField(value, "generatedAt", isDateTimeString) &&
     hasValidField(value, "sourceSessionId", isNonEmptyString) &&
-    hasValidField(value, "currentSnapshotTime", isString) &&
-    hasValidField(value, "previousSnapshotTime", isNullableString)
+    hasValidField(value, "currentSnapshotTime", isDateTimeString) &&
+    hasValidField(value, "previousSnapshotTime", isNullableDateTimeString)
   );
 }
 
@@ -182,7 +184,7 @@ function isReplayValidationRows(value: unknown): value is NonNullable<Experiment
   return Array.isArray(value) && value.every((row) => {
     return (
       isRecord(row) &&
-      hasValidField(row, "snapshotTime", isString) &&
+      hasValidField(row, "snapshotTime", isDateTimeString) &&
       hasValidField(row, "pressureDirection", (fieldValue) => isOneOf(fieldValue, PRESSURE_DIRECTION_VALUES)) &&
       hasValidField(row, "pressureMagnitude", isNullableNumber) &&
       hasValidField(row, "currentSpot", isPositiveNumber) &&
@@ -222,6 +224,18 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isNullableString(value: unknown): value is string | null {
   return value === null || isString(value);
+}
+
+function isExpiryString(value: unknown): value is string {
+  return isString(value) && EXPIRY_PATTERN.test(value);
+}
+
+function isDateTimeString(value: unknown): value is string {
+  return isString(value) && DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function isNullableDateTimeString(value: unknown): value is string | null {
+  return value === null || isDateTimeString(value);
 }
 
 function isNonEmptyStringArray(value: unknown): value is string[] {

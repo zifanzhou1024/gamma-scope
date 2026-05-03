@@ -55,6 +55,57 @@ describe("isExperimentalFlow", () => {
       }
     })).toBe(false);
   });
+
+  it("rejects invalid expiry and date-time fields", () => {
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        expiry: "2026/04/23"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        generatedAt: "not-a-date-time"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        currentSnapshotTime: "2026-04-23"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        previousSnapshotTime: "not-a-date-time"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      replayValidation: {
+        horizonMinutes: 5,
+        hitRate: null,
+        rows: [{
+          snapshotTime: "not-a-date-time",
+          pressureDirection: "positive",
+          pressureMagnitude: 1,
+          currentSpot: 5200,
+          futureSpot: null,
+          realizedMove: null,
+          classification: "unknown"
+        }]
+      }
+    })).toBe(false);
+  });
 });
 
 describe("loadClientExperimentalFlow", () => {
@@ -69,6 +120,28 @@ describe("loadClientExperimentalFlow", () => {
         Accept: "application/json"
       }
     });
+  });
+
+  it("returns null for fetch exceptions, non-OK responses, and invalid payloads", async () => {
+    await expect(loadClientExperimentalFlow({
+      fetcher: vi.fn(async () => {
+        throw new Error("offline");
+      })
+    })).resolves.toBeNull();
+
+    await expect(loadClientExperimentalFlow({
+      fetcher: vi.fn(async () => jsonResponse({ error: "unavailable" }, false))
+    })).resolves.toBeNull();
+
+    await expect(loadClientExperimentalFlow({
+      fetcher: vi.fn(async () => jsonResponse({
+        ...seedPayload,
+        meta: {
+          ...seedPayload.meta,
+          generatedAt: "not-a-date-time"
+        }
+      }))
+    })).resolves.toBeNull();
   });
 });
 
