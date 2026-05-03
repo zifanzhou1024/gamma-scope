@@ -39,6 +39,8 @@ describe("ExperimentalDashboard", () => {
     expect(markup).toMatch(/<a[^>]*href="\/replay"[^>]*>Replay<\/a>/);
     expect(markup).toMatch(/<a[^>]*href="\/heatmap"[^>]*>Heatmap<\/a>/);
     expect(markup).toMatch(/<a[^>]*href="\/experimental"[^>]*aria-current="page"[^>]*>Experimental<\/a>/);
+    expect(markup).toMatch(/<a[^>]*href="\/experimental-2"[^>]*>Experimental 2<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/experimental-2"[^>]*aria-current="page"[^>]*>Experimental 2<\/a>/);
     expect(markup).toContain("seed-spx-2026-04-23");
     expect(markup).toContain("Forward and expected move");
     expect(markup).toContain("Parity forward");

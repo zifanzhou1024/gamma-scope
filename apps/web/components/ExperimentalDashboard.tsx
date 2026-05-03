@@ -68,6 +68,9 @@ export function ExperimentalDashboard({ initialAnalytics = null }: ExperimentalD
             <a className="topNavTab topNavTab-active" href="/experimental" aria-current="page">
               Experimental
             </a>
+            <a className="topNavTab" href="/experimental-2">
+              Experimental 2
+            </a>
           </nav>
         </div>
         <div className="topBarUtility experimentalHeaderUtility">

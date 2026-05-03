@@ -81,6 +81,8 @@ describe("DashboardView", () => {
 
     expect(markup).toMatch(/<a[^>]*href="\/experimental"[^>]*>Experimental<\/a>/);
     expect(markup).not.toMatch(/<a[^>]*href="\/experimental"[^>]*aria-current="page"[^>]*>Experimental<\/a>/);
+    expect(markup).toMatch(/<a[^>]*href="\/experimental-2"[^>]*>Experimental 2<\/a>/);
+    expect(markup).not.toMatch(/<a[^>]*href="\/experimental-2"[^>]*aria-current="page"[^>]*>Experimental 2<\/a>/);
   });
 
   it("renders the theme switch in the header before the dense status rail", async () => {
