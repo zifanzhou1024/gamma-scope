@@ -106,6 +106,41 @@ describe("isExperimentalFlow", () => {
       }
     })).toBe(false);
   });
+
+  it("rejects impossible calendar dates in expiry and date-time fields", () => {
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        expiry: "2026-02-31"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      meta: {
+        ...seedPayload.meta,
+        generatedAt: "2026-02-31T00:00:00Z"
+      }
+    })).toBe(false);
+
+    expect(isExperimentalFlow({
+      ...seedPayload,
+      replayValidation: {
+        horizonMinutes: 5,
+        hitRate: null,
+        rows: [{
+          snapshotTime: "2026-02-31T00:00:00Z",
+          pressureDirection: "positive",
+          pressureMagnitude: 1,
+          currentSpot: 5200,
+          futureSpot: null,
+          realizedMove: null,
+          classification: "unknown"
+        }]
+      }
+    })).toBe(false);
+  });
 });
 
 describe("loadClientExperimentalFlow", () => {

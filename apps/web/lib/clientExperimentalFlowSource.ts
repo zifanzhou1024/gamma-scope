@@ -22,8 +22,8 @@ const AGGRESSOR_VALUES = ["buy", "weak_buy", "sell", "weak_sell", "unknown"] as 
 const PRESSURE_DIRECTION_VALUES = ["positive", "negative", "flat", "unknown"] as const;
 const HIT_CLASSIFICATION_VALUES = ["hit", "miss", "flat", "unknown"] as const;
 const SEVERITY_VALUES = ["info", "warning", "error"] as const;
-const EXPIRY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const EXPIRY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 const TOP_LEVEL_FIELDS: Record<string, Validator> = {
   schema_version: (value) => value === "1.0.0",
@@ -222,20 +222,54 @@ function isNonEmptyString(value: unknown): value is string {
   return isString(value) && value.length > 0;
 }
 
-function isNullableString(value: unknown): value is string | null {
-  return value === null || isString(value);
-}
-
 function isExpiryString(value: unknown): value is string {
-  return isString(value) && EXPIRY_PATTERN.test(value);
+  if (!isString(value)) {
+    return false;
+  }
+
+  const match = EXPIRY_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, year, month, day] = match;
+  return isCalendarDate(Number(year), Number(month), Number(day));
 }
 
 function isDateTimeString(value: unknown): value is string {
-  return isString(value) && DATE_TIME_PATTERN.test(value) && !Number.isNaN(Date.parse(value));
+  if (!isString(value)) {
+    return false;
+  }
+
+  const match = DATE_TIME_PATTERN.exec(value);
+  if (!match) {
+    return false;
+  }
+
+  const [, year, month, day, hour, minute, second] = match;
+  const parsed = new Date(value);
+
+  return isCalendarDate(Number(year), Number(month), Number(day))
+    && isTimeOfDay(Number(hour), Number(minute), Number(second))
+    && !Number.isNaN(parsed.getTime());
 }
 
 function isNullableDateTimeString(value: unknown): value is string | null {
   return value === null || isDateTimeString(value);
+}
+
+function isCalendarDate(year: number, month: number, day: number): boolean {
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function isTimeOfDay(hour: number, minute: number, second: number): boolean {
+  return hour >= 0 && hour <= 23
+    && minute >= 0 && minute <= 59
+    && second >= 0 && second <= 59;
 }
 
 function isNonEmptyStringArray(value: unknown): value is string[] {
