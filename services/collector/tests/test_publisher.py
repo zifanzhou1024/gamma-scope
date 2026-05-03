@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+import gammascope_collector.publisher as publisher
 from gammascope_collector.events import health_event, underlying_tick_event
 from gammascope_collector.publisher import (
     PublishError,
@@ -33,6 +34,59 @@ def test_collector_events_bulk_endpoint_joins_api_base() -> None:
     assert collector_events_bulk_endpoint("http://127.0.0.1:8000/") == (
         "http://127.0.0.1:8000/api/spx/0dte/collector/events/bulk"
     )
+
+
+def test_publish_events_uses_admin_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "server-admin-token")
+    event = health_event(
+        collector_id="local-dev",
+        status="connected",
+        ibkr_account_mode="paper",
+        message="ok",
+        event_time=EVENT_TIME,
+        received_time=EVENT_TIME,
+    )
+    captured_tokens: list[str | None] = []
+
+    def fake_post_json(
+        _endpoint: str,
+        _event: dict[str, object],
+        *,
+        admin_token: str | None = None,
+    ) -> dict[str, object]:
+        captured_tokens.append(admin_token)
+        return {"accepted": True, "event_type": "CollectorHealth"}
+
+    monkeypatch.setattr(publisher, "_post_json", fake_post_json)
+
+    publish_events([event], api_base="http://testserver")
+
+    assert captured_tokens == ["server-admin-token"]
+
+
+def test_post_json_adds_admin_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_requests: list[publisher.Request] = []
+
+    class FakeResponse:
+        def __enter__(self) -> object:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b'{"accepted": true, "event_type": "CollectorHealth"}'
+
+    def fake_urlopen(request: publisher.Request, timeout: float) -> FakeResponse:
+        captured_requests.append(request)
+        assert timeout == 5
+        return FakeResponse()
+
+    monkeypatch.setattr(publisher, "urlopen", fake_urlopen)
+
+    publisher._post_json("http://testserver/collector", {"ok": True}, admin_token="server-admin-token")
+
+    assert captured_requests[0].get_header("X-gammascope-admin-token") == "server-admin-token"
 
 
 def test_publish_events_posts_each_event_to_ingestion_endpoint() -> None:

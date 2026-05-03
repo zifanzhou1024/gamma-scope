@@ -4,7 +4,7 @@
 
 GammaScope is being built in slices. The first slice establishes the local monorepo, shared contracts, seeded replay data, and smoke-testable API/web surfaces.
 
-Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md).
+Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md). For the AMH/Nginx remote server layout where your computer publishes Moomoo data to a server-hosted backend and frontend, use [docs/amh-nginx-server-setup.md](docs/amh-nginx-server-setup.md).
 
 Run:
 
