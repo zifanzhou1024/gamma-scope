@@ -4,6 +4,34 @@ This is the canonical deployment runbook for the working `gamma.hiqjj.org` setup
 
 It captures the server layout, AMH/Nginx routing, Docker Compose stack, local Moomoo collector, operational commands, and smoke tests used to get the current deployment working. It intentionally does not contain passwords, tokens, SSH passwords, or generated secrets.
 
+## Quick Start
+
+Use this when redeploying the same `gamma.hiqjj.org` shape. These commands do not contain credentials. On the first server run, the bootstrap script generates secrets and prints the web admin password plus collector token once; save those privately.
+
+Server, from your Mac:
+
+```bash
+ssh root@149.56.14.95 'curl -fsSL https://raw.githubusercontent.com/zifanzhou1024/gamma-scope/codex/amh-nginx-server-setup/ops/amh-nginx/bootstrap_gamma_server.sh | bash'
+```
+
+Local Moomoo collector, from your Mac repo checkout after Moomoo OpenD is running:
+
+```bash
+cd /Users/sakura/WebstormProjects/gamma-scope/.worktrees/amh-nginx-server-setup && mkdir -p ops/amh-nginx && scp root@gamma.hiqjj.org:/opt/gammascope/ops/amh-nginx/gammascope.collector-client.env ops/amh-nginx/gammascope.collector-client.env && chmod 600 ops/amh-nginx/gammascope.collector-client.env && bash ops/amh-nginx/start_moomoo_collector_mac.sh
+```
+
+If this is a brand-new AMH vhost, paste the `gamma.hiqjj.org` URL rule blocks from `/opt/gammascope/ops/amh-nginx/README.md` into AMH's `gamma.conf` once, then reload:
+
+```bash
+/usr/local/nginx-1.24/sbin/nginx -t && /usr/local/nginx-1.24/sbin/nginx -s reload
+```
+
+Fast public checks:
+
+```bash
+curl -I https://gamma.hiqjj.org/ && curl -fsS https://gamma.hiqjj.org/api/spx/0dte/snapshot/latest
+```
+
 ## Current Production Shape
 
 Use these values for the current deployment unless you are intentionally creating a new environment:
@@ -52,6 +80,8 @@ ops/amh-nginx/README.md                         Condensed AMH runbook with paste
 ops/amh-nginx/docker-compose.amh.yml            Server Compose stack
 ops/amh-nginx/gammascope.nginx.conf             Full Nginx vhost template
 ops/amh-nginx/generate_secrets.py               Env/secret generator
+ops/amh-nginx/bootstrap_gamma_server.sh         One-command server bootstrap
+ops/amh-nginx/start_moomoo_collector_mac.sh     One-command local collector starter
 ops/amh-nginx/gammascope.production.env.example Server env template
 ops/amh-nginx/gammascope.collector-client.env.example Local collector env template
 ```
