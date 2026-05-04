@@ -1,6 +1,5 @@
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
 from gammascope_api.ingestion.collector_state import collector_state
 from gammascope_api.ingestion.latest_state_cache import (
@@ -120,7 +119,7 @@ def test_collector_ingest_validation_errors_keep_body_locations(
     assert all("url" not in error for error in response.json()["detail"])
 
 
-def test_private_mode_latest_snapshot_hides_live_state_without_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_private_mode_latest_snapshot_is_public_without_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", "true")
     monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
 
@@ -138,14 +137,14 @@ def test_private_mode_latest_snapshot_hides_live_state_without_admin_token(monke
     )
 
     assert public_response.status_code == 200
-    assert public_response.json()["mode"] == "replay"
-    assert public_response.json()["session_id"] == "seed-spx-2026-04-23"
+    assert public_response.json()["mode"] == "live"
+    assert public_response.json()["session_id"] == "private-live-session"
     assert admin_response.status_code == 200
     assert admin_response.json()["mode"] == "live"
     assert admin_response.json()["session_id"] == "private-live-session"
 
 
-def test_private_mode_status_and_scenario_hide_live_state_without_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_private_mode_status_and_scenario_are_public_without_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", "true")
     monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
 
@@ -180,9 +179,9 @@ def test_private_mode_status_and_scenario_hide_live_state_without_admin_token(mo
     )
 
     assert public_status_response.status_code == 200
-    assert public_status_response.json()["message"] != "Mock live cycle"
+    assert public_status_response.json()["message"] == "Mock live cycle"
     assert public_scenario_response.status_code == 200
-    assert public_scenario_response.json()["session_id"] == "seed-spx-2026-04-23"
+    assert public_scenario_response.json()["session_id"] == "private-scenario-session"
     assert admin_scenario_response.status_code == 200
     assert admin_scenario_response.json()["session_id"] == "private-scenario-session"
 
@@ -206,20 +205,22 @@ def test_private_mode_keeps_replay_rest_open(monkeypatch: pytest.MonkeyPatch) ->
     assert snapshot_response.json()["mode"] == "replay"
 
 
-def test_private_mode_live_websocket_requires_token_and_accepts_query_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_private_mode_live_websocket_is_public_without_admin_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", "true")
     monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
 
-    with pytest.raises(WebSocketDisconnect) as disconnect:
-        with client.websocket_connect("/ws/spx/0dte") as websocket:
-            websocket.receive_json()
+    for event in _live_events("private-websocket-session"):
+        assert client.post(
+            "/api/spx/0dte/collector/events",
+            json=event,
+            headers={"X-GammaScope-Admin-Token": "local-admin-token"},
+        ).status_code == 200
 
-    with client.websocket_connect("/ws/spx/0dte?admin_token=local-admin-token") as websocket:
+    with client.websocket_connect("/ws/spx/0dte") as websocket:
         payload = websocket.receive_json()
 
-    assert disconnect.value.code == 1008
-    assert payload["mode"] == "replay"
-    assert payload["session_id"] == "seed-spx-2026-04-23"
+    assert payload["mode"] == "live"
+    assert payload["session_id"] == "private-websocket-session"
 
 
 def test_private_mode_keeps_replay_websocket_public(monkeypatch: pytest.MonkeyPatch) -> None:

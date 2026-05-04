@@ -3,14 +3,13 @@ from __future__ import annotations
 import os
 import secrets
 
-from fastapi import HTTPException, WebSocket
+from fastapi import HTTPException
 
 
 ADMIN_TOKEN_ENV = "GAMMASCOPE_ADMIN_TOKEN"
 PRIVATE_MODE_ENABLED_ENV = "GAMMASCOPE_PRIVATE_MODE_ENABLED"
 PRIVATE_MODE_LEGACY_ENV = "GAMMASCOPE_PRIVATE_MODE"
 ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token"
-ADMIN_TOKEN_QUERY_PARAM = "admin_token"
 
 _TRUTHY_VALUES = {"1", "true", "yes", "on", "enabled"}
 
@@ -40,12 +39,8 @@ def require_private_mode_admin_token(token: str | None) -> None:
         require_admin_token(token)
 
 
-def can_read_live_state(token: str | None) -> bool:
-    return not private_mode_enabled() or is_valid_admin_token(token)
-
-
-def websocket_admin_token(websocket: WebSocket) -> str | None:
-    return websocket.headers.get(ADMIN_TOKEN_HEADER) or websocket.query_params.get(ADMIN_TOKEN_QUERY_PARAM)
+def can_read_live_state(_token: str | None) -> bool:
+    return True
 
 
 def _truthy_env(name: str) -> bool:

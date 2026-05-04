@@ -8,9 +8,9 @@ This guide moves GammaScope from a local-only setup to a server layout where AMH
 flowchart LR
   Mac["Your computer\nMoomoo OpenD + GammaScope collector"] -->|HTTPS bulk collector events + admin token| Nginx["AMH / Nginx\n80 and 443"]
   Browser["Browser"] -->|HTTPS| Nginx
-  Nginx -->|collector endpoints and ws| API["FastAPI container\n127.0.0.1:8000"]
+  Nginx -->|collector endpoints and public ws| API["FastAPI container\n127.0.0.1:8000"]
   Nginx -->|web app and Next API routes| Web["Next.js container\n127.0.0.1:3000"]
-  Web -->|server-side API proxy + admin token| API
+  Web -->|server-side public API proxy| API
   API --> Postgres["Postgres volume"]
   API --> Redis["Redis container"]
 ```
@@ -550,6 +550,8 @@ https://gamma.hiqjj.org/
 https://gamma.hiqjj.org/heatmap
 ```
 
+Live dashboard viewing is public. The web admin login is only needed for replay import/upload flows; collector ingestion and maintenance commands still require the generated admin token.
+
 ## 11. Operating Commands
 
 Rebuild after code changes:
@@ -587,6 +589,6 @@ If collector publish returns `403`, the computer's `GAMMASCOPE_ADMIN_TOKEN` does
 
 If collector publish cannot connect, check DNS, HTTPS, firewall, and the Nginx collector locations. The collector should publish to the public origin, not to `127.0.0.1`.
 
-If the browser live WebSocket is unavailable in private mode, that is expected unless the browser has an admin token. The web app's server-side API routes can still fetch live data using the server-side `GAMMASCOPE_ADMIN_TOKEN`, and the dashboard should fall back to polling.
+If the browser live WebSocket is unavailable, check the AMH `/ws/` reverse proxy rule. Live dashboard viewing is public, so a missing admin login should not block realtime data.
 
 If AMH overwrites manual Nginx edits, move the custom locations into AMH's supported custom vhost/rules field or keep a copy of `ops/amh-nginx/gammascope.nginx.conf` and re-apply after AMH regenerates configs.

@@ -414,6 +414,8 @@ https://gamma.hiqjj.org/
 https://gamma.hiqjj.org/heatmap
 ```
 
+Live dashboard viewing is public. The web admin login is only needed for replay import/upload flows; collector ingestion still uses the generated admin token.
+
 ## 8. Operations
 
 Update and rebuild:
