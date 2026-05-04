@@ -334,6 +334,7 @@ Route table:
 /api/spx/0dte/status                   -> http://127.0.0.1:3000
 /api/spx/0dte/heatmap/latest           -> http://127.0.0.1:3000
 /api/spx/0dte/experimental/            -> http://127.0.0.1:3000
+/api/spx/0dte/experimental-flow/       -> http://127.0.0.1:3000
 /api/spx/0dte/replay/                  -> http://127.0.0.1:3000
 /api/spx/0dte/scenario                 -> http://127.0.0.1:3000
 /                                      -> http://127.0.0.1:3000

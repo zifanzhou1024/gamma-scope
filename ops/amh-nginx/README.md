@@ -153,6 +153,7 @@ Set the reverse proxy rules to:
 /api/spx/0dte/status                   -> http://127.0.0.1:3000
 /api/spx/0dte/heatmap/latest           -> http://127.0.0.1:3000
 /api/spx/0dte/experimental/            -> http://127.0.0.1:3000
+/api/spx/0dte/experimental-flow/       -> http://127.0.0.1:3000
 /api/spx/0dte/replay/                  -> http://127.0.0.1:3000
 /api/spx/0dte/scenario                 -> http://127.0.0.1:3000
 /                                      -> http://127.0.0.1:3000
@@ -250,6 +251,15 @@ location = /api/spx/0dte/heatmap/latest {
 }
 
 location ^~ /api/spx/0dte/experimental/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /api/spx/0dte/experimental-flow/ {
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

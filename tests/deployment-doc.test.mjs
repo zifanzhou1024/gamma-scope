@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const deploymentDoc = readFileSync(new URL("../docs/deployment.md", import.meta.url), "utf8");
+const amhGuide = readFileSync(new URL("../docs/amh-nginx-server-setup.md", import.meta.url), "utf8");
+const amhReadme = readFileSync(new URL("../ops/amh-nginx/README.md", import.meta.url), "utf8");
+const nginxTemplate = readFileSync(new URL("../ops/amh-nginx/gammascope.nginx.conf", import.meta.url), "utf8");
 const bootstrapScript = readFileSync(
   new URL("../ops/amh-nginx/bootstrap_gamma_server.sh", import.meta.url),
   "utf8",
@@ -31,6 +34,19 @@ test("deployment guide includes realtime collector operations and smoke tests", 
   assert.match(deploymentDoc, /wss:\/\/gamma\.hiqjj\.org\/ws\/spx\/0dte/);
   assert.match(deploymentDoc, /moomoo-spx-0dte-live/);
   assert.match(deploymentDoc, /Do not add a broad `\/api\/ -> 127\.0\.0\.1:8000` rule/);
+});
+
+test("deployment routing keeps experimental flow browser APIs on the web service", () => {
+  const routePattern = /\/api\/spx\/0dte\/experimental-flow\/\s+-> http:\/\/127\.0\.0\.1:3000/;
+  const locationPattern = /location \^~ \/api\/spx\/0dte\/experimental-flow\/ \{[^}]*proxy_pass http:\/\/(?:127\.0\.0\.1:3000|gammascope_web);/;
+  const apiProxyPattern = /location \^~ \/api\/spx\/0dte\/experimental-flow\/ \{[^}]*proxy_pass http:\/\/gammascope_api;/;
+
+  assert.match(deploymentDoc, routePattern);
+  assert.match(amhReadme, routePattern);
+  assert.match(amhReadme, locationPattern);
+  assert.match(amhGuide, locationPattern);
+  assert.match(nginxTemplate, locationPattern);
+  assert.doesNotMatch(nginxTemplate, apiProxyPattern);
 });
 
 test("deployment guide starts with a no-secret quick-start path", () => {
