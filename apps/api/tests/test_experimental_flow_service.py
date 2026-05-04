@@ -1,0 +1,256 @@
+from __future__ import annotations
+
+from gammascope_api.contracts.generated.experimental_flow import ExperimentalFlow
+from gammascope_api.experimental_flow.service import (
+    build_experimental_flow_payload,
+    build_latest_experimental_flow_payload,
+    build_replay_experimental_flow_payload,
+    reset_experimental_flow_memory,
+)
+
+
+def setup_function() -> None:
+    reset_experimental_flow_memory()
+
+
+def test_build_experimental_flow_payload_validates_and_estimates_volume_delta() -> None:
+    previous = snapshot("2026-04-24T15:30:00Z", 100)
+    current = snapshot("2026-04-24T15:30:05Z", 140)
+
+    payload = build_experimental_flow_payload(current, previous, mode="latest")
+
+    validated = ExperimentalFlow.model_validate(payload)
+    assert validated.schema_version == "1.0.0"
+    assert payload["meta"]["mode"] == "latest"
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 40
+    assert payload["contractRows"][0]["volumeDelta"] == 40
+    assert payload["contractRows"][0]["signedContracts"] == 40
+    assert "estimatedDealerGammaPressure" not in payload["contractRows"][0]
+    assert payload["diagnostics"] == [
+        {
+            "code": "estimated_flow_only",
+            "message": "Flow is inferred from free quote snapshots and is not official customer or market-maker open/close flow.",
+            "severity": "info",
+        }
+    ]
+
+
+def test_build_experimental_flow_payload_hard_codes_spx_metadata_symbol() -> None:
+    previous = {**snapshot("2026-04-24T15:30:00Z", 100), "symbol": "SPY"}
+    current = {**snapshot("2026-04-24T15:30:05Z", 140), "symbol": "SPY"}
+
+    payload = build_experimental_flow_payload(current, previous, mode="latest")
+
+    assert payload["meta"]["symbol"] == "SPX"
+    ExperimentalFlow.model_validate(payload)
+
+
+def test_build_latest_experimental_flow_payload_waits_for_newer_previous_snapshot() -> None:
+    first = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+
+    ExperimentalFlow.model_validate(first)
+    assert first["summary"]["confidence"] == "unknown"
+    assert first["summary"]["estimatedBuyContracts"] == 0
+    assert first["contractRows"] == []
+    assert first["meta"]["previousSnapshotTime"] is None
+    assert first["diagnostics"][0]["code"] == "estimated_flow_only"
+    assert first["diagnostics"][1]["code"] == "missing_previous_snapshot"
+
+    same_timestamp = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 120))
+
+    ExperimentalFlow.model_validate(same_timestamp)
+    assert same_timestamp["contractRows"] == []
+    assert same_timestamp["summary"]["confidence"] == "unknown"
+    assert same_timestamp["meta"]["previousSnapshotTime"] is None
+
+    later = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
+
+    ExperimentalFlow.model_validate(later)
+    assert later["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert later["summary"]["estimatedBuyContracts"] == 50
+    assert later["contractRows"][0]["volumeDelta"] == 50
+    assert later["contractRows"][0]["aggressor"] == "buy"
+
+
+def test_build_latest_experimental_flow_payload_uses_bootstrap_previous_snapshot() -> None:
+    payload = build_latest_experimental_flow_payload(
+        snapshot("2026-04-24T15:30:05Z", 150),
+        previous_snapshot=snapshot("2026-04-24T15:30:00Z", 100),
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_build_latest_experimental_flow_payload_uses_bootstrap_after_empty_same_snapshot_seed() -> None:
+    current = snapshot("2026-04-24T15:30:05Z", 150)
+
+    empty_seed = build_latest_experimental_flow_payload(current)
+    payload = build_latest_experimental_flow_payload(
+        current,
+        previous_snapshot=snapshot("2026-04-24T15:30:00Z", 100),
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert empty_seed["meta"]["previousSnapshotTime"] is None
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_when_latest_has_no_rows() -> None:
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+    active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
+
+    empty_latest = {
+        **snapshot("2026-04-24T15:30:10Z", 150),
+        "coverage_status": "empty",
+        "rows": [],
+    }
+    reused = build_latest_experimental_flow_payload(empty_latest)
+
+    ExperimentalFlow.model_validate(reused)
+    assert reused["meta"]["currentSnapshotTime"] == active_payload["meta"]["currentSnapshotTime"]
+    assert reused["meta"]["previousSnapshotTime"] == active_payload["meta"]["previousSnapshotTime"]
+    assert reused["summary"]["estimatedBuyContracts"] == 50
+    assert reused["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_build_latest_experimental_flow_payload_reuses_last_payload_with_rows_when_latest_has_no_rows() -> None:
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+    active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 100))
+
+    empty_latest = {
+        **snapshot("2026-04-24T15:30:10Z", 100),
+        "coverage_status": "empty",
+        "rows": [],
+    }
+    reused = build_latest_experimental_flow_payload(empty_latest)
+
+    ExperimentalFlow.model_validate(reused)
+    assert reused["meta"]["currentSnapshotTime"] == active_payload["meta"]["currentSnapshotTime"]
+    assert reused["meta"]["previousSnapshotTime"] == active_payload["meta"]["previousSnapshotTime"]
+    assert reused["summary"]["estimatedBuyContracts"] == 0
+    assert reused["contractRows"][0]["volumeDelta"] == 0
+
+
+def test_build_latest_experimental_flow_payload_reuses_last_non_empty_payload_for_repeated_snapshot() -> None:
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+    active_payload = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
+
+    repeated = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 175))
+
+    ExperimentalFlow.model_validate(repeated)
+    assert repeated["meta"]["currentSnapshotTime"] == active_payload["meta"]["currentSnapshotTime"]
+    assert repeated["summary"]["estimatedBuyContracts"] == 50
+    assert repeated["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_build_latest_experimental_flow_payload_keeps_newer_payload_with_rows_when_newer_snapshot_has_no_flow() -> None:
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:00Z", 100))
+    build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:05Z", 150))
+
+    no_flow = build_latest_experimental_flow_payload(snapshot("2026-04-24T15:30:10Z", 150))
+
+    ExperimentalFlow.model_validate(no_flow)
+    assert no_flow["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:10Z"
+    assert no_flow["summary"]["estimatedBuyContracts"] == 0
+    assert no_flow["contractRows"][0]["volumeDelta"] == 0
+
+
+def test_replay_payload_builds_validation_rows() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:30:05Z", 140, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:35:05Z", 155, spot=5208, last=9.75),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["replayValidation"]["horizonMinutes"] == 5
+    assert payload["replayValidation"]["rows"][0]["classification"] == "hit"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_payload_ignores_malformed_future_snapshot_time() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200, last=9.75),
+        snapshot("2026-04-24T15:30:05Z", 140, spot=5200, last=9.75),
+        snapshot("not-a-time", 155, spot=5212, last=9.75),
+        snapshot("2026-04-24T15:35:05Z", 160, spot=5208, last=9.75),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["replayValidation"]["rows"][0]["classification"] == "hit"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_payload_with_one_valid_and_one_malformed_timestamp_returns_empty_valid_payload() -> None:
+    snapshots = [
+        snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+        snapshot("not-a-time", 140, spot=5208),
+    ]
+
+    payload = build_replay_experimental_flow_payload(snapshots, horizon_minutes=5)
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["meta"]["previousSnapshotTime"] is None
+    assert payload["contractRows"] == []
+    assert payload["replayValidation"]["rows"] == []
+
+
+def test_replay_payload_with_only_malformed_timestamps_returns_generated_empty_payload() -> None:
+    payload = build_replay_experimental_flow_payload(
+        [snapshot("not-a-time", 100, spot=5200)],
+        horizon_minutes=5,
+    )
+
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["meta"]["currentSnapshotTime"] != "not-a-time"
+    assert payload["meta"]["previousSnapshotTime"] is None
+    assert payload["contractRows"] == []
+    assert payload["replayValidation"]["rows"] == []
+
+
+def snapshot(snapshot_time: str, volume: int, *, spot: float = 5200.25, last: float = 10.25) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "session_id": "moomoo-spx-0dte-live",
+        "mode": "live",
+        "symbol": "SPX",
+        "expiry": "2026-04-24",
+        "snapshot_time": snapshot_time,
+        "spot": spot,
+        "source_status": "connected",
+        "freshness_ms": 0,
+        "rows": [
+            {
+                "contract_id": "SPX-2026-04-24-C-5200",
+                "right": "call",
+                "strike": 5200,
+                "bid": 9.8,
+                "ask": 10.2,
+                "mid": 10.0,
+                "last": last,
+                "bid_size": 12,
+                "ask_size": 8,
+                "volume": volume,
+                "open_interest": 500,
+                "custom_gamma": 0.017,
+                "custom_vanna": 0.002,
+                "ibkr_delta": 0.51,
+                "ibkr_vega": 2.0,
+                "ibkr_theta": -1.25,
+            }
+        ],
+    }

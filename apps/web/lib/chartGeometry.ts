@@ -14,7 +14,7 @@ export interface ChartFrame {
 }
 
 export type NumericRowKey = {
-  [Key in keyof AnalyticsRow]: AnalyticsRow[Key] extends number | null ? Key : never;
+  [Key in keyof AnalyticsRow]-?: Exclude<AnalyticsRow[Key], undefined> extends number | null ? Key : never;
 }[keyof AnalyticsRow];
 
 export function buildSeries(rows: Array<Pick<AnalyticsRow, "strike"> & Partial<Record<NumericRowKey, number | null>>>, key: NumericRowKey): ChartPoint[] {

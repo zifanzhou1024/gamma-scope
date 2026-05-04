@@ -20,6 +20,7 @@ test("all schemas compile", async () => {
     "schemas/collector-events.schema.json",
     "schemas/analytics-snapshot.schema.json",
     "schemas/experimental-analytics.schema.json",
+    "schemas/experimental-flow.schema.json",
     "schemas/scenario.schema.json",
     "schemas/saved-view.schema.json"
   ]) {
@@ -61,6 +62,32 @@ test("experimental analytics rejects empty panel labels", async () => {
 
   assert.equal(validate(fixture), false);
   assert.equal(validate.errors?.some((error) => error.instancePath === "/forwardSummary/label"), true);
+});
+
+test("seed experimental flow payload matches schema", async () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+
+  const schema = await readJson("schemas/experimental-flow.schema.json");
+  const fixture = await readJson("fixtures/experimental-flow.seed.json");
+  const validate = ajv.compile(schema);
+
+  assert.equal(validate(fixture), true, JSON.stringify(validate.errors, null, 2));
+});
+
+test("experimental flow rejects invalid aggressor and confidence labels", async () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  addFormats(ajv);
+
+  const schema = await readJson("schemas/experimental-flow.schema.json");
+  const fixture = await readJson("fixtures/experimental-flow.seed.json");
+  const validate = ajv.compile(schema);
+
+  fixture.contractRows[0].aggressor = "market_maker_buy";
+  fixture.summary.confidence = "certain";
+  assert.equal(validate(fixture), false);
+  assert.equal(validate.errors?.some((error) => error.instancePath === "/contractRows/0/aggressor"), true);
+  assert.equal(validate.errors?.some((error) => error.instancePath === "/summary/confidence"), true);
 });
 
 test("seed collector health matches schema", async () => {

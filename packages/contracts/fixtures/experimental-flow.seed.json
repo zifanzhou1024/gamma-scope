@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0.0",
+  "meta": {
+    "mode": "latest",
+    "symbol": "SPX",
+    "expiry": "2026-04-23",
+    "generatedAt": "2026-04-23T15:45:05Z",
+    "sourceSessionId": "seed-spx-2026-04-23",
+    "currentSnapshotTime": "2026-04-23T15:45:00Z",
+    "previousSnapshotTime": "2026-04-23T15:44:55Z"
+  },
+  "summary": {
+    "estimatedBuyContracts": 42,
+    "estimatedSellContracts": 18,
+    "netEstimatedContracts": 24,
+    "netPremiumFlow": 28600,
+    "netDeltaFlow": 6240000,
+    "netGammaFlow": 1780000,
+    "estimatedDealerGammaPressure": -1780000,
+    "confidence": "medium"
+  },
+  "strikeRows": [
+    {
+      "strike": 5200,
+      "callBuyContracts": 28,
+      "callSellContracts": 6,
+      "putBuyContracts": 4,
+      "putSellContracts": 8,
+      "netPremiumFlow": 21200,
+      "netDeltaFlow": 4710000,
+      "netGammaFlow": 1420000,
+      "estimatedDealerGammaPressure": -1420000,
+      "openingScore": 0.62,
+      "closingScore": 0.24,
+      "confidence": "medium",
+      "tags": ["ask_lift", "open_close_proxy_only"]
+    },
+    {
+      "strike": 5210,
+      "callBuyContracts": 10,
+      "callSellContracts": 4,
+      "putBuyContracts": 0,
+      "putSellContracts": 0,
+      "netPremiumFlow": 7400,
+      "netDeltaFlow": 1530000,
+      "netGammaFlow": 360000,
+      "estimatedDealerGammaPressure": -360000,
+      "openingScore": 0.48,
+      "closingScore": 0.18,
+      "confidence": "low",
+      "tags": ["weak_buy", "open_close_proxy_only"]
+    }
+  ],
+  "contractRows": [
+    {
+      "contractId": "SPX-2026-04-23-C-5200",
+      "right": "call",
+      "strike": 5200,
+      "volumeDelta": 34,
+      "aggressor": "buy",
+      "signedContracts": 34,
+      "premiumFlow": 34680,
+      "deltaFlow": 9186120,
+      "gammaFlow": 3191040,
+      "vannaFlow": 17680,
+      "thetaFlow": -3400,
+      "openingScore": 0.66,
+      "closingScore": 0.16,
+      "confidence": "medium",
+      "diagnostics": ["open_close_proxy_only"]
+    },
+    {
+      "contractId": "SPX-2026-04-23-P-5200",
+      "right": "put",
+      "strike": 5200,
+      "volumeDelta": 12,
+      "aggressor": "sell",
+      "signedContracts": -12,
+      "premiumFlow": -11880,
+      "deltaFlow": 3057600,
+      "gammaFlow": -1771200,
+      "vannaFlow": -6240,
+      "thetaFlow": 1200,
+      "openingScore": 0.58,
+      "closingScore": 0.31,
+      "confidence": "medium",
+      "diagnostics": ["open_close_proxy_only"]
+    }
+  ],
+  "replayValidation": null,
+  "diagnostics": [
+    {
+      "code": "estimated_flow_only",
+      "message": "Flow is inferred from free quote snapshots and is not official customer or market-maker open/close flow.",
+      "severity": "info"
+    }
+  ]
+}

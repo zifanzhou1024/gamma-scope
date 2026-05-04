@@ -1,0 +1,465 @@
+from __future__ import annotations
+
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+
+from gammascope_api.contracts.generated.experimental_flow import ExperimentalFlow
+from gammascope_api.experimental_flow.service import reset_experimental_flow_memory
+from gammascope_api.ingestion.collector_state import collector_state
+from gammascope_api.ingestion.latest_state_cache import (
+    InMemoryLatestStateCache,
+    reset_latest_state_cache_override,
+    set_latest_state_cache_override,
+)
+from gammascope_api.ingestion.live_snapshot import reset_live_snapshot_memory
+from gammascope_api.ingestion.live_snapshot_service import reset_live_snapshot_service_override
+from gammascope_api.main import app
+from gammascope_api.replay.dependencies import reset_replay_repository_override, set_replay_repository_override
+from gammascope_api.replay.repository import NullReplayRepository
+from gammascope_api.routes import experimental_flow as experimental_flow_routes
+
+
+client = TestClient(app)
+
+
+def setup_function() -> None:
+    collector_state.clear()
+    reset_live_snapshot_memory()
+    reset_live_snapshot_service_override()
+    reset_experimental_flow_memory()
+    reset_replay_repository_override()
+    set_latest_state_cache_override(InMemoryLatestStateCache())
+
+
+def teardown_function() -> None:
+    reset_live_snapshot_service_override()
+    reset_latest_state_cache_override()
+    reset_experimental_flow_memory()
+    reset_replay_repository_override()
+
+
+def test_experimental_flow_latest_route_enforces_generated_response_model() -> None:
+    response_models = {
+        route.path: route.response_model
+        for route in app.routes
+        if isinstance(route, APIRoute)
+    }
+
+    assert response_models["/api/spx/0dte/experimental-flow/latest"] is ExperimentalFlow
+
+
+def test_experimental_flow_latest_route_returns_seed_fixture_without_live_snapshot() -> None:
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "latest"
+    assert payload["meta"]["sourceSessionId"] == "seed-spx-2026-04-23"
+    assert payload["summary"]["estimatedBuyContracts"] == 42
+
+
+def test_experimental_flow_latest_route_ignores_non_spx_live_snapshot() -> None:
+    for event in [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("2026-04-24T15:30:01Z", session_id="moomoo-spy-0dte-live", symbol="SPY", spot=520.25),
+        _contract_event(session_id="moomoo-spy-0dte-live", contract_id="SPY-2026-04-24-C-520", symbol="SPY", strike=520),
+        _option_event("2026-04-24T15:30:02Z", 100, session_id="moomoo-spy-0dte-live", contract_id="SPY-2026-04-24-C-520"),
+        _health_event("2026-04-24T15:30:05Z"),
+        _underlying_event("2026-04-24T15:30:06Z", session_id="moomoo-spy-0dte-live", symbol="SPY", spot=520.5),
+        _option_event("2026-04-24T15:30:07Z", 145, session_id="moomoo-spy-0dte-live", contract_id="SPY-2026-04-24-C-520"),
+    ]:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["sourceSessionId"] == "seed-spx-2026-04-23"
+    assert payload["summary"]["estimatedBuyContracts"] == 42
+
+
+def test_experimental_flow_latest_route_rejects_non_spx_dashboard_snapshot(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService(
+        {
+            **_snapshot("2026-04-24T15:30:05Z", 145),
+            "session_id": "moomoo-spy-0dte-live",
+            "symbol": "SPY",
+        }
+    )
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert service.dashboard_calls == 1
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["sourceSessionId"] == "seed-spx-2026-04-23"
+
+
+def test_experimental_flow_latest_route_computes_delta_after_two_live_cycles() -> None:
+    first_cycle = [
+        _health_event("2026-04-24T15:30:00Z"),
+        _underlying_event("2026-04-24T15:30:01Z"),
+        _contract_event(),
+        _option_event("2026-04-24T15:30:02Z", 100),
+    ]
+    for event in first_cycle:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    first_response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert first_response.status_code == 200
+    first_payload = first_response.json()
+    ExperimentalFlow.model_validate(first_payload)
+    assert first_payload["contractRows"] == []
+    assert first_payload["summary"]["confidence"] == "unknown"
+
+    second_cycle = [
+        _health_event("2026-04-24T15:30:05Z"),
+        _underlying_event("2026-04-24T15:30:06Z"),
+        _option_event("2026-04-24T15:30:07Z", 145),
+    ]
+    for event in second_cycle:
+        assert client.post("/api/spx/0dte/collector/events", json=event).status_code == 200
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["sourceSessionId"] == "moomoo-spx-0dte-live"
+    assert payload["meta"]["previousSnapshotTime"] == first_payload["meta"]["currentSnapshotTime"]
+    assert payload["summary"]["estimatedBuyContracts"] == 45
+    assert payload["contractRows"][0]["contractId"] == "SPX-2026-04-24-C-5200"
+    assert payload["contractRows"][0]["volumeDelta"] == 45
+    assert payload["contractRows"][0]["aggressor"] == "buy"
+
+
+def test_experimental_flow_latest_route_bootstraps_previous_snapshot_from_replay_stream(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService(_snapshot("2026-04-24T15:30:05Z", 150))
+    calls = []
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append({"session_id": session_id, "at": at, "source_snapshot_id": source_snapshot_id})
+        return [_snapshot("2026-04-24T15:30:00Z", 100)]
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    assert calls == [{"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None}]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_experimental_flow_latest_route_bootstraps_after_empty_same_snapshot_seed(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService(_snapshot("2026-04-24T15:30:05Z", 150))
+    calls = []
+    replay_batches = [[], [_snapshot("2026-04-24T15:30:00Z", 100)]]
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append({"session_id": session_id, "at": at, "source_snapshot_id": source_snapshot_id})
+        return replay_batches.pop(0)
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    first_response = client.get("/api/spx/0dte/experimental-flow/latest")
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert first_response.status_code == 200
+    assert response.status_code == 200
+    assert calls == [
+        {"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None},
+        {"session_id": "moomoo-spx-0dte-live", "at": None, "source_snapshot_id": None},
+    ]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_experimental_flow_latest_route_uses_latest_replay_pair_when_live_snapshot_has_no_rows(monkeypatch) -> None:
+    service = _DashboardOnlySnapshotService({**_snapshot("2026-04-24T15:30:10Z", 150), "rows": []})
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        return [
+            _snapshot("2026-04-24T15:30:00Z", 100),
+            _snapshot("2026-04-24T15:30:05Z", 150),
+        ]
+
+    monkeypatch.setattr(experimental_flow_routes, "get_live_snapshot_service", lambda: service)
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots)
+
+    response = client.get("/api/spx/0dte/experimental-flow/latest")
+
+    assert response.status_code == 200
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["currentSnapshotTime"] == "2026-04-24T15:30:05Z"
+    assert payload["meta"]["previousSnapshotTime"] == "2026-04-24T15:30:00Z"
+    assert payload["summary"]["estimatedBuyContracts"] == 50
+    assert payload["contractRows"][0]["volumeDelta"] == 50
+
+
+def test_replay_experimental_flow_uses_replay_repository() -> None:
+    repository = _ReplayRepositoryWithSnapshots(
+        [
+            route_snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+            route_snapshot("2026-04-24T15:30:05Z", 140, spot=5200),
+            route_snapshot("2026-04-24T15:35:05Z", 155, spot=5208),
+        ]
+    )
+    set_replay_repository_override(repository)
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={"session_id": "replay-a", "horizon_minutes": 5},
+    )
+
+    assert response.status_code == 200
+    assert repository.calls == [{"session_id": "replay-a", "at": None}]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+    assert payload["replayValidation"]["hitRate"] == 1.0
+
+
+def test_replay_experimental_flow_delegates_to_replay_stream_resolver(monkeypatch) -> None:
+    calls: list[dict[str, str | None]] = []
+
+    def fake_replay_stream_snapshots(
+        session_id: str,
+        at: str | None = None,
+        source_snapshot_id: str | None = None,
+    ) -> list[dict]:
+        calls.append(
+            {
+                "session_id": session_id,
+                "at": at,
+                "source_snapshot_id": source_snapshot_id,
+            }
+        )
+        return [
+            route_snapshot("2026-04-24T15:30:00Z", 100, spot=5200),
+            route_snapshot("2026-04-24T15:30:05Z", 140, spot=5200),
+            route_snapshot("2026-04-24T15:35:05Z", 155, spot=5208),
+        ]
+
+    monkeypatch.setattr(experimental_flow_routes, "replay_stream_snapshots", fake_replay_stream_snapshots, raising=False)
+    set_replay_repository_override(_FailingReplayRepository())
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={
+            "session_id": "import-session-ready",
+            "at": "2026-04-24T15:35:00Z",
+            "source_snapshot_id": "src-duplicate-later",
+            "horizon_minutes": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == [
+        {
+            "session_id": "import-session-ready",
+            "at": "2026-04-24T15:35:00Z",
+            "source_snapshot_id": "src-duplicate-later",
+        }
+    ]
+    payload = response.json()
+    ExperimentalFlow.model_validate(payload)
+    assert payload["meta"]["mode"] == "replay"
+
+
+def test_replay_experimental_flow_returns_503_when_replay_repository_unavailable() -> None:
+    set_replay_repository_override(_FailingReplayRepository())
+
+    response = client.get(
+        "/api/spx/0dte/experimental-flow/replay",
+        params={"session_id": "non-seed"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Replay persistence unavailable"
+
+
+def _health_event(event_time: str) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "collector_id": "local-dev",
+        "status": "connected",
+        "ibkr_account_mode": "paper",
+        "message": "experimental flow test",
+        "event_time": event_time,
+        "received_time": event_time,
+    }
+
+
+def _underlying_event(
+    event_time: str,
+    *,
+    session_id: str = "moomoo-spx-0dte-live",
+    symbol: str = "SPX",
+    spot: float = 5200.25,
+) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "symbol": symbol,
+        "spot": spot,
+        "bid": spot - 0.5,
+        "ask": spot + 0.5,
+        "last": spot,
+        "mark": spot,
+        "event_time": event_time,
+        "quote_status": "valid",
+    }
+
+
+class _DashboardOnlySnapshotService:
+    def __init__(self, dashboard_snapshot: dict) -> None:
+        self._dashboard_snapshot = dashboard_snapshot
+        self.dashboard_calls = 0
+
+    def dashboard_snapshot(self) -> dict:
+        self.dashboard_calls += 1
+        return self._dashboard_snapshot
+
+    def symbol_snapshot(self, _symbol: str) -> dict | None:
+        return None
+
+
+def _snapshot(snapshot_time: str, volume: int) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "session_id": "moomoo-spx-0dte-live",
+        "mode": "live",
+        "symbol": "SPX",
+        "expiry": "2026-04-24",
+        "snapshot_time": snapshot_time,
+        "spot": 5200.25,
+        "source_status": "connected",
+        "freshness_ms": 0,
+        "rows": [
+            {
+                "contract_id": "SPX-2026-04-24-C-5200",
+                "right": "call",
+                "strike": 5200,
+                "bid": 9.8,
+                "ask": 10.2,
+                "mid": 10.0,
+                "last": 10.25,
+                "bid_size": 12,
+                "ask_size": 8,
+                "volume": volume,
+                "open_interest": 500,
+                "custom_gamma": 0.017,
+                "custom_vanna": 0.002,
+                "ibkr_delta": 0.51,
+                "ibkr_vega": 2.0,
+                "ibkr_theta": -1.25,
+            }
+        ],
+    }
+
+
+def route_snapshot(snapshot_time: str, volume: int, *, spot: float) -> dict:
+    return {
+        **_snapshot(snapshot_time, volume),
+        "session_id": "replay-a",
+        "mode": "replay",
+        "spot": spot,
+        "rows": [{**_snapshot(snapshot_time, volume)["rows"][0], "last": 9.75}],
+    }
+
+
+class _ReplayRepositoryWithSnapshots(NullReplayRepository):
+    def __init__(self, snapshots: list[dict]) -> None:
+        self._snapshots = snapshots
+        self.calls: list[dict[str, str | None]] = []
+
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict]:
+        self.calls.append({"session_id": session_id, "at": at})
+        return self._snapshots
+
+
+class _FailingReplayRepository(NullReplayRepository):
+    def replay_snapshots(self, session_id: str, at: str | None = None) -> list[dict]:
+        raise RuntimeError("Replay persistence unavailable")
+
+
+def _contract_event(
+    *,
+    session_id: str = "moomoo-spx-0dte-live",
+    contract_id: str = "SPX-2026-04-24-C-5200",
+    symbol: str = "SPX",
+    strike: float = 5200,
+) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "ibkr_con_id": 520024,
+        "symbol": symbol,
+        "expiry": "2026-04-24",
+        "right": "call",
+        "strike": strike,
+        "multiplier": 100,
+        "exchange": "CBOE",
+        "currency": "USD",
+        "event_time": "2026-04-24T15:30:01Z",
+    }
+
+
+def _option_event(
+    event_time: str,
+    volume: int,
+    *,
+    session_id: str = "moomoo-spx-0dte-live",
+    contract_id: str = "SPX-2026-04-24-C-5200",
+) -> dict:
+    return {
+        "schema_version": "1.0.0",
+        "source": "ibkr",
+        "session_id": session_id,
+        "contract_id": contract_id,
+        "bid": 9.8,
+        "ask": 10.2,
+        "last": 10.25,
+        "bid_size": 12,
+        "ask_size": 8,
+        "volume": volume,
+        "open_interest": 500,
+        "ibkr_iv": 0.2,
+        "ibkr_delta": 0.51,
+        "ibkr_gamma": 0.017,
+        "ibkr_vega": 2.0,
+        "ibkr_theta": -1.25,
+        "event_time": event_time,
+        "quote_status": "valid",
+    }

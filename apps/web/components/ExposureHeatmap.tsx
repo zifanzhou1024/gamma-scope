@@ -176,6 +176,9 @@ function HeatmapNavTabs() {
       <a className="topNavTab" href="/experimental">
         Experimental
       </a>
+      <a className="topNavTab" href="/experimental-2">
+        Experimental 2
+      </a>
     </nav>
   );
 }

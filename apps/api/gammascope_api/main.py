@@ -1,7 +1,20 @@
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
-from gammascope_api.routes import admin, collector, experimental, heatmap, replay, replay_imports, scenario, snapshot, status, stream, views
+from gammascope_api.routes import (
+    admin,
+    collector,
+    experimental,
+    experimental_flow,
+    heatmap,
+    replay,
+    replay_imports,
+    scenario,
+    snapshot,
+    status,
+    stream,
+    views,
+)
 
 
 app = FastAPI(title="GammaScope API", version="0.1.0")
@@ -15,6 +28,7 @@ app.include_router(admin.router)
 app.include_router(collector.router)
 app.include_router(snapshot.router)
 app.include_router(experimental.router)
+app.include_router(experimental_flow.router)
 app.include_router(heatmap.router)
 app.include_router(stream.router)
 app.include_router(replay.router)
