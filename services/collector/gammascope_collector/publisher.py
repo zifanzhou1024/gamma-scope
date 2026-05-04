@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import ssl
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -16,6 +18,8 @@ COLLECTOR_EVENT_PATH = "/api/spx/0dte/collector/events"
 COLLECTOR_EVENTS_BULK_PATH = "/api/spx/0dte/collector/events/bulk"
 ADMIN_TOKEN_ENV = "GAMMASCOPE_ADMIN_TOKEN"
 ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token"
+SSL_CERT_FILE_ENV = "SSL_CERT_FILE"
+MACOS_SYSTEM_CERT_FILE = Path("/etc/ssl/cert.pem")
 
 PostJson = Callable[[str, dict[str, object]], dict[str, Any]]
 PostJsonBatch = Callable[[str, list[dict[str, object]]], dict[str, Any]]
@@ -109,7 +113,7 @@ def _post_json(endpoint: str, event: dict[str, object], *, admin_token: str | No
         method="POST",
     )
     try:
-        with urlopen(request, timeout=5) as response:
+        with _urlopen_request(request, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -132,7 +136,7 @@ def _post_json_batch(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=10) as response:
+        with _urlopen_request(request, timeout=10) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -159,6 +163,27 @@ def _json_headers(admin_token: str | None = None) -> dict[str, str]:
     if resolved_admin_token is not None:
         headers[ADMIN_TOKEN_HEADER] = resolved_admin_token
     return headers
+
+
+def _urlopen_request(request: Request, *, timeout: float):
+    ssl_context = _ssl_context_for_request(request)
+    if ssl_context is None:
+        return urlopen(request, timeout=timeout)
+    return urlopen(request, timeout=timeout, context=ssl_context)
+
+
+def _ssl_context_for_request(request: Request) -> ssl.SSLContext | None:
+    if not request.full_url.lower().startswith("https://"):
+        return None
+    if os.environ.get(SSL_CERT_FILE_ENV):
+        return None
+
+    default_cafile = ssl.get_default_verify_paths().cafile
+    if default_cafile and Path(default_cafile).exists():
+        return None
+    if MACOS_SYSTEM_CERT_FILE.exists():
+        return ssl.create_default_context(cafile=str(MACOS_SYSTEM_CERT_FILE))
+    return None
 
 
 def _normalize_argv(argv: Sequence[str] | None) -> Sequence[str] | None:
