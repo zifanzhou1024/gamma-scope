@@ -43,8 +43,7 @@ You need:
 
 - A VPS with a clean supported Linux image. This guide is written for Debian 12/13 because the current server is Debian.
 - AMH installed with an Nginx-based environment such as LNGX or LNMP.
-- A domain or subdomain, for example `gammascope.example.com`.
-- DNS `A` record pointing that domain to the server public IP.
+- The domain `gamma.hiqjj.org`, with its DNS `A` record pointed at the server public IP.
 - Cloud firewall/security group opened for `80/tcp` and `443/tcp`.
 - SSH access to the server.
 - Docker Engine and Docker Compose plugin on the server.
@@ -166,7 +165,7 @@ openssl rand -base64 48 | tr -d '\n' && echo
 Edit `ops/amh-nginx/gammascope.production.env`:
 
 ```text
-GAMMASCOPE_PUBLIC_ORIGIN=https://gammascope.example.com
+GAMMASCOPE_PUBLIC_ORIGIN=https://gamma.hiqjj.org
 GAMMASCOPE_POSTGRES_PASSWORD=<random database password>
 GAMMASCOPE_ADMIN_TOKEN=<random admin token shared only with your collector and server-side web process>
 GAMMASCOPE_WEB_ADMIN_PASSWORD=<random web login password>
@@ -215,7 +214,7 @@ There are two workable paths.
 
 ### Option A: AMH Panel Vhost
 
-Use AMH to create a site/vhost for `gammascope.example.com`, enable SSL with AMSSL, then add custom Nginx rules equivalent to these locations:
+Use AMH to create a site/vhost for `gamma.hiqjj.org`, enable SSL with AMSSL, then add custom Nginx rules equivalent to these locations:
 
 ```nginx
 location = /api/spx/0dte/collector/events {
@@ -271,11 +270,10 @@ Use this option when AMH owns certificate renewal and vhost generation.
 
 ### Option B: Full Nginx Template
 
-Copy the repo template and edit the domain/certificate paths:
+Copy the repo template. It already uses `gamma.hiqjj.org` and the matching Let's Encrypt certificate paths:
 
 ```bash
 sudo cp /opt/gammascope/ops/amh-nginx/gammascope.nginx.conf /etc/nginx/conf.d/gammascope.conf
-sudo sed -i 's/gammascope.example.com/your-real-domain.example/g' /etc/nginx/conf.d/gammascope.conf
 ```
 
 If your AMH Nginx is not using `/etc/nginx/conf.d`, locate its active config:
@@ -307,7 +305,7 @@ sudo snap install core
 sudo snap refresh core
 sudo snap install --classic certbot
 sudo ln -sf /snap/bin/certbot /usr/local/bin/certbot
-sudo certbot --nginx -d gammascope.example.com
+sudo certbot --nginx -d gamma.hiqjj.org
 sudo certbot renew --dry-run
 ```
 
@@ -318,14 +316,14 @@ Certbot expects your domain to already resolve to the server and port `80` to be
 From your computer:
 
 ```bash
-curl -I https://gammascope.example.com/
-curl -fsS https://gammascope.example.com/api/spx/0dte/replay/sessions | python3 -m json.tool
+curl -I https://gamma.hiqjj.org/
+curl -fsS https://gamma.hiqjj.org/api/spx/0dte/replay/sessions | python3 -m json.tool
 ```
 
 Collector ingestion should require the admin token:
 
 ```bash
-curl -i -X POST https://gammascope.example.com/api/spx/0dte/collector/events/bulk \
+curl -i -X POST https://gamma.hiqjj.org/api/spx/0dte/collector/events/bulk \
   -H 'Content-Type: application/json' \
   --data '[]'
 ```
@@ -335,7 +333,7 @@ Expected without token: `403`.
 With the token:
 
 ```bash
-curl -i -X POST https://gammascope.example.com/api/spx/0dte/collector/events/bulk \
+curl -i -X POST https://gamma.hiqjj.org/api/spx/0dte/collector/events/bulk \
   -H "X-GammaScope-Admin-Token: <your-admin-token>" \
   -H 'Content-Type: application/json' \
   --data '[]'
@@ -354,7 +352,7 @@ cp ops/amh-nginx/gammascope.collector-client.env.example ops/amh-nginx/gammascop
 Edit it:
 
 ```text
-GAMMASCOPE_SERVER_API=https://gammascope.example.com
+GAMMASCOPE_SERVER_API=https://gamma.hiqjj.org
 GAMMASCOPE_ADMIN_TOKEN=<same server admin token>
 GAMMASCOPE_MOOMOO_HOST=127.0.0.1
 GAMMASCOPE_MOOMOO_PORT=11111
@@ -414,14 +412,14 @@ docker compose --env-file ops/amh-nginx/gammascope.production.env -f ops/amh-ngi
 From your computer:
 
 ```bash
-curl -fsS "https://gammascope.example.com/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX" | python3 -m json.tool
+curl -fsS "https://gamma.hiqjj.org/api/spx/0dte/heatmap/latest?metric=gex&symbol=SPX" | python3 -m json.tool
 ```
 
 Open:
 
 ```text
-https://gammascope.example.com/
-https://gammascope.example.com/heatmap
+https://gamma.hiqjj.org/
+https://gamma.hiqjj.org/heatmap
 ```
 
 ## 11. Operating Commands
