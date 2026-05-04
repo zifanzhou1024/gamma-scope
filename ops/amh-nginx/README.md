@@ -146,13 +146,22 @@ Set the reverse proxy rules to:
 /_next/                                -> http://127.0.0.1:3000
 /images/                               -> http://127.0.0.1:3000
 /favicon.ico                           -> http://127.0.0.1:3000
+/api/admin/                            -> http://127.0.0.1:3000
+/api/replay/imports                    -> http://127.0.0.1:3000
+/api/views                             -> http://127.0.0.1:3000
+/api/spx/0dte/snapshot/latest          -> http://127.0.0.1:3000
+/api/spx/0dte/status                   -> http://127.0.0.1:3000
+/api/spx/0dte/heatmap/latest           -> http://127.0.0.1:3000
+/api/spx/0dte/experimental/            -> http://127.0.0.1:3000
+/api/spx/0dte/replay/                  -> http://127.0.0.1:3000
+/api/spx/0dte/scenario                 -> http://127.0.0.1:3000
 /                                      -> http://127.0.0.1:3000
 /ws/                                   -> http://127.0.0.1:8000
 /api/spx/0dte/collector/events         -> http://127.0.0.1:8000
 /api/spx/0dte/collector/events/bulk    -> http://127.0.0.1:8000
 ```
 
-Do not add a broad `/api/ -> 127.0.0.1:8000` rule. Next.js owns routes such as `/api/admin/login`, and broad API proxying will break the web admin flow.
+Do not add a broad `/api/ -> 127.0.0.1:8000` rule. Next.js owns routes such as `/api/admin/login` and the authenticated realtime proxy at `/api/spx/0dte/snapshot/latest`; broad API proxying will make private-mode browser pages keep seeing seed data.
 
 For AMH URL rules, paste location blocks, not a full `server { ... }` block:
 
@@ -178,6 +187,87 @@ location ^~ /images/ {
 }
 
 location = /favicon.ico {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /api/admin/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /api/replay/imports {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /api/views {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /api/spx/0dte/snapshot/latest {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /api/spx/0dte/status {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /api/spx/0dte/heatmap/latest {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /api/spx/0dte/experimental/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location ^~ /api/spx/0dte/replay/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /api/spx/0dte/scenario {
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
