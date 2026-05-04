@@ -25,6 +25,8 @@ The server does not need Moomoo OpenD. Keep OpenD on the computer that has your 
 - `ops/amh-nginx/gammascope.nginx.conf`: full Nginx vhost template for AMH/manual Nginx.
 - `ops/amh-nginx/gammascope.production.env.example`: server environment template.
 - `ops/amh-nginx/gammascope.collector-client.env.example`: local collector environment template.
+- `ops/amh-nginx/generate_secrets.py`: generates matching server and collector env files.
+- `ops/amh-nginx/README.md`: condensed Debian deployment runbook.
 - `services/collector/gammascope_collector/publisher.py`: collector publishing now reads `GAMMASCOPE_ADMIN_TOKEN` and sends `X-GammaScope-Admin-Token`.
 
 ## Sources Checked
@@ -35,7 +37,7 @@ The server does not need Moomoo OpenD. Keep OpenD on the computer that has your 
 - Certbot official instructions recommend the snap-based Certbot install for Nginx on Linux and note that port 80 HTTP should already work before issuing the certificate: https://certbot.eff.org/instructions?ws=nginx&os=debianbuster
 - Docker official Debian docs recommend installing Docker Engine from Docker's apt repository using `/etc/apt/sources.list.d/docker.sources`, then installing the Compose plugin package: https://docs.docker.com/engine/install/debian/
 
-I could open the shared ChatGPT URL, but the shared page did not expose the actual chat content without login in this environment. This guide is based on the repo and primary docs above.
+This guide also incorporates the live VPS setup notes from `gamma.hiqjj.org`: the server is Debian, Docker `hello-world` passed, the local Compose smoke tests passed, AMH/Nginx served the public app, and explicit `/_next/` proxying was needed to avoid static asset issues.
 
 ## Prerequisites
 
@@ -147,32 +149,34 @@ rsync -az --delete \
 
 ## 4. Configure Server Secrets
 
-Create the production env file on the server:
+Generate the production env file and a matching collector-client env file on the server:
 
 ```bash
 cd /opt/gammascope
-cp ops/amh-nginx/gammascope.production.env.example ops/amh-nginx/gammascope.production.env
+python3 ops/amh-nginx/generate_secrets.py \
+  --server-output ops/amh-nginx/gammascope.production.env \
+  --collector-output ops/amh-nginx/gammascope.collector-client.env
 ```
 
-Generate secrets:
-
-```bash
-openssl rand -hex 24
-openssl rand -hex 32
-openssl rand -base64 48 | tr -d '\n' && echo
-```
-
-Edit `ops/amh-nginx/gammascope.production.env`:
-
-```text
-GAMMASCOPE_PUBLIC_ORIGIN=https://gamma.hiqjj.org
-GAMMASCOPE_POSTGRES_PASSWORD=<random database password>
-GAMMASCOPE_ADMIN_TOKEN=<random admin token shared only with your collector and server-side web process>
-GAMMASCOPE_WEB_ADMIN_PASSWORD=<random web login password>
-GAMMASCOPE_WEB_ADMIN_SESSION_SECRET=<at least 32 random chars>
-```
+Save the printed web admin password and collector admin token. The generated env files are ignored by git.
 
 `GAMMASCOPE_PUBLIC_ORIGIN` is compiled into the Next.js image. If you change the domain later, rebuild the web image.
+
+If you pasted generated secrets somewhere public, rotate them. On a fresh test install, stop and remove the database volume first because regenerating the env also changes `GAMMASCOPE_POSTGRES_PASSWORD`:
+
+```bash
+docker compose \
+  --env-file ops/amh-nginx/gammascope.production.env \
+  -f ops/amh-nginx/docker-compose.amh.yml \
+  down -v
+
+python3 ops/amh-nginx/generate_secrets.py \
+  --server-output ops/amh-nginx/gammascope.production.env \
+  --collector-output ops/amh-nginx/gammascope.collector-client.env \
+  --force
+```
+
+Do not use `down -v` after you have real production data unless you have a database backup. For a live database, keep the existing Postgres password or rotate it manually inside Postgres before changing the env file.
 
 ## 5. Start Backend and Frontend Containers
 
@@ -217,8 +221,38 @@ There are two workable paths.
 Use AMH to create a site/vhost for `gamma.hiqjj.org`, enable SSL with AMSSL, then add custom Nginx rules equivalent to these locations:
 
 ```nginx
+location ^~ /_next/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 3600;
+    proxy_send_timeout 3600;
+}
+
+location ^~ /images/ {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location = /favicon.ico {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
 location = /api/spx/0dte/collector/events {
     proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -229,6 +263,7 @@ location = /api/spx/0dte/collector/events {
 
 location = /api/spx/0dte/collector/events/bulk {
     proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -266,6 +301,8 @@ location / {
 }
 ```
 
+Do not add a broad `/api/ -> 127.0.0.1:8000` rule in AMH. Next.js owns routes such as `/api/admin/login`, and broad API proxying will break the web admin flow.
+
 Use this option when AMH owns certificate renewal and vhost generation.
 
 ### Option B: Full Nginx Template
@@ -288,7 +325,7 @@ Validate and reload:
 
 ```bash
 sudo nginx -t
-sudo nginx -s reload
+sudo systemctl reload nginx || sudo systemctl restart nginx
 ```
 
 ## 7. Configure HTTPS
@@ -319,6 +356,16 @@ From your computer:
 curl -I https://gamma.hiqjj.org/
 curl -fsS https://gamma.hiqjj.org/api/spx/0dte/replay/sessions | python3 -m json.tool
 ```
+
+Verify that AMH is not intercepting Next.js assets:
+
+```bash
+ASSET_PATH="$(curl -fsS https://gamma.hiqjj.org/ | grep -oE '/_next/[^"]+' | head -1)"
+echo "$ASSET_PATH"
+curl -I "https://gamma.hiqjj.org$ASSET_PATH"
+```
+
+Expected: `HTTP/2 200` and a Next static asset content type such as CSS or JavaScript.
 
 Collector ingestion should require the admin token:
 
