@@ -15,7 +15,7 @@ const collectorScript = readFileSync(
 test("deployment guide documents the working AMH production target", () => {
   assert.match(deploymentDoc, /gamma\.hiqjj\.org/);
   assert.match(deploymentDoc, /149\.56\.14\.95/);
-  assert.match(deploymentDoc, /codex\/amh-nginx-server-setup/);
+  assert.match(deploymentDoc, /Deployment branch:\s+main/);
   assert.match(deploymentDoc, /\/opt\/gammascope/);
   assert.match(deploymentDoc, /\/usr\/local\/nginx-1\.24\/sbin\/nginx/);
 });
@@ -39,9 +39,11 @@ test("deployment guide starts with a no-secret quick-start path", () => {
     "quick start should appear before the detailed runbook",
   );
   assert.match(deploymentDoc, /bootstrap_gamma_server\.sh/);
-  assert.match(deploymentDoc, /raw\.githubusercontent\.com\/zifanzhou1024\/gamma-scope/);
+  assert.match(deploymentDoc, /raw\.githubusercontent\.com\/zifanzhou1024\/gamma-scope\/main\/ops\/amh-nginx\/bootstrap_gamma_server\.sh/);
   assert.match(deploymentDoc, /start_moomoo_collector_mac\.sh/);
+  assert.doesNotMatch(deploymentDoc, /raw\.githubusercontent\.com\/zifanzhou1024\/gamma-scope\/codex\/amh-nginx-server-setup/);
   assert.match(bootstrapScript, /generate_secrets\.py/);
+  assert.match(bootstrapScript, /BRANCH="\$\{GAMMASCOPE_BRANCH:-main\}"/);
   assert.match(bootstrapScript, /docker compose/);
   assert.match(bootstrapScript, /keeping existing secrets/);
   assert.match(collectorScript, /screen -dmS "\$SESSION_NAME"/);

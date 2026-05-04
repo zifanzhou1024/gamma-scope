@@ -11,7 +11,7 @@ Use this when redeploying the same `gamma.hiqjj.org` shape. These commands do no
 Server, from your Mac:
 
 ```bash
-ssh root@149.56.14.95 'curl -fsSL https://raw.githubusercontent.com/zifanzhou1024/gamma-scope/codex/amh-nginx-server-setup/ops/amh-nginx/bootstrap_gamma_server.sh | bash'
+ssh root@149.56.14.95 'curl -fsSL https://raw.githubusercontent.com/zifanzhou1024/gamma-scope/main/ops/amh-nginx/bootstrap_gamma_server.sh | bash'
 ```
 
 Local Moomoo collector, from your Mac repo checkout after Moomoo OpenD is running:
@@ -41,7 +41,7 @@ Public domain:         gamma.hiqjj.org
 Server SSH target:     root@149.56.14.95 or root@gamma.hiqjj.org
 Server app path:       /opt/gammascope
 GitHub repo:           https://github.com/zifanzhou1024/gamma-scope.git
-Deployment branch:     codex/amh-nginx-server-setup
+Deployment branch:     main
 Server OS:             Debian
 Public reverse proxy:  AMH Nginx
 API container port:    127.0.0.1:8000
@@ -187,7 +187,7 @@ cd /opt/gammascope
 
 git clone https://github.com/zifanzhou1024/gamma-scope.git .
 git fetch origin
-git switch codex/amh-nginx-server-setup
+git switch main
 ```
 
 Existing install:
@@ -195,7 +195,7 @@ Existing install:
 ```bash
 cd /opt/gammascope
 git fetch origin
-git switch codex/amh-nginx-server-setup
+git switch main
 git pull --ff-only
 ```
 
@@ -678,7 +678,7 @@ ssh root@gamma.hiqjj.org
 cd /opt/gammascope
 
 git fetch origin
-git switch codex/amh-nginx-server-setup
+git switch main
 git pull --ff-only
 
 docker compose \

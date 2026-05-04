@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 DOMAIN="${GAMMASCOPE_DOMAIN:-gamma.hiqjj.org}"
 REPO_URL="${GAMMASCOPE_REPO_URL:-https://github.com/zifanzhou1024/gamma-scope.git}"
-BRANCH="${GAMMASCOPE_BRANCH:-codex/amh-nginx-server-setup}"
+BRANCH="${GAMMASCOPE_BRANCH:-main}"
 APP_DIR="${GAMMASCOPE_APP_DIR:-/opt/gammascope}"
 
 SERVER_ENV="ops/amh-nginx/gammascope.production.env"

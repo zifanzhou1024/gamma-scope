@@ -132,7 +132,7 @@ If this branch has been pushed to GitHub:
 ```bash
 git clone <your-github-repo-url> .
 git fetch origin
-git switch codex/amh-nginx-server-setup
+git switch main
 ```
 
 If the branch has not been pushed yet, send it from your computer:

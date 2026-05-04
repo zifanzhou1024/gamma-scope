@@ -63,7 +63,7 @@ mkdir -p /opt/gammascope
 cd /opt/gammascope
 
 git clone https://github.com/zifanzhou1024/gamma-scope.git .
-git switch codex/amh-nginx-server-setup
+git switch main
 git pull
 ```
 
