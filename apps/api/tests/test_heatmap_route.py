@@ -147,7 +147,7 @@ def test_latest_heatmap_route_fallback_does_not_write_configured_repository() ->
     assert repository.snapshot_upserts == 0
 
 
-def test_latest_heatmap_route_private_fallback_does_not_write_configured_repository(monkeypatch) -> None:
+def test_latest_heatmap_route_private_mode_returns_public_live_heatmap(monkeypatch) -> None:
     monkeypatch.setenv("GAMMASCOPE_PRIVATE_MODE_ENABLED", "true")
     monkeypatch.setenv("GAMMASCOPE_ADMIN_TOKEN", "local-admin-token")
     repository = _RecordingHeatmapRepository()
@@ -162,10 +162,10 @@ def test_latest_heatmap_route_private_fallback_does_not_write_configured_reposit
     response = client.get("/api/spx/0dte/heatmap/latest")
 
     assert response.status_code == 200
-    assert response.json()["sessionId"] != "moomoo-spx-0dte-live"
-    assert response.json()["persistenceStatus"] == "skipped"
-    assert repository.baseline_upserts == 0
-    assert repository.snapshot_upserts == 0
+    assert response.json()["sessionId"] == "moomoo-spx-0dte-live"
+    assert response.json()["persistenceStatus"] == "persisted"
+    assert repository.baseline_upserts == 1
+    assert repository.snapshot_upserts == 1
 
 
 class _RecordingHeatmapRepository(InMemoryHeatmapRepository):

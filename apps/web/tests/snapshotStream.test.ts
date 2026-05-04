@@ -80,6 +80,19 @@ describe("clientSnapshotWebSocketUrl", () => {
       process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL = original;
     }
   });
+
+  it("converts a public HTTPS origin env value to the snapshot websocket URL", () => {
+    const original = process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL;
+    process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL = "https://gamma.hiqjj.org";
+
+    expect(clientSnapshotWebSocketUrl()).toBe("wss://gamma.hiqjj.org/ws/spx/0dte");
+
+    if (original === undefined) {
+      delete process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL;
+    } else {
+      process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL = original;
+    }
+  });
 });
 
 describe("startSnapshotStream", () => {

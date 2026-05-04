@@ -30,7 +30,16 @@ export function snapshotWebSocketUrl(apiBaseUrl = DEFAULT_API_BASE_URL): string 
 }
 
 export function clientSnapshotWebSocketUrl(): string {
-  return process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL || snapshotWebSocketUrl();
+  const configuredUrl = process.env.NEXT_PUBLIC_GAMMASCOPE_WS_URL;
+  if (!configuredUrl) {
+    return snapshotWebSocketUrl();
+  }
+
+  const protocol = new URL(configuredUrl).protocol;
+  if (protocol === "ws:" || protocol === "wss:") {
+    return configuredUrl;
+  }
+  return snapshotWebSocketUrl(configuredUrl);
 }
 
 export function startSnapshotStream({

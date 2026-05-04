@@ -3,7 +3,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from gammascope_api.auth import is_valid_admin_token, private_mode_enabled, websocket_admin_token
 from gammascope_api.fixtures import load_json_fixture
 from gammascope_api.ingestion.live_snapshot_service import get_live_snapshot_service
 from gammascope_api.routes.replay import replay_stream_snapshots, seed_replay_snapshots
@@ -19,10 +18,6 @@ DEFAULT_REPLAY_INTERVAL_MS = 250
 
 @router.websocket("/ws/spx/0dte")
 async def stream_spx_0dte(websocket: WebSocket) -> None:
-    if private_mode_enabled() and not is_valid_admin_token(websocket_admin_token(websocket)):
-        await websocket.close(code=1008)
-        return
-
     await websocket.accept()
     try:
         while True:

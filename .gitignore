@@ -10,6 +10,8 @@
 .env
 .env.*
 !.env.example
+ops/amh-nginx/gammascope.production.env
+ops/amh-nginx/gammascope.collector-client.env
 
 # Node
 node_modules/

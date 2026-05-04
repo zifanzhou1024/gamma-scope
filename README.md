@@ -4,7 +4,7 @@
 
 GammaScope is being built in slices. The first slice establishes the local monorepo, shared contracts, seeded replay data, and smoke-testable API/web surfaces.
 
-Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md).
+Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md). For the AMH/Nginx remote server layout where your computer publishes Moomoo data to a server-hosted backend and frontend, use [docs/amh-nginx-server-setup.md](docs/amh-nginx-server-setup.md).
 
 Run:
 
@@ -93,21 +93,18 @@ Set private mode when the API may be reachable by non-admin users:
 
 `GAMMASCOPE_PRIVATE_MODE=true` is also accepted. Truthy values are `1`, `true`, `yes`, `on`, and `enabled`.
 
-In private mode, public replay remains open:
+In private mode, public viewing remains open. Live snapshots, live status, scenarios, live WebSocket updates, replay, heatmap, and experimental analytics do not require an admin token:
 
     curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
     curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
+    curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | python -m json.tool
 
-Live collector state requires the admin token:
+Collector ingestion, raw collector state, replay imports, and maintenance/admin operations require the admin token:
 
     curl -s -H "X-GammaScope-Admin-Token: local-admin-token" \
       http://127.0.0.1:8000/api/spx/0dte/collector/state | python -m json.tool
 
-The live WebSocket accepts the same header, or `admin_token` as a query parameter for simple local clients:
-
-    ws://127.0.0.1:8000/ws/spx/0dte?admin_token=local-admin-token
-
-Without a valid admin token, private-mode latest snapshot, status, and scenario requests use seeded replay/fallback data instead of live collector state. Saved-view public requests list only `owner_scope: "public_demo"`; creating or listing admin scoped views requires the admin token. If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, private admin operations return `403`.
+Saved-view public requests list only `owner_scope: "public_demo"`; creating or listing admin scoped views requires the admin token. If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, private admin operations return `403`.
 
 ### Local IBKR Health Probe
 
