@@ -32,8 +32,8 @@ The server does not need Moomoo OpenD. Keep OpenD on the computer that has your 
 - AMH official installation docs say AMH 7.3 should be installed on a clean Debian, CentOS, or Ubuntu server and supports Nginx-based environments: https://amh.sh/install.htm
 - AMH official docs describe installing server/environment modules such as Nginx, LNMP/LNGX, and AMSSL from the panel: https://amh.sh/doc.htm
 - Nginx official reverse proxy docs use `proxy_pass` and `proxy_set_header` to forward application requests: https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/
-- Certbot official instructions recommend the snap-based Certbot install for Nginx on Ubuntu and note that port 80 HTTP should already work before issuing the certificate: https://certbot.eff.org/instructions?ws=nginx&os=ubuntufocal
-- Docker official docs recommend installing Docker Engine from Docker's apt repository and using the Compose plugin on Linux: https://docs.docker.com/engine/install/ubuntu/ and https://docs.docker.com/compose/install/linux/
+- Certbot official instructions recommend the snap-based Certbot install for Nginx on Linux and note that port 80 HTTP should already work before issuing the certificate: https://certbot.eff.org/instructions?ws=nginx&os=debianbuster
+- Docker official Debian docs recommend installing Docker Engine from Docker's apt repository using `/etc/apt/sources.list.d/docker.sources`, then installing the Compose plugin package: https://docs.docker.com/engine/install/debian/
 
 I could open the shared ChatGPT URL, but the shared page did not expose the actual chat content without login in this environment. This guide is based on the repo and primary docs above.
 
@@ -41,7 +41,7 @@ I could open the shared ChatGPT URL, but the shared page did not expose the actu
 
 You need:
 
-- A VPS with a clean supported Linux image. Ubuntu 24.04 LTS is the most straightforward choice.
+- A VPS with a clean supported Linux image. This guide is written for Debian 12/13 because the current server is Debian.
 - AMH installed with an Nginx-based environment such as LNGX or LNMP.
 - A domain or subdomain, for example `gammascope.example.com`.
 - DNS `A` record pointing that domain to the server public IP.
@@ -71,26 +71,47 @@ AMH panel port, only from your IP
 
 Keep AMH's panel port restricted to your IP if the provider supports security group source IP rules.
 
-## 2. Install Docker on the Server
+## 2. Install Docker on the Debian Server
 
-Follow Docker's official Ubuntu repository instructions. The short version for Ubuntu is:
+Follow Docker's official Debian repository instructions. If a previous Ubuntu-style command created `/etc/apt/sources.list.d/docker.list`, remove it first because one malformed APT source blocks every `apt-get update`.
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
+set -eux
 
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+rm -f /etc/apt/sources.list.d/docker.list
+rm -f /etc/apt/sources.list.d/docker.sources
 
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo docker run hello-world
+apt-get update
+apt-get install -y ca-certificates curl
+
+. /etc/os-release
+if [ "$ID" != "debian" ]; then
+  echo "This block is for Debian only. Current OS: ID=$ID VERSION_CODENAME=$VERSION_CODENAME"
+  exit 1
+fi
+
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+cat > /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: $VERSION_CODENAME
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+cat /etc/apt/sources.list.d/docker.sources
+
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+systemctl enable --now docker
+docker version
 docker compose version
+docker run hello-world
 ```
 
 Use `sudo docker ...` unless you intentionally add your SSH user to the `docker` group.
@@ -276,11 +297,16 @@ sudo nginx -s reload
 
 If AMH/AMSSL handles HTTPS, issue the certificate there and make sure the Nginx vhost points at that certificate.
 
-If using Certbot directly on Ubuntu:
+If using Certbot directly on Debian:
 
 ```bash
+sudo apt-get update
+sudo apt-get install -y snapd
+sudo systemctl enable --now snapd.socket
+sudo snap install core
+sudo snap refresh core
 sudo snap install --classic certbot
-sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+sudo ln -sf /snap/bin/certbot /usr/local/bin/certbot
 sudo certbot --nginx -d gammascope.example.com
 sudo certbot renew --dry-run
 ```
