@@ -110,7 +110,9 @@ def default_moomoo_universe() -> list[MoomooSymbolConfig]:
             strike_window_down=20,
             strike_window_up=20,
             family_filter="RUTW",
-            requires_manual_spot=True,
+            spot_proxy_code="US.IWM",
+            spot_proxy_multiplier=10.0,
+            infer_spot_from_options=True,
             priority=50,
         ),
         MoomooSymbolConfig(
@@ -119,7 +121,9 @@ def default_moomoo_universe() -> list[MoomooSymbolConfig]:
             strike_window_down=50,
             strike_window_up=50,
             family_filter="NDXP",
-            requires_manual_spot=True,
+            spot_proxy_code="US.QQQ",
+            spot_proxy_multiplier=40.0,
+            infer_spot_from_options=True,
             priority=60,
         ),
     ]
