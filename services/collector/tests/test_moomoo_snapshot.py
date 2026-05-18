@@ -299,6 +299,44 @@ def test_discover_symbol_contracts_uses_live_spot_proxy_for_index_options() -> N
     ]
 
 
+def test_discover_symbol_contracts_prefers_manual_spot_over_proxy() -> None:
+    client = FakeQuoteClient(
+        chains={
+            "US..RUT": [
+                _option("US.RUTW260427C02050000", strike=2050, option_type="CALL", name="RUTW 2050C"),
+                _option("US.RUTW260427P02050000", strike=2050, option_type="PUT", name="RUTW 2050P"),
+                _option("US.RUTW260427C02200000", strike=2200, option_type="CALL", name="RUTW 2200C"),
+                _option("US.RUTW260427P02200000", strike=2200, option_type="PUT", name="RUTW 2200P"),
+            ]
+        },
+        snapshots={
+            "US.IWM": {
+                "code": "US.IWM",
+                "last_price": 220.0,
+            }
+        },
+    )
+    symbol = MoomooSymbolConfig(
+        symbol="RUT",
+        owner_code="US..RUT",
+        strike_window_down=0,
+        strike_window_up=0,
+        family_filter="RUTW",
+        manual_spot=2050.0,
+        spot_proxy_code="US.IWM",
+        spot_proxy_multiplier=10.0,
+    )
+
+    result = discover_symbol_contracts(client, symbol, expiry=date(2026, 4, 27))
+
+    assert client.snapshot_calls == []
+    assert result.spot == pytest.approx(2050.0)
+    assert [contract.option_code for contract in result.contracts] == [
+        "US.RUTW260427C02050000",
+        "US.RUTW260427P02050000",
+    ]
+
+
 def test_missing_required_manual_spot_skips_symbol_without_fetching_option_chain() -> None:
     client = FakeQuoteClient()
     symbol = MoomooSymbolConfig(
@@ -1123,7 +1161,7 @@ def test_main_max_loops_zero_runs_until_interrupted_and_publishes_each_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = InterruptingQuoteClient(
-        interrupt_after_snapshots=5,
+        interrupt_after_snapshots=2,
         chains={
             "US..SPX": [
                 _option("US.SPXW260427C07050000", strike=7050, option_type="CALL", name="SPXW 7050C"),

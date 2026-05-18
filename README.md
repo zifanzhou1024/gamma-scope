@@ -327,7 +327,9 @@ Eastern, and repeats weekdays while the process stays alive:
 
     pnpm collector:moomoo-research-market
 
-RUT and NDX currently need manual spot values before option rows can be selected:
+All six configured tickers can run without manual spot input. SPX uses `US.SPY`
+as its proxy; RUT uses `US.IWM * 10.0`; NDX uses `US.QQQ * 40.0`. Manual spots
+remain available as overrides for unusual sessions:
 
     pnpm collector:moomoo-research-record -- --spot RUT=2150 --spot NDX=18400
 
@@ -353,36 +355,59 @@ Automatic Moomoo ML collection is configured through a macOS LaunchAgent:
 
     /Users/sakura/Library/LaunchAgents/com.sakura.gammascope.moomoo-research-recorder.plist
 
+Moomoo OpenD is also managed by a LaunchAgent:
+
+    /Users/sakura/Library/LaunchAgents/com.sakura.moomoo-opend.plist
+
 It runs:
 
     /Users/sakura/WebstormProjects/gamma-scope/ops/run_moomoo_research_market.sh
 
-The wrapper starts the market-hours recorder, waits for the regular U.S. session
-when needed, repeats across weekdays, and restarts after 5 minutes if the
-recorder exits. Logs are written to:
+The OpenD agent runs:
+
+    /Users/sakura/WebstormProjects/gamma-scope/ops/run_moomoo_opend.sh
+
+The OpenD wrapper checks every 60 seconds and opens
+`/Applications/moomoo_OpenD.app` if it is not running. The recorder wrapper
+starts the market-hours recorder, waits for the regular U.S. session when
+needed, repeats across weekdays, and restarts after 5 minutes if the recorder
+exits. Logs are written to:
 
     /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-research-recorder.out.log
     /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-research-recorder.err.log
+    /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-opend.out.log
+    /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-opend.err.log
 
 Check service status:
 
     launchctl print gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+    launchctl print gui/$(id -u)/com.sakura.moomoo-opend
 
 Restart after changing recorder arguments:
 
     launchctl kickstart -k gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+    launchctl kickstart -k gui/$(id -u)/com.sakura.moomoo-opend
 
 Stop automatic collection:
 
     launchctl bootout gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+    launchctl bootout gui/$(id -u)/com.sakura.moomoo-opend
 
 Optional extra arguments live in:
 
     /Users/sakura/local-ml-data/gamma-ml-research/moomoo-recorder.args
 
-Use that file for RUT/NDX manual spots or a 30-second fallback cadence. The
-LaunchAgent cannot wake a sleeping Mac, and Moomoo OpenD still needs to be
-available and logged in.
+Use that file for optional manual spot overrides or a 30-second fallback cadence. The
+LaunchAgents cannot wake a sleeping Mac, and Moomoo OpenD still needs a valid
+login session.
+
+To wake the Mac automatically before market open, run the one-time root setup:
+
+    sudo /Users/sakura/WebstormProjects/gamma-scope/ops/setup_market_wake_schedule.sh
+
+That installs a weekday wake-or-power-on schedule at 6:20 AM local Mac time. In
+Arizona that is before the 9:30 AM Eastern open during daylight-saving months
+and still safely before open during standard-time months.
 
 ### SPX 0DTE Exposure Heatmap
 

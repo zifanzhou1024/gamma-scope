@@ -677,14 +677,15 @@ def _normalize_record(row: object) -> dict[str, object]:
 
 
 def _resolve_symbol_spot(client: MoomooQuoteClient, symbol_config: MoomooSymbolConfig) -> float | None:
+    manual_spot = _positive_float_or_none(symbol_config.manual_spot)
+    if manual_spot is not None:
+        return manual_spot
+
     if symbol_config.spot_proxy_code:
         spot = _snapshot_proxy_spot(client, symbol_config)
         if spot is not None:
             return spot
 
-    manual_spot = _positive_float_or_none(symbol_config.manual_spot)
-    if manual_spot is not None:
-        return manual_spot
     if symbol_config.requires_manual_spot:
         return None
     return _snapshot_underlying_spot(client, symbol_config.owner_code)
@@ -700,7 +701,13 @@ def _snapshot_proxy_spot(client: MoomooQuoteClient, symbol_config: MoomooSymbolC
 
 
 def _spot_proxy_requests_per_refresh(symbols: Sequence[MoomooSymbolConfig]) -> int:
-    proxy_codes = sorted({symbol.spot_proxy_code for symbol in symbols if symbol.spot_proxy_code})
+    proxy_codes = sorted(
+        {
+            symbol.spot_proxy_code
+            for symbol in symbols
+            if symbol.spot_proxy_code and _positive_float_or_none(symbol.manual_spot) is None
+        }
+    )
     return len(list(chunked(proxy_codes, SNAPSHOT_CODE_LIMIT))) if proxy_codes else 0
 
 
@@ -729,7 +736,11 @@ def _snapshot_proxy_spots(
     symbols: Sequence[MoomooSymbolConfig],
     warnings: list[str],
 ) -> dict[str, float]:
-    proxy_symbols = [symbol for symbol in symbols if symbol.spot_proxy_code]
+    proxy_symbols = [
+        symbol
+        for symbol in symbols
+        if symbol.spot_proxy_code and _positive_float_or_none(symbol.manual_spot) is None
+    ]
     if not proxy_symbols:
         return {}
 

@@ -43,7 +43,15 @@ def test_default_universe_matches_moomoo_design() -> None:
     assert spx.spot_proxy_code == "US.SPY"
     assert spx.spot_proxy_multiplier == 10.035
     assert spx.infer_spot_from_options is True
-    assert [item.symbol for item in universe if item.requires_manual_spot] == ["RUT", "NDX"]
+    rut = next(item for item in universe if item.symbol == "RUT")
+    assert rut.spot_proxy_code == "US.IWM"
+    assert rut.spot_proxy_multiplier == 10.0
+    assert rut.infer_spot_from_options is True
+    ndx = next(item for item in universe if item.symbol == "NDX")
+    assert ndx.spot_proxy_code == "US.QQQ"
+    assert ndx.spot_proxy_multiplier == 40.0
+    assert ndx.infer_spot_from_options is True
+    assert [item.symbol for item in universe if item.requires_manual_spot] == []
 
 
 def test_collector_config_defaults_populate_moomoo_universe() -> None:
