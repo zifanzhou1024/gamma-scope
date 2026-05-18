@@ -1,6 +1,7 @@
 # Local/editor
 .worktrees/
 .gammascope/
+local-ml-data/
 .idea/
 .vscode/
 .superpowers/

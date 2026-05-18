@@ -18,6 +18,8 @@
     "collector:ibkr-contracts": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_contracts",
     "collector:ibkr-delayed-snapshot": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.ibkr_delayed_snapshot",
     "collector:moomoo-snapshot": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_snapshot",
+    "collector:moomoo-research-record": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_research_recorder",
+    "collector:moomoo-research-market": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_research_recorder --market-hours --repeat-daily",
     "collector:publish-mock": "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.publisher",
     "test:collector": "PYTHONPATH=services/collector:apps/api .venv/bin/pytest services/collector/tests -q",
     "test": "pnpm test:scripts && pnpm test:contracts && pnpm test:api && pnpm typecheck:web && pnpm test:web"

@@ -1,8 +1,32 @@
 # GammaScope
 
+GammaScope is a local-first SPX/0DTE analytics workspace with a FastAPI backend,
+a Next.js dashboard, collector adapters, replay storage, and a new local ML
+research recorder. The current live-source direction is Moomoo OpenD. IBKR
+commands remain in the repo as local smoke/probe tools, but new collection work
+should start from the Moomoo sections below.
+
+Current high-level surfaces:
+
+- Web dashboard: `http://localhost:3000`
+- API: `http://127.0.0.1:8000`
+- Public live snapshot smoke endpoint: `GET /api/spx/0dte/snapshot/latest`
+- Moomoo dashboard collector: `pnpm collector:moomoo-snapshot`
+- Moomoo ML research recorder: `pnpm collector:moomoo-research-record`
+- Automatic market-hours recorder wrapper:
+  `ops/run_moomoo_research_market.sh`
+- Local ML data root:
+  `/Users/sakura/local-ml-data/gamma-ml-research`
+
+Detailed Moomoo ML recorder documentation is in
+[docs/ml-moomoo-research-recorder.md](docs/ml-moomoo-research-recorder.md).
+Remote AMH/Nginx deployment notes are in
+[docs/amh-nginx-server-setup.md](docs/amh-nginx-server-setup.md).
+
 ## Local Development
 
-GammaScope is being built in slices. The first slice establishes the local monorepo, shared contracts, seeded replay data, and smoke-testable API/web surfaces.
+GammaScope uses a local pnpm monorepo plus a Python virtualenv for API and
+collector code. Project-specific setup notes:
 
 Deployment notes for the current Moomoo-backed dashboard and heatmap stack are in [docs/deployment.md](docs/deployment.md). For the AMH/Nginx remote server layout where your computer publishes Moomoo data to a server-hosted backend and frontend, use [docs/amh-nginx-server-setup.md](docs/amh-nginx-server-setup.md).
 
@@ -16,7 +40,7 @@ Run:
     .venv/bin/python -m pip install -e "apps/api[dev]"
     pnpm test
 
-### First Slice Verification
+### Verification
 
     pnpm install
     pnpm contracts:validate
@@ -34,15 +58,86 @@ Run local services:
     pnpm dev:web
     .venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api
 
-Open the local dashboard at `http://localhost:3000`. The current dashboard is seeded replay data, shaped to match the live SPX 0DTE analytics contract.
+Open the local dashboard at `http://localhost:3000`. The dashboard reads the
+stable SPX 0DTE analytics contract. With live collector state available it shows
+live mode; otherwise it falls back to seeded replay data.
+
+## Data And Recorder Map
+
+The repo now has two separate Moomoo collection paths:
+
+| Purpose | Command | Storage/Output |
+| --- | --- | --- |
+| Dashboard compatibility collector | `pnpm collector:moomoo-snapshot -- --publish` | Publishes SPX-shaped collector events to the FastAPI ingestion path. |
+| Local ML raw recorder | `pnpm collector:moomoo-research-record` | Writes append-only JSONL under `/Users/sakura/local-ml-data/gamma-ml-research/moomoo/`. |
+
+The ML recorder is raw-first. It records 0DTE ATM-window option snapshots for:
+
+```text
+SPX, SPY, QQQ, IWM, RUT, NDX
+```
+
+Rows use the shared future training labels:
+
+```text
+time_utc
+time_bucket_utc
+ticker
+```
+
+Compatibility aliases are also written:
+
+```text
+captured_at_utc == time_utc
+timeline_bucket_utc == time_bucket_utc
+symbol == ticker
+```
+
+Canonical ticker names are provider-independent. Moomoo codes such as
+`US..SPX`, option families such as `SPXW`, and contract codes stay in
+source-specific fields such as `owner_code`, `option_code`, or `raw`; they do
+not replace top-level `ticker`.
+
+Local ML file layout:
+
+```text
+/Users/sakura/local-ml-data/gamma-ml-research/
+  moomoo/
+    options/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    underlyings/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    batches/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    captures/date=YYYY-MM-DD/captures.jsonl
+  gexbot/
+    responses/date=YYYY-MM-DD/ticker=SPX/endpoint=<endpoint-id>/records.jsonl
+    captures/date=YYYY-MM-DD/captures.jsonl
+  logs/
+```
+
+The `gexbot/` folders are reserved for the companion Dealer Flow Lab recorder.
+The implementation handoff for that side lives in:
+
+```text
+/Users/sakura/WebstormProjects/dealer-flow-lab/docs/gexbot-ml-local-recorder-handoff.md
+```
+
+Future preprocessing should join Moomoo and GEXBot with:
+
+```text
+market_date + ticker + time_bucket_utc
+```
+
+Use backward/as-of joins only. Do not create model labels or train/test splits in
+the raw collectors.
 
 ### Mock Local Collector
 
-Before connecting to IBKR, the collector slice can emit a deterministic SPX 0DTE event cycle as newline-delimited JSON:
+For deterministic local smoke tests, the mock collector can emit an SPX 0DTE
+event cycle as newline-delimited JSON:
 
     pnpm collector:mock -- --spot 5200.25 --expiry 2026-04-23 --strikes 5190,5200,5210
 
-The mock output uses the same normalized collector event contract planned for the live IBKR adapter.
+The mock output uses the same normalized collector event contract consumed by
+the local ingestion path.
 
 ### Local Collector Ingestion
 
@@ -188,7 +283,10 @@ Then open `http://localhost:3000`, use the replay controls, and pick the capture
 
 ### Local Moomoo 0DTE Snapshot
 
-Moomoo is the default direction for new live-source work. The first Moomoo collector uses local OpenD and keeps the current SPX dashboard contract by publishing only SPX rows into the existing collector event path.
+Moomoo is the default direction for new live-source work. The dashboard collector
+uses local OpenD and keeps the current SPX dashboard contract by publishing only
+SPX rows into the existing collector event path. The separate ML research
+recorder below captures the wider configured universe to local JSONL files.
 
 Install the Moomoo package in the project virtualenv:
 
@@ -209,6 +307,82 @@ Publish SPX compatibility events into the local FastAPI ingestion path. By defau
     pnpm collector:moomoo-snapshot -- --spot RUT=2050 --spot NDX=18300 --publish
 
 The collector fetches the configured universe: SPX, SPY, QQQ, IWM, RUT, and NDX. It polls `get_market_snapshot()` every 2 seconds during active market/pre-open windows, reduces to once per minute from 5:00 PM to 8:30 AM New York time, refreshes the SPX spot proxy every loop, infers the SPX spot from same-strike call/put mids, and chunks requests to at most 400 option codes. The default expiry is chosen in New York time: today's 0DTE until 4:05 PM, then the next weekday session so expired 0DTE chains are not reused overnight. Pass `--expiry YYYY-MM-DD` only when you intentionally want to pin a smoke test to a specific expiry. It uses `get_option_chain()` at startup and again if the automatic expiry changes while the collector is running.
+
+### Local Moomoo ML Research Recorder
+
+Use the research recorder when the goal is future model training rather than
+dashboard display. It preserves the complete Moomoo snapshot row in `raw` and
+adds stable labels for later timeline alignment.
+
+One-loop smoke capture:
+
+    pnpm collector:moomoo-research-record -- --max-loops 1
+
+Continuous 10-second capture:
+
+    pnpm collector:moomoo-research-record
+
+Market-hours capture that waits for 9:30 AM Eastern, exits after 4:00 PM
+Eastern, and repeats weekdays while the process stays alive:
+
+    pnpm collector:moomoo-research-market
+
+RUT and NDX currently need manual spot values before option rows can be selected:
+
+    pnpm collector:moomoo-research-record -- --spot RUT=2150 --spot NDX=18400
+
+The default output root is:
+
+    /Users/sakura/local-ml-data/gamma-ml-research
+
+The recorder writes four Moomoo families:
+
+    moomoo/options/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    moomoo/underlyings/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    moomoo/batches/date=YYYY-MM-DD/ticker=SPX/records.jsonl
+    moomoo/captures/date=YYYY-MM-DD/captures.jsonl
+
+`options` is one row per option contract per capture. `batches` is one row per
+ticker per capture, with all returned option contracts nested under
+`contracts[]`. Use `raw` or `contracts[].raw` as the source of truth for future
+feature engineering.
+
+### Automatic Market-Hours Recording
+
+Automatic Moomoo ML collection is configured through a macOS LaunchAgent:
+
+    /Users/sakura/Library/LaunchAgents/com.sakura.gammascope.moomoo-research-recorder.plist
+
+It runs:
+
+    /Users/sakura/WebstormProjects/gamma-scope/ops/run_moomoo_research_market.sh
+
+The wrapper starts the market-hours recorder, waits for the regular U.S. session
+when needed, repeats across weekdays, and restarts after 5 minutes if the
+recorder exits. Logs are written to:
+
+    /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-research-recorder.out.log
+    /Users/sakura/local-ml-data/gamma-ml-research/logs/moomoo-research-recorder.err.log
+
+Check service status:
+
+    launchctl print gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+
+Restart after changing recorder arguments:
+
+    launchctl kickstart -k gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+
+Stop automatic collection:
+
+    launchctl bootout gui/$(id -u)/com.sakura.gammascope.moomoo-research-recorder
+
+Optional extra arguments live in:
+
+    /Users/sakura/local-ml-data/gamma-ml-research/moomoo-recorder.args
+
+Use that file for RUT/NDX manual spots or a 30-second fallback cadence. The
+LaunchAgent cannot wake a sleeping Mac, and Moomoo OpenD still needs to be
+available and logged in.
 
 ### SPX 0DTE Exposure Heatmap
 

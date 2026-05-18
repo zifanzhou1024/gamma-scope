@@ -19,3 +19,17 @@ test("collector:moomoo-snapshot runs the Moomoo collector from the project virtu
     "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_snapshot",
   );
 });
+
+test("collector:moomoo-research-record runs the local ML recorder from the project virtualenv", () => {
+  assert.equal(
+    packageJson.scripts["collector:moomoo-research-record"],
+    "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_research_recorder",
+  );
+});
+
+test("collector:moomoo-research-market runs the repeat market-hours recorder", () => {
+  assert.equal(
+    packageJson.scripts["collector:moomoo-research-market"],
+    "PYTHONPATH=services/collector:apps/api .venv/bin/python -m gammascope_collector.moomoo_research_recorder --market-hours --repeat-daily",
+  );
+});
