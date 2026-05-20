@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAnalyticsSnapshot } from "../../../../../../lib/snapshotSource";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const REPLAY_SNAPSHOT_PATH = "/api/spx/0dte/replay/snapshot";
 
 function replaySnapshotUrl(apiBaseUrl: string, requestUrl: string): string {

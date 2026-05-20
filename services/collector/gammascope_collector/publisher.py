@@ -93,7 +93,7 @@ def publish_events_bulk(
 
 def main(argv: Sequence[str] | None = None, *, post_json: PostJson | None = None) -> None:
     parser = argparse.ArgumentParser(description="Publish a mock GammaScope collector cycle to FastAPI.")
-    parser.add_argument("--api", default="http://127.0.0.1:8000")
+    parser.add_argument("--api", default="http://127.0.0.1:42180")
     parser.add_argument("--spot", type=float, required=True)
     parser.add_argument("--expiry", required=True)
     parser.add_argument("--strikes", required=True, help="Comma-separated strike list, for example 5190,5200,5210")

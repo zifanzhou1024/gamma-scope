@@ -8,7 +8,7 @@ from gammascope_api.replay.importer import ReplayParquetImporter
 from gammascope_api.replay.import_repository import PostgresReplayImportRepository, ReplayImportRepository
 from gammascope_api.replay.repository import PostgresReplayRepository, ReplayRepository
 
-DEFAULT_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
+DEFAULT_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:42432/gammascope"
 DEFAULT_CAPTURE_INTERVAL_SECONDS = 5
 
 _repository_override: ReplayRepository | None = None

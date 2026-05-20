@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "./adminSession";
 import { isReplayImportResult } from "./replayImportSource";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const DEFAULT_REPLAY_IMPORT_MAX_BYTES = 100 * 1024 * 1024;
 const REPLAY_IMPORT_MULTIPART_OVERHEAD_BYTES = 16 * 1024;
 

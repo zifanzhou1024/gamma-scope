@@ -7,7 +7,7 @@ import pytest
 from gammascope_api.saved_views.repository import PostgresSavedViewRepository
 
 
-TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
+TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:42432/gammascope"
 
 
 @pytest.fixture()

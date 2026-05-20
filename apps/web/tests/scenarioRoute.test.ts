@@ -52,7 +52,7 @@ describe("POST /api/spx/0dte/scenario", () => {
 
     await expect(response.json()).resolves.toEqual(JSON.parse(JSON.stringify(snapshot)));
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/scenario", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/scenario", {
       method: "POST",
       cache: "no-store",
       headers: {

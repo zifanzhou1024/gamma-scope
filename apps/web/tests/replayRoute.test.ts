@@ -51,7 +51,7 @@ describe("GET /api/spx/0dte/replay/sessions", () => {
 
     await expect(response.json()).resolves.toEqual(sessions);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/replay/sessions", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/replay/sessions", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -111,7 +111,7 @@ describe("GET /api/spx/0dte/replay/snapshot", () => {
     await expect(response.json()).resolves.toEqual(JSON.parse(JSON.stringify(snapshot)));
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=route+session%2F1&at=2026-04-24T15%3A00%3A00Z",
+      "http://127.0.0.1:42180/api/spx/0dte/replay/snapshot?session_id=route+session%2F1&at=2026-04-24T15%3A00%3A00Z",
       {
         cache: "no-store",
         headers: {
@@ -131,7 +131,7 @@ describe("GET /api/spx/0dte/replay/snapshot", () => {
     ));
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=route-session&at=2026-04-24T15%3A00%3A00Z&source_snapshot_id=snapshot-a",
+      "http://127.0.0.1:42180/api/spx/0dte/replay/snapshot?session_id=route-session&at=2026-04-24T15%3A00%3A00Z&source_snapshot_id=snapshot-a",
       {
         cache: "no-store",
         headers: {
@@ -148,7 +148,7 @@ describe("GET /api/spx/0dte/replay/snapshot", () => {
     const { GET } = await import("../app/api/spx/0dte/replay/snapshot/route");
     await GET(new Request("http://localhost/api/spx/0dte/replay/snapshot?session_id=route-replay-session"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=route-replay-session", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/replay/snapshot?session_id=route-replay-session", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -213,7 +213,7 @@ describe("GET /api/spx/0dte/replay/sessions/[sessionId]/timestamps", () => {
     await expect(response.json()).resolves.toEqual(timestampResponse);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/replay/sessions/import%20session%2F1/timestamps",
+      "http://127.0.0.1:42180/api/spx/0dte/replay/sessions/import%20session%2F1/timestamps",
       {
         cache: "no-store",
         headers: {

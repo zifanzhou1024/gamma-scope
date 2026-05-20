@@ -8,8 +8,8 @@ should start from the Moomoo sections below.
 
 Current high-level surfaces:
 
-- Web dashboard: `http://localhost:3000`
-- API: `http://127.0.0.1:8000`
+- Local web dashboard: `http://localhost:42130`
+- Local API: `http://127.0.0.1:42180`
 - Public live snapshot smoke endpoint: `GET /api/spx/0dte/snapshot/latest`
 - Moomoo dashboard collector: `pnpm collector:moomoo-snapshot`
 - Moomoo ML research recorder: `pnpm collector:moomoo-research-record`
@@ -40,6 +40,19 @@ Run:
     .venv/bin/python -m pip install -e "apps/api[dev]"
     pnpm test
 
+### Local Port Assignments
+
+Use these uncommon ports for local development and test runs so GammaScope does not collide with the usual local web/API/database services:
+
+| Service | Local URL or host port | Source |
+| --- | --- | --- |
+| Web app | `http://127.0.0.1:42130` | `pnpm dev:web` |
+| FastAPI backend | `http://127.0.0.1:42180` | `pnpm dev:api` |
+| Postgres | `127.0.0.1:42432` -> container `5432` | `docker compose up -d postgres` |
+| Redis | `127.0.0.1:42379` -> container `6379` | `docker compose up -d redis` |
+
+Keep the deployed AMH/Nginx server mappings on the documented production ports, currently web `3000` and API `8000`. The uncommon ports above are the repo defaults for local testing only.
+
 ### Verification
 
     pnpm install
@@ -55,10 +68,10 @@ Run:
 Run local services:
 
     docker compose up -d
+    pnpm dev:api
     pnpm dev:web
-    .venv/bin/python -m uvicorn gammascope_api.main:app --reload --app-dir apps/api
 
-Open the local dashboard at `http://localhost:3000`. The dashboard reads the
+Open the local dashboard at `http://localhost:42130`. The dashboard reads the
 stable SPX 0DTE analytics contract. With live collector state available it shows
 live mode; otherwise it falls back to seeded replay data.
 
@@ -150,7 +163,7 @@ For now this keeps the latest collector health, contracts, underlying ticks, and
 
 Replay capture now persists replay-ready analytics snapshots to local Postgres when a valid live collector snapshot is available. The API uses:
 
-    GAMMASCOPE_DATABASE_URL=postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope
+    GAMMASCOPE_DATABASE_URL=postgresql://gammascope:gammascope@127.0.0.1:42432/gammascope
     GAMMASCOPE_REPLAY_CAPTURE_INTERVAL_SECONDS=5
     GAMMASCOPE_REPLAY_RETENTION_DAYS=20
     GAMMASCOPE_SAVED_VIEW_RETENTION_DAYS=90
@@ -164,15 +177,15 @@ With the API running, publish the mock collector cycle into that ingestion endpo
 
 Then inspect the live-mode analytics snapshot assembled from the ingested collector state:
 
-    curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | python -m json.tool
+    curl -s http://127.0.0.1:42180/api/spx/0dte/snapshot/latest | python -m json.tool
 
 To test the dashboard against local API state, run the API, publish the mock cycle, then start the web app with the API base URL:
 
     pnpm dev:api
     pnpm collector:publish-mock -- --spot 5200.25 --expiry 2026-04-24 --strikes 5190,5200,5210
-    GAMMASCOPE_API_BASE_URL=http://127.0.0.1:8000 pnpm dev:web
+    GAMMASCOPE_API_BASE_URL=http://127.0.0.1:42180 pnpm dev:web
 
-Open `http://localhost:3000`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard connects to `ws://127.0.0.1:8000/ws/spx/0dte` for live snapshot updates and falls back to once-per-second polling if the WebSocket is unavailable. Set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` when the WebSocket endpoint is not on the default local API host.
+Open `http://localhost:42130`. After the mock publish populates API state, the dashboard should show Live mode; if the API is unavailable, the web app falls back to the seeded replay snapshot. After page load, the dashboard connects to `ws://127.0.0.1:42180/ws/spx/0dte` for live snapshot updates and falls back to once-per-second polling if the WebSocket is unavailable. Set `NEXT_PUBLIC_GAMMASCOPE_WS_URL` when the WebSocket endpoint is not on the default local API host.
 
 The dashboard also includes lightweight saved views for local testing. Saved views are validated against the shared contract, proxied through the Next.js app, and persisted in Postgres using `GAMMASCOPE_DATABASE_URL` when available. If the Postgres-backed repository is unavailable at runtime, the FastAPI route falls back to in-memory saved views so local dashboard flows keep working.
 
@@ -190,14 +203,14 @@ Set private mode when the API may be reachable by non-admin users:
 
 In private mode, public viewing remains open. Live snapshots, live status, scenarios, live WebSocket updates, replay, heatmap, and experimental analytics do not require an admin token:
 
-    curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
-    curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
-    curl -s http://127.0.0.1:8000/api/spx/0dte/snapshot/latest | python -m json.tool
+    curl -s http://127.0.0.1:42180/api/spx/0dte/replay/sessions | python -m json.tool
+    curl -s "http://127.0.0.1:42180/api/spx/0dte/replay/snapshot?session_id=seed-spx-2026-04-23" | python -m json.tool
+    curl -s http://127.0.0.1:42180/api/spx/0dte/snapshot/latest | python -m json.tool
 
 Collector ingestion, raw collector state, replay imports, and maintenance/admin operations require the admin token:
 
     curl -s -H "X-GammaScope-Admin-Token: local-admin-token" \
-      http://127.0.0.1:8000/api/spx/0dte/collector/state | python -m json.tool
+      http://127.0.0.1:42180/api/spx/0dte/collector/state | python -m json.tool
 
 Saved-view public requests list only `owner_scope: "public_demo"`; creating or listing admin scoped views requires the admin token. If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, private admin operations return `403`.
 
@@ -273,13 +286,13 @@ Use `--market-data-type 3` to force delayed streaming during market hours, or `-
 
 After publishing, inspect captured replay sessions:
 
-    curl -s http://127.0.0.1:8000/api/spx/0dte/replay/sessions | python -m json.tool
+    curl -s http://127.0.0.1:42180/api/spx/0dte/replay/sessions | python -m json.tool
 
 Use the captured `session_id` to replay the persisted IBKR snapshot:
 
-    curl -s "http://127.0.0.1:8000/api/spx/0dte/replay/snapshot?session_id=<captured-session-id>" | python -m json.tool
+    curl -s "http://127.0.0.1:42180/api/spx/0dte/replay/snapshot?session_id=<captured-session-id>" | python -m json.tool
 
-Then open `http://localhost:3000`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
+Then open `http://localhost:42130`, use the replay controls, and pick the captured session. The seeded replay session remains available as a fallback demo.
 
 ### Local Moomoo 0DTE Snapshot
 
@@ -411,7 +424,7 @@ and still safely before open during standard-time months.
 
 ### SPX 0DTE Exposure Heatmap
 
-The latest-ladder heatmap page is available at `http://localhost:3000/heatmap` when the web app is running.
+The latest-ladder heatmap page is available at `http://localhost:42130/heatmap` when the web app is running.
 
 The backend API is:
 
@@ -440,14 +453,14 @@ The `.gammascope/` directory is ignored by git and must stay local. Do not commi
 
 For local maintenance testing, run a default-safe dry run of persisted replay and saved-view retention cleanup:
 
-    curl -s -X POST "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=true" | python -m json.tool
+    curl -s -X POST "http://127.0.0.1:42180/api/admin/retention/cleanup?dry_run=true" | python -m json.tool
 
 To execute destructive cleanup explicitly:
 
     GAMMASCOPE_ADMIN_TOKEN=local-admin-token pnpm dev:api
     curl -s -X POST \
       -H "X-GammaScope-Admin-Token: local-admin-token" \
-      "http://127.0.0.1:8000/api/admin/retention/cleanup?dry_run=false" | python -m json.tool
+      "http://127.0.0.1:42180/api/admin/retention/cleanup?dry_run=false" | python -m json.tool
 
 If `GAMMASCOPE_ADMIN_TOKEN` is unset or blank, destructive cleanup is disabled and returns `403`. Cleanup only targets Postgres-persisted replay snapshots/sessions and saved views. The seeded replay fixture remains untouched.
 

@@ -63,7 +63,7 @@ describe("GET /api/spx/0dte/heatmap/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/heatmap/latest/route");
     await GET(new Request("http://localhost/api/spx/0dte/heatmap/latest?metric=gex"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/heatmap/latest?metric=gex", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/heatmap/latest?metric=gex", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -85,7 +85,7 @@ describe("GET /api/spx/0dte/heatmap/latest", () => {
       }
     }));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/heatmap/latest?metric=gex", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/heatmap/latest?metric=gex", {
       cache: "no-store",
       headers: {
         Accept: "application/json",
@@ -102,7 +102,7 @@ describe("GET /api/spx/0dte/heatmap/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/heatmap/latest/route");
     await GET(new Request("http://localhost/api/spx/0dte/heatmap/latest?metric=gex"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/heatmap/latest?metric=gex", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/heatmap/latest?metric=gex", {
       cache: "no-store",
       headers: {
         Accept: "application/json"

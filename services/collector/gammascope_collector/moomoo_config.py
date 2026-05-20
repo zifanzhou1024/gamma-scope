@@ -56,7 +56,7 @@ class MoomooCollectorConfig:
     refresh_interval_seconds: float = DEFAULT_REFRESH_INTERVAL_SECONDS
     collector_id: str = "local-moomoo"
     spx_session_id: str = DEFAULT_SPX_SESSION_ID
-    api_base: str = "http://127.0.0.1:8000"
+    api_base: str = "http://127.0.0.1:42180"
     manual_spots: dict[str, float] = field(default_factory=dict)
     universe: Sequence[MoomooSymbolConfig] = field(default_factory=tuple)
 

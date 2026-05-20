@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSavedViewArray, type SavedView } from "../../../lib/clientSavedViewsSource";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const VIEWS_PATH = "/api/views";
 
 function viewsUrl(apiBaseUrl: string): string {

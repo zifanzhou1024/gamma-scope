@@ -1,6 +1,6 @@
 import { verifyAdminRequest } from "./adminSession";
 
-export const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+export const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 export const ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token";
 
 export function backendApiUrl(

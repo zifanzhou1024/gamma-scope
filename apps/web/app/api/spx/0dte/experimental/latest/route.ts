@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import seedExperimentalAnalytics from "../../../../../../../../packages/contracts/fixtures/experimental-analytics.seed.json";
 import { verifyAdminRequest } from "../../../../../../lib/adminSession";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const EXPERIMENTAL_LATEST_PATH = "/api/spx/0dte/experimental/latest";
 const ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token";
 

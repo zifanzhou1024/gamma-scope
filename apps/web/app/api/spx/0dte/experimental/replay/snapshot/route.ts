@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const EXPERIMENTAL_REPLAY_PATH = "/api/spx/0dte/experimental/replay/snapshot";
 
 function experimentalReplayUrl(apiBaseUrl: string, requestUrl: string): string {

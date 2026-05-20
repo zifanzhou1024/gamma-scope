@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyAdminRequest } from "../../../../../../lib/adminSession";
 
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 const HEATMAP_PATH = "/api/spx/0dte/heatmap/latest";
 const ADMIN_TOKEN_HEADER = "X-GammaScope-Admin-Token";
 

@@ -79,7 +79,7 @@ describe("startReplayStream", () => {
     FakeWebSocket.instances[0]!.emitMessage(snapshot);
 
     expect(FakeWebSocket.instances[0]!.url).toBe(
-      "ws://127.0.0.1:8000/ws/spx/0dte/replay?session_id=seed-spx-2026-04-23&at=2026-04-23T15%3A40%3A00Z&source_snapshot_id=snapshot-a"
+      "ws://127.0.0.1:42180/ws/spx/0dte/replay?session_id=seed-spx-2026-04-23&at=2026-04-23T15%3A40%3A00Z&source_snapshot_id=snapshot-a"
     );
     expect(onSnapshot).toHaveBeenCalledWith(expect.objectContaining({
       mode: "replay",

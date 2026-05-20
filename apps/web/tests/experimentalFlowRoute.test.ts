@@ -64,7 +64,7 @@ describe("GET /api/spx/0dte/experimental-flow/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/experimental-flow/latest/route");
     await GET(new Request("http://localhost/api/spx/0dte/experimental-flow/latest"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/experimental-flow/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/experimental-flow/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -86,7 +86,7 @@ describe("GET /api/spx/0dte/experimental-flow/latest", () => {
       }
     }));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/experimental-flow/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/experimental-flow/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json",
@@ -103,7 +103,7 @@ describe("GET /api/spx/0dte/experimental-flow/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/experimental-flow/latest/route");
     await GET(new Request("http://localhost/api/spx/0dte/experimental-flow/latest"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/experimental-flow/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/experimental-flow/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -162,7 +162,7 @@ describe("GET /api/spx/0dte/experimental-flow/replay", () => {
     expect(response.headers.get("Content-Type")).toBe("text/plain");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15%3A40%3A00Z&source_snapshot_id=snapshot-a",
+      "http://127.0.0.1:42180/api/spx/0dte/experimental-flow/replay?session_id=session%2Fa&horizon_minutes=30&at=2026-04-23T15%3A40%3A00Z&source_snapshot_id=snapshot-a",
       {
         cache: "no-store",
         headers: {
@@ -182,7 +182,7 @@ describe("GET /api/spx/0dte/experimental-flow/replay", () => {
     ));
 
     expect(fetcher).toHaveBeenCalledWith(
-      "http://127.0.0.1:8000/api/spx/0dte/experimental-flow/replay?session_id=session-a&horizon_minutes=15",
+      "http://127.0.0.1:42180/api/spx/0dte/experimental-flow/replay?session_id=session-a&horizon_minutes=15",
       {
         cache: "no-store",
         headers: {

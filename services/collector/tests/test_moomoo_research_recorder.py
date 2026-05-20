@@ -110,8 +110,12 @@ def test_capture_research_snapshot_once_writes_full_raw_option_fields(tmp_path: 
     assert summary.batch_rows_written == 1
     assert summary.underlying_rows_written == 1
     assert summary.selected_contracts == {"SPY": 2}
-    assert summary.option_files == [str(tmp_path / "moomoo/options/date=2026-05-18/ticker=SPY/records.jsonl")]
-    assert summary.batch_files == [str(tmp_path / "moomoo/batches/date=2026-05-18/ticker=SPY/records.jsonl")]
+    assert summary.option_files == [
+        str(tmp_path / f"moomoo/options/date={summary.market_date}/ticker=SPY/records.jsonl")
+    ]
+    assert summary.batch_files == [
+        str(tmp_path / f"moomoo/batches/date={summary.market_date}/ticker=SPY/records.jsonl")
+    ]
 
     option_records = _read_jsonl(Path(summary.option_files[0]))
     assert option_records[0]["source"] == "moomoo"
@@ -149,7 +153,7 @@ def test_capture_research_snapshot_once_writes_full_raw_option_fields(tmp_path: 
     assert batch_records[0]["contracts"][0]["raw"]["option_net_open_interest"] == 7
     assert batch_records[0]["contracts"][0]["normalized"]["implied_volatility"] == 0.3
 
-    capture_records = _read_jsonl(tmp_path / "moomoo/captures/date=2026-05-18/captures.jsonl")
+    capture_records = _read_jsonl(tmp_path / f"moomoo/captures/date={summary.market_date}/captures.jsonl")
     assert capture_records[0]["time_utc"] == capture_records[0]["captured_at_utc"]
     assert capture_records[0]["time_bucket_utc"] == capture_records[0]["timeline_bucket_utc"]
     assert capture_records[0]["option_rows_written"] == 2
