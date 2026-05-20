@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: gammascope
       POSTGRES_PASSWORD: gammascope
     ports:
-      - "5432:5432"
+      - "${GAMMASCOPE_POSTGRES_HOST_PORT:-42432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gammascope -d gammascope"]
       interval: 5s
@@ -16,7 +16,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "${GAMMASCOPE_REDIS_HOST_PORT:-42379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

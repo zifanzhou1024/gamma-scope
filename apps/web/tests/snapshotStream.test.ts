@@ -58,7 +58,7 @@ function streamSnapshot(): AnalyticsSnapshot {
 
 describe("snapshotWebSocketUrl", () => {
   it("builds the default local FastAPI websocket URL", () => {
-    expect(snapshotWebSocketUrl()).toBe("ws://127.0.0.1:8000/ws/spx/0dte");
+    expect(snapshotWebSocketUrl()).toBe("ws://127.0.0.1:42180/ws/spx/0dte");
   });
 
   it("converts http API bases to websocket URLs", () => {
@@ -108,7 +108,7 @@ describe("startSnapshotStream", () => {
 
     FakeWebSocket.instances[0]!.emitMessage(snapshot);
 
-    expect(FakeWebSocket.instances[0]!.url).toBe("ws://127.0.0.1:8000/ws/spx/0dte");
+    expect(FakeWebSocket.instances[0]!.url).toBe("ws://127.0.0.1:42180/ws/spx/0dte");
     expect(applySnapshot).toHaveBeenCalledWith(snapshot);
   });
 

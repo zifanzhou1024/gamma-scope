@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from gammascope_api.ingestion.collector_state import CollectorState, collector_state
 
-DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/0"
+DEFAULT_REDIS_URL = "redis://127.0.0.1:42379/0"
 DEFAULT_REDIS_TIMEOUT_SECONDS = 0.25
 LATEST_STATE_KEY = "gammascope:collector:latest_state"
 

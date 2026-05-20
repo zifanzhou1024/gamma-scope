@@ -21,20 +21,20 @@ EVENT_TIME = datetime(2026, 4, 23, 15, 30, tzinfo=UTC)
 
 
 def test_collector_event_endpoint_joins_api_base() -> None:
-    assert collector_event_endpoint("http://127.0.0.1:8000") == (
-        "http://127.0.0.1:8000/api/spx/0dte/collector/events"
+    assert collector_event_endpoint("http://127.0.0.1:42180") == (
+        "http://127.0.0.1:42180/api/spx/0dte/collector/events"
     )
-    assert collector_event_endpoint("http://127.0.0.1:8000/") == (
-        "http://127.0.0.1:8000/api/spx/0dte/collector/events"
+    assert collector_event_endpoint("http://127.0.0.1:42180/") == (
+        "http://127.0.0.1:42180/api/spx/0dte/collector/events"
     )
 
 
 def test_collector_events_bulk_endpoint_joins_api_base() -> None:
-    assert collector_events_bulk_endpoint("http://127.0.0.1:8000") == (
-        "http://127.0.0.1:8000/api/spx/0dte/collector/events/bulk"
+    assert collector_events_bulk_endpoint("http://127.0.0.1:42180") == (
+        "http://127.0.0.1:42180/api/spx/0dte/collector/events/bulk"
     )
-    assert collector_events_bulk_endpoint("http://127.0.0.1:8000/") == (
-        "http://127.0.0.1:8000/api/spx/0dte/collector/events/bulk"
+    assert collector_events_bulk_endpoint("http://127.0.0.1:42180/") == (
+        "http://127.0.0.1:42180/api/spx/0dte/collector/events/bulk"
     )
 
 

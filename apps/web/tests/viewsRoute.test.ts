@@ -39,7 +39,7 @@ describe("/api/views", () => {
 
     await expect(response.json()).resolves.toEqual(views);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/views", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/views", {
       cache: "no-store",
       headers: {
         Accept: "application/json"
@@ -60,7 +60,7 @@ describe("/api/views", () => {
 
     await expect(response.json()).resolves.toEqual(view);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/views", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/views", {
       method: "POST",
       cache: "no-store",
       headers: {

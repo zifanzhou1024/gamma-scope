@@ -12,7 +12,7 @@ def test_ibkr_health_config_defaults() -> None:
         client_id=7,
         collector_id="local-ibkr",
         account_mode="paper",
-        api_base="http://127.0.0.1:8000",
+        api_base="http://127.0.0.1:42180",
         timeout_seconds=2.0,
     )
 

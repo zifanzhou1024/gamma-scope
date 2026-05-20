@@ -25,7 +25,7 @@ from gammascope_api.replay.dependencies import (
 from gammascope_api.replay.repository import PostgresReplayRepository
 
 
-TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
+TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:42432/gammascope"
 
 
 @pytest.fixture()

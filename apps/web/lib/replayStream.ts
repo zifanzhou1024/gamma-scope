@@ -2,7 +2,7 @@ import type { AnalyticsSnapshot } from "./contracts";
 import { isAnalyticsSnapshot } from "./snapshotSource";
 
 const REPLAY_WS_PATH = "/ws/spx/0dte/replay";
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:42180";
 
 type WebSocketLike = {
   onclose: (() => void) | null;

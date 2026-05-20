@@ -13,7 +13,7 @@ class IbkrHealthConfig:
     client_id: int = 7
     collector_id: str = "local-ibkr"
     account_mode: str = "paper"
-    api_base: str = "http://127.0.0.1:8000"
+    api_base: str = "http://127.0.0.1:42180"
     timeout_seconds: float = 2.0
 
 

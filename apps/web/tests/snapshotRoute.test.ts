@@ -70,7 +70,7 @@ describe("GET /api/spx/0dte/snapshot/latest", () => {
       }
     }));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/snapshot/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/snapshot/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json",
@@ -87,7 +87,7 @@ describe("GET /api/spx/0dte/snapshot/latest", () => {
     const { GET } = await import("../app/api/spx/0dte/snapshot/latest/route");
     await GET(new Request("http://localhost/api/spx/0dte/snapshot/latest"));
 
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/spx/0dte/snapshot/latest", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/spx/0dte/snapshot/latest", {
       cache: "no-store",
       headers: {
         Accept: "application/json"

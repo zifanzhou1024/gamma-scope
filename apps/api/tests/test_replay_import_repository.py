@@ -14,7 +14,7 @@ from gammascope_api.replay.parquet_reader import QuoteRecord, SnapshotRecord
 from replay_parquet_fixtures import write_replay_parquet_pair
 
 
-TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:5432/gammascope"
+TEST_DATABASE_URL = "postgresql://gammascope:gammascope@127.0.0.1:42432/gammascope"
 THIS_FILE = Path(__file__)
 
 

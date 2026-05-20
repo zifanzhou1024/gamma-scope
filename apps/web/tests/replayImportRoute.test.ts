@@ -267,7 +267,7 @@ describe("replay import proxy routes", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:8000/api/replay/imports/import-test-1", {
+    expect(fetcher).toHaveBeenCalledWith("http://127.0.0.1:42180/api/replay/imports/import-test-1", {
       method: "GET",
       cache: "no-store",
       headers: {

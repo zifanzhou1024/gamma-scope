@@ -474,7 +474,7 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     parser = argparse.ArgumentParser(description="Collect Moomoo 0DTE option snapshots.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=11111)
-    parser.add_argument("--api", default="http://127.0.0.1:8000")
+    parser.add_argument("--api", default="http://127.0.0.1:42180")
     parser.add_argument("--collector-id", default="local-moomoo")
     parser.add_argument("--session-id", default=None, help="Stable SPX dashboard session id for published events.")
     parser.add_argument(
